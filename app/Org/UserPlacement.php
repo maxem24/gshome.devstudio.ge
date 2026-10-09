@@ -3,6 +3,7 @@
 namespace App\Org;
 
 use App\Enums\Role;
+use App\Models\Phone;
 use App\Models\User;
 use InvalidArgumentException;
 
@@ -31,6 +32,12 @@ final class UserPlacement
 
         if ($role !== Role::Agent) {
             $user->team_lead_id = null;
+        }
+
+        // Номер принадлежит компании: при переводе человека в другую компанию
+        // номера прежней остаются за ней, без держателя.
+        if ($user->exists && $user->isDirty('company_id')) {
+            Phone::query()->where('user_id', $user->getKey())->update(['user_id' => null]);
         }
 
         if ($role === Role::Agent) {

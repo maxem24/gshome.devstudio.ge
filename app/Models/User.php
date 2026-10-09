@@ -90,6 +90,12 @@ class User extends Authenticatable implements FilamentUser
         return $this->belongsTo(User::class, 'team_lead_id');
     }
 
+    /** @return HasMany<Phone, $this> */
+    public function phones(): HasMany
+    {
+        return $this->hasMany(Phone::class);
+    }
+
     /** @return HasMany<User, $this> */
     public function agents(): HasMany
     {

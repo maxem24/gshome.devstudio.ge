@@ -39,6 +39,12 @@ class Company extends Model
         return $this->hasMany(User::class);
     }
 
+    /** @return HasMany<Phone, $this> */
+    public function phones(): HasMany
+    {
+        return $this->hasMany(Phone::class);
+    }
+
     public function isArchived(): bool
     {
         return $this->archived_at !== null;
