@@ -1,0 +1,145 @@
+# Локальная среда GS Home. Прод этим файлом не управляется.
+# Образцы — ~/Sites/real-estate.devstudio.ge/compose.yaml и ~/Sites/coda/bigmed.ge/compose.yaml.
+#
+# Рантайм — OrbStack: домен gshome.local и HTTPS к нему он раздаёт сам,
+# поэтому веб наружу портов не публикует и не спорит с MAMP за 80/443.
+#
+# .env общий. Всё, что в Docker отличается (хосты, очередь, почта), задано здесь
+# в environment: переменные окружения сильнее .env.
+name: gshome
+
+x-app-env: &app-env
+    APP_URL: https://gshome.local
+
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_DATABASE: gshome
+    DB_USERNAME: gshome
+    DB_PASSWORD: gshome
+
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_PASSWORD: 'null'
+    QUEUE_CONNECTION: redis
+    CACHE_STORE: redis
+
+    # Почта из Docker наружу не уходит: всё ловит Mailpit (mail.gshome.local).
+    MAIL_URL: 'null'
+    MAIL_MAILER: smtp
+    MAIL_SCHEME: 'null'
+    MAIL_HOST: mailpit
+    MAIL_PORT: 1025
+    MAIL_USERNAME: 'null'
+    MAIL_PASSWORD: 'null'
+
+    XDEBUG_MODE: ${XDEBUG_MODE:-off}
+
+x-app: &app
+    build: ./docker/php
+    image: gshome-app:php8.3
+    environment: *app-env
+    volumes:
+        - .:/var/www/html
+        # node_modules — в своём томе: в контейнере linux-arm64, на маке darwin.
+        - node_modules:/var/www/html/node_modules
+    restart: unless-stopped
+    extra_hosts:
+        - host.docker.internal:host-gateway
+    depends_on:
+        postgres:
+            condition: service_healthy
+        redis:
+            condition: service_started
+
+services:
+    app:
+        <<: *app
+
+    web:
+        image: nginx:1.27-alpine
+        volumes:
+            - .:/var/www/html:ro
+            # Каталог, а не файл: редактор сохраняет конфиг новым файлом.
+            - ./docker/nginx:/etc/nginx/conf.d:ro
+        restart: unless-stopped
+        depends_on:
+            - app
+        labels:
+            dev.orbstack.domains: gshome.local
+
+    # Horizon держит код в памяти: после правки джобы — docker compose restart horizon.
+    horizon:
+        <<: *app
+        command: php artisan horizon
+        stop_grace_period: 120s
+
+    # Планировщик пока пустой; включается осознанно: docker compose --profile scheduler up -d
+    scheduler:
+        <<: *app
+        command: php artisan schedule:work
+        restart: 'no'
+        profiles: [scheduler]
+
+    # Тесты — без x-app-env: переменные окружения сильнее <env> в phpunit.xml,
+    # и в app сьют увидел бы рабочую базу. TestCase такой запуск отвергает.
+    test:
+        image: gshome-app:php8.3
+        pull_policy: never
+        environment:
+            XDEBUG_MODE: 'off'
+        volumes:
+            - .:/var/www/html
+            - node_modules:/var/www/html/node_modules
+        depends_on:
+            postgres:
+                condition: service_healthy
+        profiles: [tools]
+
+    postgres:
+        # Та же мажорная версия, что у Real Estate. Не latest.
+        image: postgres:17-bookworm
+        environment:
+            POSTGRES_DB: gshome
+            POSTGRES_USER: gshome
+            POSTGRES_PASSWORD: gshome
+        restart: unless-stopped
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U gshome -d gshome']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+        ports:
+            # Для PhpStorm. 5432 занят Postgres из Real Estate, 3307 — MariaDB BigMed.
+            - 127.0.0.1:5433:5432
+        volumes:
+            - postgres:/var/lib/postgresql/data
+            - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+
+    redis:
+        image: redis:7.4-alpine
+        restart: unless-stopped
+        volumes:
+            - redis:/data
+
+    mailpit:
+        image: axllent/mailpit:v1.31
+        restart: unless-stopped
+        labels:
+            dev.orbstack.domains: mail.gshome.local
+            dev.orbstack.http-port: '8025'
+
+    # docker compose run --rm node npm install && ... npm run build
+    node:
+        image: node:24-bookworm
+        working_dir: /var/www/html
+        volumes:
+            - .:/var/www/html
+            - node_modules:/var/www/html/node_modules
+        profiles: [tools]
+
+volumes:
+    postgres:
+    redis:
+    node_modules:

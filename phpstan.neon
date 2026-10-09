@@ -1,0 +1,19 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 5
+
+    tmpDir: .phpstan-cache
+
+    # Как в BigMed: типам из докблоков не верим как истине,
+    # касты из метода casts() (стиль Laravel 11+) разбираем.
+    treatPhpDocTypesAsCertain: false
+    parseModelCastsMethod: true
+
+    paths:
+        - app
+        - config
+        - database
+        - routes
+        - tests
