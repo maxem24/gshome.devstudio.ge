@@ -2,7 +2,7 @@
 
 ## О проекте
 
-**GS Home** — рабочее место сотрудников поверх базы **Real Estate**
+**GS Home** (git `maxem24/gshome.devstudio.ge`) — рабочее место сотрудников поверх базы **Real Estate**
 (`~/Sites/real-estate.devstudio.ge`, git `maxem24/real-estate.devstudio.ge`).
 Свою базу объявлений GS Home не ведёт: данные получает и меняет через API Real Estate,
 а у себя хранит сотрудников, их сессии и всё, что относится к их работе.
