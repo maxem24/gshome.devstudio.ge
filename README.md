@@ -19,4 +19,5 @@ docker compose exec app php artisan make:filament-user
 - Horizon: https://gshome.local/horizon
 - Почта: https://mail.gshome.local
 
+Пошагово для нового разработчика (включая заливку дампа) — `docs/GSHome/06_Развертывание.md`.
 Подробности и порядок работы — в `CLAUDE.md`.
