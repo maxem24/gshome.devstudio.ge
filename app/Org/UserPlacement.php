@@ -1,0 +1,52 @@
+<?php
+
+namespace App\Org;
+
+use App\Enums\Role;
+use App\Models\User;
+use InvalidArgumentException;
+
+/**
+ * Приводит место человека в структуре к его роли перед сохранением.
+ * CHECK-ограничения в базе — последний рубеж; здесь — понятная ошибка и
+ * очистка полей, которые новой роли не положены (смена роли в форме).
+ */
+final class UserPlacement
+{
+    public static function apply(User $user): void
+    {
+        $role = $user->role;
+        if ($role === null) {
+            return; // NOT NULL в базе даст свою ошибку
+        }
+
+        if ($role === Role::Owner) {
+            $user->company_id = null;
+        }
+
+        if (! $role->hasTeam()) {
+            $user->direction = null;
+            $user->both_directions = false;
+        }
+
+        if ($role !== Role::Agent) {
+            $user->team_lead_id = null;
+        }
+
+        if ($role === Role::Agent) {
+            self::assertTeamLead($user);
+        }
+    }
+
+    private static function assertTeamLead(User $user): void
+    {
+        $lead = $user->team_lead_id !== null ? User::query()->find($user->team_lead_id) : null;
+
+        if ($lead === null
+            || $lead->role !== Role::TeamLead
+            || $lead->company_id !== $user->company_id
+            || $lead->direction !== $user->direction) {
+            throw new InvalidArgumentException('Тимлид сотрудника должен быть тимлидом той же компании и команды.');
+        }
+    }
+}
