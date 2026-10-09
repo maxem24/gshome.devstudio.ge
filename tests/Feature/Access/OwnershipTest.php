@@ -146,9 +146,16 @@ class OwnershipTest extends TestCase
         $this->assertOwnership(OrgAccess::ownership($this->leadA, self::PHONE_A), OwnershipLabel::OurEmployee, 'Компания A', null, self::PHONE_A);
     }
 
-    public function test_inactive_holder_name_is_hidden(): void
+    public function test_blocked_holder_is_shown_as_usual(): void
     {
-        User::query()->whereKey($this->agentA->id)->update(['is_active' => false]);
+        User::query()->whereKey($this->agentA->id)->update(['status' => 'blocked']);
+
+        $this->assertOwnership(OrgAccess::ownership($this->leadA, self::PHONE_A), OwnershipLabel::OurEmployee, 'Компания A', 'Агент A', self::PHONE_A);
+    }
+
+    public function test_archived_holder_name_is_hidden(): void
+    {
+        User::query()->whereKey($this->agentA->id)->update(['status' => 'archived']);
 
         $this->assertOwnership(OrgAccess::ownership($this->leadA, self::PHONE_A), OwnershipLabel::OurEmployee, 'Компания A', null, self::PHONE_A);
     }

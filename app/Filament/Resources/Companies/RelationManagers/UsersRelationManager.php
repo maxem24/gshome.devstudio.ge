@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\Companies\RelationManagers;
 
 use Filament\Resources\RelationManagers\RelationManager;
-use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Table;
 
@@ -28,7 +27,7 @@ class UsersRelationManager extends RelationManager
                 TextColumn::make('role')->label('Роль')->badge(),
                 TextColumn::make('direction')->label('Команда')->placeholder('—'),
                 TextColumn::make('teamLead.name')->label('Тимлид')->placeholder('—'),
-                IconColumn::make('is_active')->label('Активен')->boolean(),
+                TextColumn::make('status')->label('Статус')->badge(),
             ]);
     }
 }

@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Enums\Direction;
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Models\Company;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -34,7 +35,7 @@ class UserFactory extends Factory
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
             'role' => Role::Owner,
-            'is_active' => true,
+            'status' => UserStatus::Active,
         ];
     }
 
@@ -80,8 +81,13 @@ class UserFactory extends Factory
         ]);
     }
 
-    public function inactive(): static
+    public function blocked(): static
     {
-        return $this->state(fn (): array => ['is_active' => false]);
+        return $this->state(fn (): array => ['status' => UserStatus::Blocked]);
+    }
+
+    public function archived(): static
+    {
+        return $this->state(fn (): array => ['status' => UserStatus::Archived]);
     }
 }

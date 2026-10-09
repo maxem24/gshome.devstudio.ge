@@ -35,6 +35,7 @@ class UserResourceTest extends TestCase
                 'name' => 'Нино',
                 'email' => 'nino@example.ge',
                 'password' => 'secret-pass',
+                'password_confirmation' => 'secret-pass',
                 'role' => Role::Agent->value,
                 'company_id' => $lead->company_id,
                 'direction' => Direction::Sale->value,
@@ -58,6 +59,7 @@ class UserResourceTest extends TestCase
                 'name' => 'Нино',
                 'email' => 'nino@example.ge',
                 'password' => 'secret-pass',
+                'password_confirmation' => 'secret-pass',
                 'role' => Role::Agent->value,
                 'company_id' => $rentLead->company_id,
                 'direction' => Direction::Sale->value,
@@ -103,14 +105,14 @@ class UserResourceTest extends TestCase
         $this->assertFalse($agent->both_directions);
     }
 
-    public function test_password_is_kept_when_left_empty_on_edit(): void
+    public function test_saving_edit_form_keeps_password(): void
     {
         $user = User::factory()->companyOwner()->create();
         $hash = $user->password;
         $this->actingAs($this->owner);
 
         Livewire::test(EditUser::class, ['record' => $user->getRouteKey()])
-            ->fillForm(['password' => ''])
+            ->fillForm(['name' => 'Новое имя'])
             ->call('save')
             ->assertHasNoFormErrors();
 

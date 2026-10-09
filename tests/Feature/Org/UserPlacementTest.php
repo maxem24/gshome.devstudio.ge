@@ -28,7 +28,7 @@ class UserPlacementTest extends TestCase
             'direction' => null,
             'team_lead_id' => null,
             'both_directions' => false,
-            'is_active' => true,
+            'status' => 'active',
             'created_at' => now(),
             'updated_at' => now(),
         ], $attributes));
@@ -168,5 +168,11 @@ class UserPlacementTest extends TestCase
         $lead->update(['company_id' => $other->id]);
 
         $this->assertSame($other->id, $lead->refresh()->company_id);
+    }
+
+    public function test_database_rejects_unknown_status(): void
+    {
+        $this->expectException(QueryException::class);
+        $this->insertUser(['role' => 'owner', 'status' => 'fired']);
     }
 }

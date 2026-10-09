@@ -45,9 +45,9 @@ class PhoneTest extends TestCase
         Phone::factory()->create(['user_id' => $owner->id]);
     }
 
-    public function test_inactive_user_cannot_receive_a_number(): void
+    public function test_archived_user_cannot_hold_a_number(): void
     {
-        $lead = User::factory()->teamLead()->inactive()->create();
+        $lead = User::factory()->teamLead()->archived()->create();
 
         $this->expectException(InvalidArgumentException::class);
         Phone::factory()->heldBy($lead)->create();
@@ -63,5 +63,15 @@ class PhoneTest extends TestCase
 
         $this->assertNull($phone->refresh()->user_id);
         $this->assertNotSame($other->id, $phone->company_id);
+    }
+
+    public function test_blocked_holder_keeps_number_on_save(): void
+    {
+        $lead = User::factory()->teamLead()->blocked()->create();
+        $phone = Phone::factory()->heldBy($lead)->create();
+
+        $phone->update(['kind' => 'office']);
+
+        $this->assertSame($lead->id, $phone->refresh()->user_id);
     }
 }

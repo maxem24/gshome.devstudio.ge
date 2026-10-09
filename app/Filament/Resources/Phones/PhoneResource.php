@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Phones;
 
 use App\Enums\PhoneKind;
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Filament\Resources\Phones\Pages\CreatePhone;
 use App\Filament\Resources\Phones\Pages\EditPhone;
 use App\Filament\Resources\Phones\Pages\ListPhones;
@@ -76,7 +77,7 @@ class PhoneResource extends Resource
                 ->helperText('Для номера офиса — ответственный. Пусто — на объявлении будет компания и сам номер.')
                 ->options(fn (Get $get) => User::query()
                     ->where('company_id', $get('company_id'))
-                    ->where('is_active', true)
+                    ->where('status', UserStatus::Active)
                     ->where('role', '!=', Role::Owner)
                     ->orderBy('name')
                     ->pluck('name', 'id'))

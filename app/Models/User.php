@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\Direction;
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Org\UserPlacement;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
@@ -19,7 +20,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'is_active'])]
+#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
@@ -32,13 +33,14 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
-     * Выключенный (уволенный) не входит. Сотрудники архивной компании — тоже:
-     * компания вне группы, её люди в CRM не работают. Регистрации нет —
-     * аккаунты заводит владелец.
+     * Входит только активный: заблокированный и архивный — нет, и уже открытая
+     * сессия обрывается на следующем запросе (Filament проверяет это на каждом).
+     * Сотрудники архивной компании — тоже нет: компания вне группы.
+     * Регистрации нет — аккаунты заводит владелец.
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        if (! $this->is_active) {
+        if (! $this->isActive()) {
             return false;
         }
 
@@ -60,7 +62,7 @@ class User extends Authenticatable implements FilamentUser
             'company_id' => 'integer',
             'team_lead_id' => 'integer',
             'both_directions' => 'boolean',
-            'is_active' => 'boolean',
+            'status' => UserStatus::class,
         ];
     }
 
@@ -80,6 +82,16 @@ class User extends Authenticatable implements FilamentUser
             get: fn (string $value): string => $value,
             set: fn (string $value): string => Str::squish($value),
         );
+    }
+
+    public function isActive(): bool
+    {
+        return $this->status === UserStatus::Active;
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->status === UserStatus::Archived;
     }
 
     /** @return BelongsTo<Company, $this> */
