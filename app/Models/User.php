@@ -32,13 +32,17 @@ class User extends Authenticatable implements FilamentUser
     }
 
     /**
-     * Без FilamentUser вне local-окружения Filament отвечает 403 всем.
-     * Регистрации нет, аккаунты заводит админ, поэтому пока пускаем любого
-     * заведённого пользователя. Ограничение по ролям — вместе с оргструктурой.
+     * Выключенный (уволенный) не входит. Сотрудники архивной компании — тоже:
+     * компания вне группы, её люди в CRM не работают. Регистрации нет —
+     * аккаунты заводит владелец.
      */
     public function canAccessPanel(Panel $panel): bool
     {
-        return true;
+        if (! $this->is_active) {
+            return false;
+        }
+
+        return $this->role === Role::Owner || ! ($this->company?->isArchived() ?? true);
     }
 
     /**
