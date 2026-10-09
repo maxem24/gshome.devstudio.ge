@@ -41,4 +41,12 @@ class LoginTest extends TestCase
     {
         $this->assertSame(Login::class, Filament::getPanel('admin')->getLoginRouteAction());
     }
+
+    /** Строк, которых нет в русском переводе Filament, без запасного английского видно ключами. */
+    public function test_missing_russian_strings_fall_back_to_english_not_raw_keys(): void
+    {
+        app()->setLocale('ru');
+
+        $this->assertNotSame('filament-tables::table.loading', __('filament-tables::table.loading'));
+    }
 }

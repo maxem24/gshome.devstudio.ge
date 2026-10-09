@@ -19,9 +19,14 @@ class PanelAccessTest extends TestCase
         }
     }
 
-    public function test_inactive_user_is_refused(): void
+    public function test_archived_user_is_refused(): void
     {
-        $this->actingAs(User::factory()->teamLead()->inactive()->create())->get('/admin')->assertForbidden();
+        $this->actingAs(User::factory()->teamLead()->archived()->create())->get('/admin')->assertForbidden();
+    }
+
+    public function test_blocked_user_is_refused(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->blocked()->create())->get('/admin')->assertForbidden();
     }
 
     public function test_employee_of_archived_company_is_refused(): void

@@ -3,18 +3,15 @@
 namespace App\Filament\Resources\Users\Tables;
 
 use App\Enums\Role;
-use App\Models\User;
-use App\Org\FireUser;
-use Filament\Actions\Action;
+use App\Enums\UserStatus;
+use App\Filament\Resources\Users\Actions\UserActions;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
-use Filament\Forms\Components\Select;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use Illuminate\Support\Facades\Auth;
 
 class UsersTable
 {
@@ -23,54 +20,31 @@ class UsersTable
         return $table
             ->columns([
                 TextColumn::make('name')->label('Имя')->searchable()->sortable(),
-                TextColumn::make('email')->label('Email')->searchable(),
+                TextColumn::make('status')->label('Статус')->badge(),
                 TextColumn::make('role')->label('Роль')->badge(),
                 TextColumn::make('company.name')->label('Компания')->placeholder('—')->sortable(),
                 TextColumn::make('direction')->label('Команда')->placeholder('—'),
-                TextColumn::make('teamLead.name')->label('Тимлид')->placeholder('—'),
-                IconColumn::make('both_directions')->label('Оба направления')->boolean(),
-                IconColumn::make('is_active')->label('Активен')->boolean(),
+                TextColumn::make('teamLead.name')->label('Тимлид')->placeholder('—')->toggleable(),
+                TextColumn::make('email')->label('Email')->searchable()->toggleable(),
+                IconColumn::make('both_directions')->label('Оба направления')->boolean()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
+                // Архив по умолчанию скрыт: в работе нужны активные и заблокированные.
+                SelectFilter::make('status')
+                    ->label('Статус')
+                    ->options(UserStatus::class)
+                    ->multiple()
+                    ->default([UserStatus::Active->value, UserStatus::Blocked->value]),
                 SelectFilter::make('role')->label('Роль')->options(Role::class),
                 SelectFilter::make('company_id')->label('Компания')->relationship('company', 'name'),
-                TernaryFilter::make('is_active')->label('Активен'),
             ])
             ->recordActions([
-                ViewAction::make(),
-                EditAction::make(),
-                Action::make('fire')
-                    ->label('Уволить')
-                    ->color('danger')
-                    ->requiresConfirmation()
-                    ->modalDescription('Человек не сможет войти. Встречи и история остаются за ним.')
-                    ->visible(fn (User $record): bool => $record->is_active
-                        && $record->role !== Role::Owner
-                        && (Auth::user()?->can('update', $record) ?? false))
-                    ->schema(fn (User $record): array => [
-                        Select::make('phone_holder_id')
-                            ->label('Кому передать номера')
-                            ->options(FireUser::phoneHolderOptions($record))
-                            ->placeholder('Оставить без держателя')
-                            ->visible($record->phones()->exists()),
-                        Select::make('team_lead_id')
-                            ->label('Новый тимлид для его сотрудников')
-                            ->options(FireUser::teamLeadOptions($record))
-                            ->required()
-                            ->helperText(FireUser::teamLeadOptions($record) === []
-                                ? 'Другого тимлида этой команды нет — сначала заведите его или назначьте.'
-                                : null)
-                            ->visible($record->agents()->where('is_active', true)->exists()),
-                    ])
-                    ->action(fn (User $record, array $data) => FireUser::handle(
-                        $record,
-                        isset($data['phone_holder_id']) ? (int) $data['phone_holder_id'] : null,
-                        isset($data['team_lead_id']) ? (int) $data['team_lead_id'] : null,
-                    )),
-                Action::make('rehire')
-                    ->label('Вернуть')
-                    ->visible(fn (User $record): bool => ! $record->is_active && (Auth::user()?->can('update', $record) ?? false))
-                    ->action(fn (User $record) => $record->update(['is_active' => true])),
+                ActionGroup::make([
+                    ViewAction::make(),
+                    EditAction::make(),
+                    ...UserActions::all(),
+                ]),
             ]);
     }
 }

@@ -74,10 +74,11 @@ final class OrgAccess
             return Ownership::other();
         }
 
-        // Уволенный или не назначенный держатель — имени нет; контакт — сам
-        // номер: SIM осталась в компании, по нему ответят.
+        // Архивный или не назначенный держатель — имени нет; контакт — сам
+        // номер: SIM осталась в компании, по нему ответят. Заблокированный
+        // временно — он по-прежнему ведёт объекты, имя видно.
         $holder = $phone->holder;
-        $contactName = $holder !== null && $holder->is_active ? $holder->name : null;
+        $contactName = $holder !== null && ! $holder->isArchived() ? $holder->name : null;
 
         return new Ownership($label, $phone->company->name, $contactName, $phone->number);
     }

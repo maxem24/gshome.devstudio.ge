@@ -4,7 +4,9 @@ namespace App\Filament\Resources\Users\Schemas;
 
 use App\Enums\Direction;
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Models\User;
+use App\Org\UserLifecycle;
 use App\Rules\UniqueEmail;
 use Closure;
 use Filament\Forms\Components\Select;
@@ -16,9 +18,9 @@ use Illuminate\Database\Eloquent\Builder;
 
 /**
  * Место человека в структуре. Поля, которые роли не положены, скрыты; при
- * сохранении их очищает UserPlacement. «Активен» здесь нет — только через
- * действия «Уволить» / «Вернуть» (Task 9), чтобы номера и сотрудники
- * тимлида не повисли.
+ * сохранении их очищает UserPlacement. Статуса здесь нет — только через
+ * действия «Заблокировать» / «В архив» (UserActions), чтобы номера и
+ * сотрудники тимлида не повисли.
  */
 class UserForm
 {
@@ -32,14 +34,28 @@ class UserForm
                 ->required()
                 ->maxLength(255)
                 ->rule(fn (?User $record) => new UniqueEmail($record?->getKey())),
+            // Пароль задаётся только при создании; дальше — действие «Сменить
+            // пароль» (UserActions), чтобы правка формы его не задевала.
             TextInput::make('password')
                 ->label('Пароль')
                 ->password()
                 ->revealable()
-                ->minLength(8)
-                ->required(fn (string $operation): bool => $operation === 'create')
-                ->dehydrated(fn (?string $state): bool => filled($state))
-                ->hiddenOn('view'),
+                ->minLength(UserLifecycle::MIN_PASSWORD)
+                ->required()
+                ->confirmed()
+                ->visibleOn('create'),
+            TextInput::make('password_confirmation')
+                ->label('Повторите пароль')
+                ->password()
+                ->revealable()
+                ->required()
+                ->dehydrated(false)
+                ->visibleOn('create'),
+            // Только в карточке просмотра: менять статус — действиями (UserActions).
+            Select::make('status')
+                ->label('Статус')
+                ->options(UserStatus::class)
+                ->visibleOn('view'),
             Select::make('role')
                 ->label('Роль')
                 ->options(Role::class)
@@ -64,7 +80,7 @@ class UserForm
                 ->label('Тимлид')
                 ->options(fn (Get $get) => User::query()
                     ->where('role', Role::TeamLead)
-                    ->where('is_active', true)
+                    ->where('status', UserStatus::Active)
                     ->where('company_id', $get('company_id'))
                     ->where('direction', self::direction($get))
                     ->orderBy('name')

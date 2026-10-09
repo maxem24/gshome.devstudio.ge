@@ -29,9 +29,9 @@ class Phone extends Model
             $holder = User::query()->find($phone->user_id);
             if ($holder === null
                 || $holder->role === Role::Owner
-                || ! $holder->is_active
+                || $holder->isArchived()
                 || $holder->company_id !== $phone->company_id) {
-                throw new InvalidArgumentException('Держатель номера — активный сотрудник той же компании.');
+                throw new InvalidArgumentException('Держатель номера — сотрудник той же компании, не в архиве.');
             }
         });
     }

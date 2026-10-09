@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Illuminate\Support\Str;
@@ -40,7 +41,7 @@ class MakeOwner extends Command
             'email' => $email,
             'password' => $password,
             'role' => Role::Owner,
-            'is_active' => true,
+            'status' => UserStatus::Active,
         ]);
 
         $this->info("Владелец {$email} создан.");
