@@ -1,0 +1,94 @@
+name: Статический анализ
+
+# Образец — bigmed.ge/.github/workflows/static-analysis.yml.
+# Смысл — снять гарантию с одной машины: bin/ship.sh лежит вне репозитория
+# и работает, пока работает, а молчит, когда перестаёт.
+
+on:
+    pull_request:
+        branches: [main]
+    push:
+        branches: [main]
+
+permissions:
+    contents: read
+
+jobs:
+    phpstan:
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: PHP 8.3
+              uses: shivammathur/setup-php@v2
+              with:
+                  php-version: '8.3'
+                  # Расширения нужны composer'у; сам анализ к базе не обращается.
+                  extensions: mbstring, intl, bcmath, gd, zip, pdo_pgsql
+                  coverage: none
+
+            - name: Кеш composer
+              uses: actions/cache@v4
+              with:
+                  path: vendor
+                  key: vendor-${{ hashFiles('composer.lock') }}
+
+            - run: composer install --no-interaction --prefer-dist --no-progress
+
+            - name: Окружение приложения
+              # Larastan разрешает типы через контейнер Laravel, поэтому результат
+              # анализа зависит от конфигурации (в BigMed без .env фасад отдавал
+              # интерфейс вместо класса, и CI падал на ошибке, которой нет локально).
+              run: |
+                  cp .env.example .env
+                  php artisan key:generate --force
+
+            - name: Кеш PHPStan
+              uses: actions/cache@v4
+              with:
+                  # Должен совпадать с tmpDir в phpstan.neon.
+                  path: .phpstan-cache
+                  key: phpstan-${{ hashFiles('composer.lock') }}-${{ github.sha }}
+                  restore-keys: |
+                      phpstan-${{ hashFiles('composer.lock') }}-
+                      phpstan-
+
+            - name: Самопроверка анализатора
+              # Пустой ответ сломанного инструмента выглядит так же, как чистый код.
+              # Три поломки, порог — две: запас на слияние диагностик в новой версии.
+              run: |
+                  mkdir -p tmp
+                  printf '<?php\nfinal class CiProbe {\n  public function a(): int { $x = new \\Nope\\Nope(); return 1; }\n  public function b(): int { return "строка"; }\n  public function c(): void { $this->noSuchMethod(); }\n}\n' > tmp/CiProbe.php
+                  n=$(php -d memory_limit=-1 vendor/bin/phpstan analyse tmp/CiProbe.php \
+                        --no-progress --error-format=json 2>/dev/null \
+                      | php -r '$j=json_decode(stream_get_contents(STDIN),true); echo $j["totals"]["file_errors"] ?? 0;')
+                  rm -f tmp/CiProbe.php
+                  if [ "${n:-0}" -lt 2 ]; then
+                      echo "::error::PHPStan поймал ${n:-0} из 3 заведомых ошибок — анализатор молчит, прогону верить нельзя"
+                      exit 1
+                  fi
+                  echo "самопроверка пройдена: $n из 3 (порог 2)"
+
+            - name: Анализ
+              run: composer analyse
+
+    # package-lock.json в репозитории — единственный источник версий для npm ci.
+    # Node 24 / npm 11 из .nvmrc: другой мажор npm переписывает lock по-своему.
+    npm-lock:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-node@v4
+              with:
+                  node-version-file: .nvmrc
+
+            - name: package-lock.json согласован с package.json
+              run: |
+                  npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+                  git diff --exit-code package-lock.json \
+                      || { echo "::error::package-lock.json не соответствует package.json — npm install на Node 24 и закоммитить lock"; exit 1; }

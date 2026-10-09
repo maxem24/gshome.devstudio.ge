@@ -1,0 +1,13 @@
+/vendor
+/node_modules
+/public
+/storage
+/bootstrap/cache
+/.phpstan-cache
+/.phpunit.cache
+composer.lock
+package-lock.json
+_ide_helper*.php
+.phpstorm.meta.php
+docs/
+*.md

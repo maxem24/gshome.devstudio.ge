@@ -27,6 +27,7 @@
     "require-dev": {
         "barryvdh/laravel-debugbar": "^4.4",
         "barryvdh/laravel-ide-helper": "^3.7",
+        "brianium/paratest": "^7.20",
         "fakerphp/faker": "^1.23",
         "larastan/larastan": "^3.13",
         "laravel/pail": "^1.2.5",
@@ -62,8 +63,9 @@
             "@php artisan dev"
         ],
         "test": [
-            "@php artisan config:clear --ansi @no_additional_args",
-            "@php artisan test"
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan config:clear --ansi",
+            "@php artisan test --parallel"
         ],
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
@@ -89,7 +91,13 @@
             "@php artisan ide-helper:generate",
             "@php artisan ide-helper:models --nowrite --reset",
             "@php artisan ide-helper:meta"
-        ]
+        ],
+        "test:sequential": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php artisan config:clear --ansi",
+            "@php artisan test"
+        ],
+        "analyse:baseline": "@php -d memory_limit=-1 vendor/bin/phpstan analyse --generate-baseline --no-progress"
     },
     "extra": {
         "laravel": {
