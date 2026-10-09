@@ -57,7 +57,10 @@ class UsersTable
                             ->label('Новый тимлид для его сотрудников')
                             ->options(FireUser::teamLeadOptions($record))
                             ->required()
-                            ->visible($record->agents()->exists()),
+                            ->helperText(FireUser::teamLeadOptions($record) === []
+                                ? 'Другого тимлида этой команды нет — сначала заведите его или назначьте.'
+                                : null)
+                            ->visible($record->agents()->where('is_active', true)->exists()),
                     ])
                     ->action(fn (User $record, array $data) => FireUser::handle(
                         $record,

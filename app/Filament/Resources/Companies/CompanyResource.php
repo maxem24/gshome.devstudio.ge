@@ -11,6 +11,7 @@ use App\Filament\Resources\Companies\RelationManagers\PhonesRelationManager;
 use App\Filament\Resources\Companies\RelationManagers\UsersRelationManager;
 use App\Models\Company;
 use App\Models\User;
+use App\Rules\UniqueCompanyName;
 use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
@@ -47,7 +48,7 @@ class CompanyResource extends Resource
                 ->label('Название')
                 ->required()
                 ->maxLength(255)
-                ->unique(ignoreRecord: true),
+                ->rule(fn (?Company $record) => new UniqueCompanyName($record?->getKey())),
         ]);
     }
 

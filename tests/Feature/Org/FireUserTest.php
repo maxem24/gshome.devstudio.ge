@@ -97,4 +97,16 @@ class FireUserTest extends TestCase
         Livewire::test(ListUsers::class)->callAction(TestAction::make('rehire')->table($agent));
         $this->assertTrue($agent->refresh()->is_active);
     }
+
+    public function test_team_lead_whose_agents_are_all_fired_can_be_fired_without_new_lead(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        $agent = User::factory()->agent($lead)->create();
+        FireUser::handle($agent, null, null);
+
+        FireUser::handle($lead->refresh(), null, null);
+
+        $this->assertFalse($lead->refresh()->is_active);
+        $this->assertSame($lead->id, $agent->refresh()->team_lead_id);
+    }
 }

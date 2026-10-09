@@ -144,4 +144,29 @@ class UserPlacementTest extends TestCase
 
         $this->assertSame('GS Home', $company->refresh()->name);
     }
+
+    public function test_team_lead_with_agents_cannot_change_company_direction_or_role(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        User::factory()->agent($lead)->create();
+
+        foreach ([['company_id' => Company::factory()->create()->id], ['direction' => Direction::Rent], ['role' => Role::CompanyOwner]] as $change) {
+            try {
+                $lead->refresh()->update($change);
+                $this->fail('Изменение '.json_encode(array_keys($change)).' прошло при живых сотрудниках');
+            } catch (InvalidArgumentException) {
+                $this->assertSame(Role::TeamLead, $lead->refresh()->role);
+            }
+        }
+    }
+
+    public function test_team_lead_without_agents_can_be_moved(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        $other = Company::factory()->create();
+
+        $lead->update(['company_id' => $other->id]);
+
+        $this->assertSame($other->id, $lead->refresh()->company_id);
+    }
 }

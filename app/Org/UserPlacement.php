@@ -21,6 +21,14 @@ final class UserPlacement
             return; // NOT NULL в базе даст свою ошибку
         }
 
+        // Сотрудники тимлида ссылаются на него: если он уходит из своей
+        // компании, команды или роли, они повисли бы на чужом человеке.
+        if ($user->exists
+            && ($role !== Role::TeamLead || $user->isDirty(['company_id', 'direction']))
+            && $user->agents()->exists()) {
+            throw new InvalidArgumentException('У тимлида есть сотрудники: сначала переведите их к другому тимлиду.');
+        }
+
         if ($role === Role::Owner) {
             $user->company_id = null;
         }

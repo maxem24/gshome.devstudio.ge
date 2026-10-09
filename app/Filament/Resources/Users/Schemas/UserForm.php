@@ -6,6 +6,7 @@ use App\Enums\Direction;
 use App\Enums\Role;
 use App\Models\User;
 use App\Rules\UniqueEmail;
+use Closure;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -43,19 +44,22 @@ class UserForm
                 ->label('Роль')
                 ->options(Role::class)
                 ->required()
-                ->live(),
+                ->live()
+                ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => Role::tryFrom((string) $value) !== Role::TeamLead)),
             Select::make('company_id')
                 ->label('Компания')
                 ->relationship('company', 'name', fn (Builder $query) => $query->whereNull('archived_at'))
                 ->visible(fn (Get $get): bool => self::role($get) !== null && self::role($get) !== Role::Owner)
                 ->required(fn (Get $get): bool => self::role($get) !== null && self::role($get) !== Role::Owner)
-                ->live(),
+                ->live()
+                ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => (int) $value !== $record?->company_id)),
             Select::make('direction')
                 ->label('Команда')
                 ->options(Direction::class)
                 ->visible(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false)
                 ->required(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false)
-                ->live(),
+                ->live()
+                ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => Direction::tryFrom((string) $value) !== $record?->direction)),
             Select::make('team_lead_id')
                 ->label('Тимлид')
                 ->options(fn (Get $get) => User::query()
@@ -72,6 +76,22 @@ class UserForm
                 ->helperText('Видит и продажу, и помесячную сдачу. Людей другой команды не открывает.')
                 ->visible(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false),
         ]);
+    }
+
+    /**
+     * Тимлида с сотрудниками нельзя увести из роли, компании или команды:
+     * его сотрудники повисли бы на нём (UserPlacement отвергнет это и сам,
+     * здесь — понятная ошибка формы вместо 500).
+     *
+     * @param  Closure(mixed): bool  $changes
+     */
+    private static function keepsAgents(?User $record, Closure $changes): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail) use ($record, $changes): void {
+            if ($record?->role === Role::TeamLead && $changes($value) && $record->agents()->exists()) {
+                $fail('У тимлида есть сотрудники: сначала переведите их к другому тимлиду.');
+            }
+        };
     }
 
     /** Состояние Select бывает enum (из модели) или строкой (из формы). */

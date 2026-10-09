@@ -18,14 +18,16 @@ final class FireUser
     public static function handle(User $user, ?int $newPhoneHolderId, ?int $newTeamLeadId): void
     {
         DB::transaction(function () use ($user, $newPhoneHolderId, $newTeamLeadId): void {
-            if ($user->agents()->exists()) {
+            // Новый тимлид нужен только активным сотрудникам; уволенные остаются
+            // ссылкой на прежнего — история, а не рабочая структура.
+            if ($user->agents()->where('is_active', true)->exists()) {
                 $newLead = $newTeamLeadId !== null ? User::query()->find($newTeamLeadId) : null;
                 if ($newLead === null || ! array_key_exists($newLead->id, self::teamLeadOptions($user))) {
                     throw new InvalidArgumentException('Сотрудникам тимлида нужен новый тимлид той же компании и команды.');
                 }
                 // Мимо модели: каждому сотруднику меняется только тимлид той же
                 // компании и команды — инварианты UserPlacement не нарушаются.
-                User::query()->where('team_lead_id', $user->id)->update(['team_lead_id' => $newLead->id]);
+                User::query()->where('team_lead_id', $user->id)->where('is_active', true)->update(['team_lead_id' => $newLead->id]);
             }
 
             if ($newPhoneHolderId !== null && ! array_key_exists($newPhoneHolderId, self::phoneHolderOptions($user))) {

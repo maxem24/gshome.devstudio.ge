@@ -53,7 +53,7 @@ class CompanyResourceTest extends TestCase
         Livewire::test(CreateCompany::class)
             ->fillForm(['name' => 'GS Home Vake'])
             ->call('create')
-            ->assertHasFormErrors(['name' => 'unique']);
+            ->assertHasFormErrors(['name']);
     }
 
     public function test_owner_archives_and_restores_company(): void
@@ -66,5 +66,16 @@ class CompanyResourceTest extends TestCase
 
         Livewire::test(ListCompanies::class)->callAction(TestAction::make('restore')->table($company));
         $this->assertFalse($company->refresh()->isArchived());
+    }
+
+    public function test_existing_name_with_extra_spaces_is_a_form_error_not_a_crash(): void
+    {
+        Company::factory()->create(['name' => 'GS Home Vake']);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(CreateCompany::class)
+            ->fillForm(['name' => ' GS  Home Vake '])
+            ->call('create')
+            ->assertHasFormErrors(['name']);
     }
 }

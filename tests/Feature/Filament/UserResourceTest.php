@@ -139,4 +139,19 @@ class UserResourceTest extends TestCase
         $this->actingAs($ownerA)->get("/admin/users/{$lead->id}/edit")->assertForbidden();
         $this->actingAs($ownerA)->get("/admin/users/{$lead->id}")->assertOk();
     }
+
+    public function test_moving_team_lead_with_agents_is_a_form_error(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        User::factory()->agent($lead)->create();
+        $other = Company::factory()->create();
+        $this->actingAs($this->owner);
+
+        Livewire::test(EditUser::class, ['record' => $lead->getRouteKey()])
+            ->fillForm(['company_id' => $other->id])
+            ->call('save')
+            ->assertHasFormErrors(['company_id']);
+
+        $this->assertNotSame($other->id, $lead->refresh()->company_id);
+    }
 }
