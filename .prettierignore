@@ -11,3 +11,5 @@ _ide_helper*.php
 .phpstorm.meta.php
 docs/
 *.md
+# Переводы генерирует laravel-lang (php artisan lang:update)
+/lang

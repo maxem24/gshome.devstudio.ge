@@ -16,10 +16,12 @@
 /node_modules
 /public/build
 /public/css/filament
+/public/css/ysfkaya
 /public/fonts-manifest.dev.json
 /public/fonts/filament
 /public/hot
 /public/js/filament
+/public/js/ysfkaya
 /public/storage
 /storage/*.key
 /storage/pail
