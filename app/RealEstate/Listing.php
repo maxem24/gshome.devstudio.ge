@@ -15,12 +15,12 @@ final readonly class Listing
      * @param  list<string>  $amenities
      * @param  list<string>  $subwayStations
      * @param  list<string>  $clusterPhonesE164
-     * @param  list<array{id: int, source: string, source_url: string, seller_category: SellerCategory, agency_name: ?string, contact_name: ?string, phone_e164: ?string, price_usd: ?float}>  $clusterListings
+     * @param  list<array{id: int, source: string, source_url: ?string, seller_category: SellerCategory, agency_name: ?string, contact_name: ?string, phone_e164: ?string, price_usd: ?float}>  $clusterListings
      */
     public function __construct(
         public int $id,
         public string $source,
-        public string $sourceUrl,
+        public ?string $sourceUrl,
         public ?string $dealTypeSlug,
         public ?string $dealTypeTitle,
         public ?string $propertyType,
@@ -64,7 +64,7 @@ final readonly class Listing
         return new self(
             id: (int) $d['id'],
             source: (string) $d['source'],
-            sourceUrl: (string) $d['source_url'],
+            sourceUrl: self::safeUrl($d['source_url'] ?? null),
             dealTypeSlug: $d['deal_type']['slug'] ?? null,
             dealTypeTitle: $d['deal_type']['title'] ?? null,
             propertyType: $d['property_type']['title'] ?? null,
@@ -82,9 +82,9 @@ final readonly class Listing
             negotiable: (bool) ($d['price']['negotiable'] ?? false),
             title: $text($d['title'] ?? null),
             description: $text($d['description'] ?? null),
-            images: array_values(array_map(fn (array $i): array => [
-                'url' => (string) $i['url'], 'url_thumb' => $i['url_thumb'] ?? null, 'is_main' => (bool) ($i['is_main'] ?? false),
-            ], $d['images'] ?? [])),
+            images: array_values(array_filter(array_map(fn (array $i): ?array => ($url = self::safeUrl($i['url'] ?? null)) === null ? null : [
+                'url' => $url, 'url_thumb' => self::safeUrl($i['url_thumb'] ?? null), 'is_main' => (bool) ($i['is_main'] ?? false),
+            ], $d['images'] ?? []))),
             amenities: array_values(array_map(fn (array $a): string => (string) ($a['title'] ?? $a['slug'] ?? ''), $d['amenities'] ?? [])),
             subwayStations: array_values(array_map(
                 fn (array $s): string => trim(($s['title'] ?? '').(isset($s['walk_minutes']) ? " ({$s['walk_minutes']} мин)" : '')),
@@ -104,7 +104,7 @@ final readonly class Listing
             clusterListings: array_values(array_map(fn (array $m): array => [
                 'id' => (int) $m['id'],
                 'source' => (string) $m['source'],
-                'source_url' => (string) $m['source_url'],
+                'source_url' => self::safeUrl($m['source_url'] ?? null),
                 'seller_category' => self::category($m['seller'] ?? []),
                 'agency_name' => $m['seller']['agency_name'] ?? null,
                 'contact_name' => $m['contact']['name'] ?? null,
@@ -113,6 +113,17 @@ final readonly class Listing
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,
         );
+    }
+
+    /** В href/src пускаем только http(s): javascript: и data: из API отбрасываем. */
+    private static function safeUrl(mixed $url): ?string
+    {
+        if (! is_string($url)) {
+            return null;
+        }
+        $scheme = parse_url(trim($url), PHP_URL_SCHEME);
+
+        return is_string($scheme) && in_array(strtolower($scheme), ['http', 'https'], true) ? trim($url) : null;
     }
 
     /** @param  array<string, mixed>  $seller */

@@ -35,7 +35,7 @@
                         <ul class="divide-y divide-gray-200 dark:divide-white/10">
                             @foreach ($card['cluster'] as $member)
                                 <li class="flex flex-wrap items-center gap-3 py-2">
-                                    <a href="{{ $member['source_url'] }}" target="_blank" rel="noopener" class="text-primary-600">{{ $member['source'] }}</a>
+                                    @if ($member['source_url'])<a href="{{ $member['source_url'] }}" target="_blank" rel="noopener" class="text-primary-600">{{ $member['source'] }}</a>@else<span>{{ $member['source'] }}</span>@endif
                                     <span>{{ $member['seller'] }}</span>
                                     <span>{{ $member['price'] }}</span>
                                     <x-filament::badge :color="$member['ownership']['color']">{{ $member['ownership']['label'] }}</x-filament::badge>

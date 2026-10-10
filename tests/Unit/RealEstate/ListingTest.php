@@ -84,4 +84,29 @@ class ListingTest extends TestCase
         $this->assertSame('$800 / мес', $rent->priceLabel());
         $this->assertSame('цена не указана', Listing::fromApi(RealEstateFake::listing(['price' => ['usd' => null]]), 'ru')->priceLabel());
     }
+
+    public function test_non_http_urls_are_dropped(): void
+    {
+        $l = Listing::fromApi(RealEstateFake::listing([
+            'source_url' => 'javascript:alert(1)',
+            'images' => [['url' => 'javascript:alert(2)', 'url_thumb' => 'data:text/html,x', 'is_main' => true]],
+            'cluster' => ['listings' => [['id' => 55, 'source' => 'ss_ge', 'source_url' => 'JavaScript:alert(3)']]],
+        ]), 'ru');
+
+        $this->assertNull($l->sourceUrl);
+        $this->assertSame([], $l->images);
+        $this->assertNull($l->clusterListings[0]['source_url']);
+    }
+
+    public function test_http_urls_stay_and_bad_thumb_becomes_null(): void
+    {
+        $l = Listing::fromApi(RealEstateFake::listing([
+            'source_url' => 'https://home.ss.ge/13',
+            'images' => [['url' => 'https://re.test/a.webp', 'url_thumb' => 'javascript:x', 'is_main' => true]],
+        ]), 'ru');
+
+        $this->assertSame('https://home.ss.ge/13', $l->sourceUrl);
+        $this->assertSame('https://re.test/a.webp', $l->images[0]['url']);
+        $this->assertNull($l->images[0]['url_thumb']);
+    }
 }

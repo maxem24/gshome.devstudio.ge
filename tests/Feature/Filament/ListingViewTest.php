@@ -7,6 +7,8 @@ use App\Filament\Pages\ListingView;
 use App\Models\Phone;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -100,5 +102,23 @@ class ListingViewTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         $this->get('/admin/listings/999')->assertNotFound();
+    }
+
+    public function test_card_state_is_locked(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test(ListingView::class, ['listing' => 13])->set('card.own.can_contact', true);
+    }
+
+    public function test_api_error_renders_message_not_500(): void
+    {
+        RealEstateFake::configure();
+        Http::fake(['*/dictionaries/*' => Http::response(['data' => RealEstateFake::dealTypes()]), '*' => Http::response([], 503)]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
     }
 }

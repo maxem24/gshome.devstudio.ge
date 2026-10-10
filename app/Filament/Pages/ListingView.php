@@ -14,6 +14,7 @@ use Filament\Pages\Page;
 use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Locked;
 
 /** Карточка объекта (ТЗ 4.4). Чужое направление, посуточно, залог, снятое — 404. */
 class ListingView extends Page
@@ -25,8 +26,10 @@ class ListingView extends Page
     protected static ?string $slug = 'listing';
 
     /** @var array<string, mixed> */
+    #[Locked]
     public array $card = [];
 
+    #[Locked]
     public ?string $error = null;
 
     public static function getRoutePath(Panel $panel): string
