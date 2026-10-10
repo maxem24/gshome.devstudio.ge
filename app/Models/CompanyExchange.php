@@ -54,6 +54,18 @@ class CompanyExchange extends Model
             ->exists();
     }
 
+    /** @return list<int> компании, с которыми у данной включён обмен (в обе стороны) */
+    public static function enabledPartnersOf(int $companyId): array
+    {
+        return static::query()
+            ->where('enabled', true)
+            ->where(fn ($q) => $q->where('company_a_id', $companyId)->orWhere('company_b_id', $companyId))
+            ->get(['company_a_id', 'company_b_id'])
+            ->map(fn (CompanyExchange $p): int => $p->company_a_id === $companyId ? $p->company_b_id : $p->company_a_id)
+            ->values()
+            ->all();
+    }
+
     public static function existsBetween(int $x, int $y, ?int $ignoreId = null): bool
     {
         return static::query()
