@@ -118,7 +118,8 @@ class RealEstateClient
             ->withToken((string) config('services.real_estate.key'))
             ->acceptJson()
             ->timeout(10)
+            // 503 = query_timeout: API просит не повторять тот же запрос (3 попытки по 10 с вешают страницу на 30 с).
             ->retry(2, 200, fn (\Throwable $e): bool => $e instanceof ConnectionException
-                || ($e instanceof RequestException && $e->response->serverError()), throw: false);
+                || ($e instanceof RequestException && in_array($e->response->status(), [500, 502, 504], true)), throw: false);
     }
 }

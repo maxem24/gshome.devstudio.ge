@@ -111,8 +111,33 @@ class RealEstateClientTest extends TestCase
 
         try {
             $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
         } catch (RealEstateAccessDenied $e) {
             $this->assertStringNotContainsString('test-key', $e->getMessage());
+        }
+    }
+
+    public function test_503_is_not_retried(): void
+    {
+        Http::fake(['*' => Http::response(['error' => ['code' => 'query_timeout']], 503)]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+            Http::assertSentCount(1);
+        }
+    }
+
+    public function test_502_is_retried(): void
+    {
+        Http::fake(['*' => Http::response(['error' => ['code' => 'server_error']], 502)]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+            Http::assertSentCount(2); // retry(2, ...) = две попытки всего
         }
     }
 }
