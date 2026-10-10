@@ -109,4 +109,12 @@ class ListingTest extends TestCase
         $this->assertSame('https://re.test/a.webp', $l->images[0]['url']);
         $this->assertNull($l->images[0]['url_thumb']);
     }
+
+    public function test_studio_instead_of_zero_rooms(): void
+    {
+        $l = Listing::fromApi(RealEstateFake::listing(['rooms' => 0]), 'ru');
+
+        $this->assertStringStartsWith('студия', $l->facts());
+        $this->assertStringNotContainsString('0 комн.', $l->facts());
+    }
 }

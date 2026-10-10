@@ -161,7 +161,7 @@ final readonly class Listing
     public function facts(): string
     {
         return collect([
-            $this->rooms !== null ? "{$this->rooms} комн." : null,
+            $this->rooms === 0 ? 'студия' : ($this->rooms !== null ? "{$this->rooms} комн." : null),
             $this->areaTotal !== null ? rtrim(rtrim(number_format($this->areaTotal, 1, '.', ' '), '0'), '.').' м²' : null,
             $this->floor !== null ? "{$this->floor}".($this->floorsTotal ? "/{$this->floorsTotal}" : '').' эт.' : null,
             $this->propertyType,
