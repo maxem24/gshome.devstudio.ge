@@ -1,0 +1,86 @@
+<?php
+
+namespace Tests\Support;
+
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Http;
+
+/** Ответы API Real Estate по формату ~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md. */
+final class RealEstateFake
+{
+    public const URL = 'https://re.test/api/v1';
+
+    public static function configure(bool $phoneFilters = true): void
+    {
+        config([
+            'services.real_estate.url' => self::URL,
+            'services.real_estate.key' => 'test-key',
+            'services.real_estate.phone_filters' => $phoneFilters,
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    public static function listing(array $overrides = []): array
+    {
+        return array_replace_recursive([
+            'id' => 13, 'source' => 'ss_ge', 'source_url' => 'https://home.ss.ge/13', 'external_id' => '13',
+            'status' => 'active', 'is_primary' => true, 'cluster' => null,
+            'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'Продаётся'],
+            'property_type' => ['id' => 1, 'slug' => 'apartment', 'title' => 'Квартира'],
+            'city' => ['id' => 1, 'title' => 'Тбилиси'], 'district' => ['id' => 1, 'title' => 'Ваке-Сабуртало'], 'subdistrict' => null,
+            'address' => 'Тбилиси, ул. Чавчавадзе, 10', 'lat' => 41.71, 'lng' => 44.77,
+            'area_total' => 65.0, 'rooms' => 2, 'floor' => 5, 'floors_total' => 9,
+            'price' => ['usd' => 90000.0, 'gel' => 243000.0, 'per_sqm_usd' => 1384.6, 'per_sqm_gel' => 3738.5, 'negotiable' => false],
+            'title' => ['ka' => 'ბინა ვაკეში', 'en' => null, 'ru' => 'Квартира в Ваке'],
+            'description' => ['ka' => 'აღწერა', 'en' => null, 'ru' => 'Описание'],
+            'images' => [['url' => 'https://re.test/storage/1.webp', 'url_thumb' => 'https://re.test/storage/1_t.webp', 'is_main' => true, 'order' => 1]],
+            'amenities' => [['id' => 1, 'slug' => 'elevator', 'title' => 'Лифт']],
+            'subway_stations' => [],
+            'seller' => ['is_owner' => true, 'is_agency' => false, 'agency_name' => null],
+            'contact' => ['name' => 'Гиорги', 'phone' => '555123456', 'phone_e164' => '+995555123456', 'has_viber' => false, 'has_whatsapp' => true],
+            'source_created_at' => '2026-10-05T10:00:00+00:00', 'source_updated_at' => '2026-10-06T10:00:00+00:00', 'updated_at' => '2026-10-06T10:00:00+00:00',
+        ], $overrides);
+    }
+
+    /** @return array<string, mixed> */
+    public static function page(array $listings, ?string $next = null, ?string $prev = null): array
+    {
+        return ['data' => $listings, 'links' => [], 'meta' => ['per_page' => 25, 'next_cursor' => $next, 'prev_cursor' => $prev, 'path' => self::URL.'/listings']];
+    }
+
+    /** @return list<array<string, mixed>> */
+    public static function dealTypes(): array
+    {
+        return [
+            ['id' => 1, 'slug' => 'sale', 'title_ka' => 'იყიდება', 'title_en' => 'Sale', 'title_ru' => 'Продаётся'],
+            ['id' => 2, 'slug' => 'rent', 'title_ka' => 'ქირავდება', 'title_en' => 'Rent', 'title_ru' => 'Сдаётся'],
+            ['id' => 3, 'slug' => 'daily_rent', 'title_ka' => 'დღიურად', 'title_en' => 'Daily', 'title_ru' => 'Посуточно'],
+            ['id' => 4, 'slug' => 'pledge', 'title_ka' => 'გირავდება', 'title_en' => 'Pledge', 'title_ru' => 'Залог'],
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $pages  ответы GET /listings по порядку (последний повторяется)
+     * @param  array<int, array<string, mixed>>  $cards  id => объявление для GET /listings/{id}
+     */
+    public static function fake(array $pages = [], array $cards = []): void
+    {
+        $pages = $pages ?: [self::page([])];
+        $i = 0;
+        Http::fake(function (Request $request) use (&$i, $pages, $cards) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            return match (true) {
+                $path === '/api/v1/dictionaries/deal-types' => Http::response(['data' => self::dealTypes()]),
+                str_starts_with($path, '/api/v1/dictionaries/') => Http::response(['data' => [
+                    ['id' => 1, 'slug' => 'tbilisi', 'title_ka' => 'თბილისი', 'title_en' => 'Tbilisi', 'title_ru' => 'Тбилиси'],
+                ]]),
+                $path === '/api/v1/listings' => Http::response($pages[min($i++, count($pages) - 1)]),
+                (bool) preg_match('#^/api/v1/listings/(\d+)$#', $path, $m) => isset($cards[(int) $m[1]])
+                    ? Http::response(['data' => $cards[(int) $m[1]]])
+                    : Http::response(['error' => ['code' => 'not_found', 'message' => 'Не найдено.']], 404),
+                default => Http::response(['error' => ['code' => 'not_found']], 404),
+            };
+        });
+    }
+}
