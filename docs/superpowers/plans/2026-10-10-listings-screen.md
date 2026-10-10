@@ -43,7 +43,7 @@
 - Test: `tests/Unit/RealEstate/ApiCursorPaginatorTest.php`
 
 **Interfaces:**
-- Produces: `RealEstateException` (abstract, `userMessage(): string`); `RealEstateRateLimited::$retryAfter`; `ApiCursorPaginator::__construct(iterable $items, int $perPage, ?string $currentCursor, ?string $nextCursor, ?string $prevCursor, array $options = [])`, `ApiCursorPaginator::empty(int $perPage, array $options = []): self`.
+- Produces: `RealEstateException` (abstract, `userMessage(): string`); `RealEstateRateLimited::$retryAfter`; `ApiCursorPaginator::__construct(iterable $items, int $perPage, ?string $currentCursor, ?string $nextCursor, ?string $prevCursor, array $options = [])`, `ApiCursorPaginator::emptyPage(int $perPage, array $options = []): self`.
 
 - [ ] **Step 0: Ветка** — `git switch -c feature/listings-screen`
 
@@ -69,7 +69,7 @@ class ApiCursorPaginatorTest extends TestCase
         $this->assertTrue($p->hasMorePages());
         $this->assertSame('eyJuZXh0Ijox', $p->nextCursor()?->encode());
         $this->assertNull($p->previousCursor());
-        $this->assertSame([13, 12], array_keys($p->items()));
+        $this->assertSame([13, 12], array_column($p->items(), 'id'));
     }
 
     public function test_middle_page_has_both_cursors(): void
@@ -90,9 +90,9 @@ class ApiCursorPaginatorTest extends TestCase
         $this->assertTrue($p->hasPages());
     }
 
-    public function test_empty(): void
+    public function test_empty_page(): void
     {
-        $p = ApiCursorPaginator::empty(25);
+        $p = ApiCursorPaginator::emptyPage(25);
 
         $this->assertCount(0, $p->items());
         $this->assertFalse($p->hasPages());
@@ -250,7 +250,7 @@ final class ApiCursorPaginator extends CursorPaginator
     }
 
     /** @param  array<string, mixed>  $options */
-    public static function empty(int $perPage, array $options = []): self
+    public static function emptyPage(int $perPage, array $options = []): self
     {
         return new self([], $perPage, null, null, null, $options);
     }
@@ -1850,13 +1850,13 @@ class Listings extends Page implements HasTable
         try {
             $params = ListingQuery::params($this->viewer(), $filters, $search);
             if ($params === null) {
-                return ApiCursorPaginator::empty(ListingQuery::PER_PAGE, $options);
+                return ApiCursorPaginator::emptyPage(ListingQuery::PER_PAGE, $options);
             }
             $result = app(RealEstateClient::class)->listings($params, $cursor);
         } catch (RealEstateException $e) {
             Notification::make()->danger()->title($e->userMessage())->send();
 
-            return ApiCursorPaginator::empty(ListingQuery::PER_PAGE, $options);
+            return ApiCursorPaginator::emptyPage(ListingQuery::PER_PAGE, $options);
         }
 
         return new ApiCursorPaginator(
