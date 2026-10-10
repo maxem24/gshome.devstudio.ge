@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\CompanyExchange;
 use App\Models\Phone;
 use App\Models\User;
+use App\RealEstate\Exceptions\TooManyPhones;
 use App\RealEstate\ListingQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Support\RealEstateFake;
@@ -66,7 +67,7 @@ class ListingQueryTest extends TestCase
         $this->assertSame('ss_ge', $p['source']);
         $this->assertSame('1', $p['is_owner']);
         $this->assertSame('2026-10-01', $p['created_since']);
-        $this->assertStringStartsWith('2026-10-09T23:59:59', $p['created_until']);
+        $this->assertSame('2026-10-09', $p['created_until']);
         $this->assertSame('-price_usd', $p['sort']);
         $this->assertSame('Ваке', $p['q']);
         $this->assertSame('25', $p['per_page']);
@@ -105,6 +106,36 @@ class ListingQueryTest extends TestCase
 
         $this->assertSame($phone, ListingQuery::params($lead, ['employee' => ['value' => (string) $colleague->id]], null)['phones']);
         $this->assertNull(ListingQuery::params($lead, ['employee' => ['value' => (string) $stranger->id]], null));
+    }
+
+    public function test_garbage_dates_are_ignored(): void
+    {
+        $p = ListingQuery::params(User::factory()->owner()->create(), [
+            'created' => ['from' => '2026-13-45', 'until' => 'garbage'],
+        ], null);
+
+        $this->assertArrayNotHasKey('created_since', $p);
+        $this->assertArrayNotHasKey('created_until', $p);
+    }
+
+    public function test_more_than_500_numbers_is_refused_for_ours(): void
+    {
+        $company = Company::factory()->create();
+        $lead = User::factory()->teamLead($company)->create();
+        Phone::factory()->count(ListingQuery::MAX_PHONES + 1)->create(['company_id' => $company->id]);
+
+        $this->expectException(TooManyPhones::class);
+        ListingQuery::params($lead, ['ownership' => ['value' => 'ours']], null);
+    }
+
+    public function test_more_than_500_numbers_is_refused_for_others(): void
+    {
+        $company = Company::factory()->create();
+        $lead = User::factory()->teamLead($company)->create();
+        Phone::factory()->count(ListingQuery::MAX_PHONES + 1)->create(['company_id' => $company->id]);
+
+        $this->expectException(TooManyPhones::class);
+        ListingQuery::params($lead, ['ownership' => ['value' => 'others']], null);
     }
 
     public function test_ours_without_any_numbers_means_empty_result_without_request(): void

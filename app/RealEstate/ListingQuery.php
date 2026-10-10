@@ -6,7 +6,7 @@ use App\Access\OrgAccess;
 use App\Enums\Direction;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
-use Illuminate\Support\Carbon;
+use App\RealEstate\Exceptions\TooManyPhones;
 
 /**
  * Фильтры экрана → параметры GET /listings. Направление ставит сам по правам
@@ -15,6 +15,9 @@ use Illuminate\Support\Carbon;
 final class ListingQuery
 {
     public const PER_PAGE = 25;
+
+    /** Предел API на phones / exclude_phones. */
+    public const MAX_PHONES = 500;
 
     public const SORTS = [
         'new' => 'Сначала новые',
@@ -53,16 +56,35 @@ final class ListingQuery
         $set('property_type_id', $filters['property_type']['value'] ?? null);
         $set('source', $filters['source']['value'] ?? null);
         $set('is_owner', ($filters['owners_only']['isActive'] ?? false) ? '1' : null);
-        $set('created_since', $filters['created']['from'] ?? null);
-        if (filled($until = $filters['created']['until'] ?? null)) {
-            $p['created_until'] = Carbon::parse($until)->endOfDay()->toIso8601String();
-        }
+        // Даты без времени: API понимает их как весь день в часовом поясе Тбилиси.
+        $set('created_since', self::date($filters['created']['from'] ?? null));
+        $set('created_until', self::date($filters['created']['until'] ?? null));
         $set('sort', self::SORT_PARAMS[$filters['sort']['value'] ?? ''] ?? null);
         if (mb_strlen(trim((string) $search)) >= 2) {
             $p['q'] = trim((string) $search);
         }
 
         return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+    }
+
+    /** Дата из формы «ГГГГ-ММ-ДД»; подделанное или неверное значение молча игнорируется. */
+    private static function date(mixed $value): ?string
+    {
+        if (! is_string($value) || ! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return null;
+        }
+
+        return $value;
+    }
+
+    /** @param  list<string>  $numbers */
+    private static function phoneList(array $numbers): string
+    {
+        if (count($numbers) > self::MAX_PHONES) {
+            throw new TooManyPhones('Real Estate: больше '.self::MAX_PHONES.' номеров в фильтре');
+        }
+
+        return implode(',', $numbers);
     }
 
     /** @param  array<string, mixed>  $filters */
@@ -91,7 +113,7 @@ final class ListingQuery
             if ($numbers === []) {
                 return null;
             }
-            $p['phones'] = implode(',', $numbers);
+            $p['phones'] = self::phoneList($numbers);
         }
 
         $ownership = $filters['ownership']['value'] ?? null;
@@ -101,9 +123,9 @@ final class ListingQuery
                 if ($numbers === []) {
                     return null;
                 }
-                $p['phones'] ??= implode(',', $numbers);
+                $p['phones'] ??= self::phoneList($numbers);
             } elseif ($numbers !== []) {
-                $p['exclude_phones'] = implode(',', $numbers);
+                $p['exclude_phones'] = self::phoneList($numbers);
             }
         }
 
