@@ -42,14 +42,14 @@ API Real Estate — `~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md`
 | `listing(int $id): ?Listing` | `GET /listings/{id}`; `404` → `null` | нет |
 | `dictionary(string $name, array $params = []): Collection` | `GET /dictionaries/{name}` с `lang` | сутки, ключ кеша — имя + параметры + язык |
 
-HTTP: `withToken`, `acceptJson`, таймаут 10 с, `retry(2, 200)` только при сетевой ошибке или
-`5xx`. Проверку TLS не отключать.
+HTTP: `withToken`, `acceptJson`, таймаут 10 с, 2 попытки всего (`retry(2, 200)`) только при сетевой
+ошибке или `500` / `502` / `504`. `503` (`query_timeout`) не повторяем — API просит не слать тот же запрос. Проверку TLS не отключать.
 
 Ошибки → исключения в `App\RealEstate\Exceptions`:
 
 | ответ | исключение | экран |
 |---|---|---|
-| нет связи, `5xx` (после повторов) | `RealEstateUnavailable` | «Real Estate недоступен, попробуйте позже» |
+| нет связи, `500` / `502` / `503` / `504` (после повторов, где они положены) | `RealEstateUnavailable` | «Real Estate недоступен, попробуйте позже» |
 | `401`, `403` | `RealEstateAccessDenied` (+ `Log::error` с кодом ошибки API, без ключа) | «Доступ к Real Estate закрыт — ключ истёк или отозван. Сообщите администратору» |
 | `429` | `RealEstateRateLimited` (`retryAfter` из `Retry-After`) | «Слишком много запросов, повторите через N с» |
 | `422` | `RealEstateBadRequest` (+ `Log::error` с полями) | общий текст ошибки — это баг клиента |
@@ -92,8 +92,8 @@ HTTP: `withToken`, `acceptJson`, таймаут 10 с, `retry(2, 200)` толь�
 номера их групп дублей вместе). `ownership()` переводится на него (один номер = массив из
 одного). Пустой/замаскированный номер → «Другая компания».
 
-Вторая метка — `App\RealEstate\ListingOwnership::groupOwnership(Ownership $own, array
-$clusterPhones, array $resolved): ?Ownership`: если `$own` не «Другая компания» — `null`; иначе
+Вторая метка — `App\RealEstate\ListingRows::groupOwnership(Ownership $own, Listing $listing, array
+$resolved): ?Ownership`: если `$own` не «Другая компания» — `null`; иначе
 лучшая из меток номеров группы (кроме номера самого объявления) по старшинству «Наш сотрудник» →
 «Сотрудник связанной компании» → «Одна из наших компаний»; если все «Другая компания» — `null`.
 
@@ -105,7 +105,7 @@ $clusterPhones, array $resolved): ?Ownership`: если `$own` не «Друга
 **Направление.** Переключатель над таблицей: «Продажа» / «Сдача» / «Все» — только разрешённые
 значения; при одном направлении переключателя нет.
 
-**Вид.** «Сетка» / «Список», состояние в адресе (`?view=grid|list`).
+**Вид.** «Сетка» / «Список», состояние в адресе (`?display=grid|list`; не `?view=` — `$view` занят Filament `Page`).
 
 - **Сетка** (`contentGrid`): фото (главное или первое), цена (продажа — сумма, сдача — «/мес»),
   направление, адрес, комнаты, площадь, тип, метка принадлежности (+ имя, если положено) и, если
@@ -115,7 +115,7 @@ $clusterPhones, array $resolved): ?Ownership`: если `$own` не «Друга
 
 **Фильтры** (над таблицей, состояние в адресе): цена USD от/до; город → район; площадь
 от/до; комнаты (1, 2, 3, 4, 5+, несколько); тип недвижимости; источник (`myhome_ge`, `ss_ge`);
-«только собственники» (`is_owner=1`); дата появления от/до (`created_since`, `created_until`);
+«только собственники» (`is_owner=1`); дата появления от/до (`created_since`, `created_until`, plain `Y-m-d`);
 поиск (`q`, от 2 символов). За выключателем
 `phone_filters`: «сотрудник» (номера выбранного сотрудника → `phones`), «принадлежность»
 («наши» → `phones` = номера видимых смотрящему компаний; «чужие» → `exclude_phones` = все номера
