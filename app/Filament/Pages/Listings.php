@@ -12,13 +12,17 @@ use App\RealEstate\ListingRows;
 use App\RealEstate\Pagination\ApiCursorPaginator;
 use App\RealEstate\RealEstateClient;
 use BackedEnum;
+use Filament\Actions\Action;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
+use Filament\Tables\Columns\ImageColumn;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
@@ -27,6 +31,7 @@ use Filament\Tables\Enums\PaginationMode;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Url;
 
@@ -51,13 +56,19 @@ class Listings extends Page implements HasTable
     #[Url]
     public string $display = 'list';
 
+    /** Вид, для которого собрана текущая таблица (см. render) */
+    private ?string $tableDisplay = null;
+
     public function table(Table $table): Table
     {
+        $this->tableDisplay = $this->display;
+
         return $table
             ->records(fn (array $filters, ?string $search, int|string $page): ApiCursorPaginator => $this->fetch($filters, $search, $page))
             ->paginationMode(PaginationMode::Cursor)
             ->paginated([ListingQuery::PER_PAGE])
-            ->columns($this->listColumns())
+            ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
+            ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
             ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)
             ->filtersFormColumns(4)
             ->emptyStateHeading('Объявлений не найдено')
@@ -90,6 +101,50 @@ class Listings extends Page implements HasTable
             $result->prevCursor,
             $options,
         );
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            Action::make('showGrid')->label('Сетка')->icon(Heroicon::OutlinedSquares2x2)->color('gray')
+                ->visible(fn (): bool => $this->display !== 'grid')
+                ->action(fn () => $this->display = 'grid'),
+            Action::make('showList')->label('Список')->icon(Heroicon::OutlinedListBullet)->color('gray')
+                ->visible(fn (): bool => $this->display === 'grid')
+                ->action(fn () => $this->display = 'list'),
+        ];
+    }
+
+    /**
+     * Колонки задаются при сборке таблицы, а вид из адреса (#[Url]) и кнопки меняются
+     * уже после неё — пересобираем таблицу до рендера, если она собрана для другого вида.
+     */
+    public function render(): View
+    {
+        if ($this->tableDisplay !== $this->display) {
+            $this->table = $this->table($this->makeTable());
+        }
+
+        return parent::render();
+    }
+
+    /** @return array<int, Stack> плитка сетки (ТЗ 4.2) */
+    private function gridColumns(): array
+    {
+        return [
+            Stack::make([
+                TextColumn::make('title')->weight(FontWeight::Bold)->wrap(),
+                ImageColumn::make('image')->label('')->imageHeight(180)->extraImgAttributes(['class' => 'w-full object-cover rounded-lg'])
+                    ->defaultImageUrl(null),
+                TextColumn::make('price')->weight(FontWeight::Bold)->size('lg'),
+                TextColumn::make('direction')->badge(),
+                TextColumn::make('address')->color('gray')->wrap(),
+                TextColumn::make('facts')->wrap(),
+                TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color'])
+                    ->description(fn (array $record): ?string => collect([$record['ownership_company'], $record['ownership_name']])->filter()->implode(' · ') ?: null),
+                TextColumn::make('group_label')->color('success')->size('sm')->wrap(),
+            ])->space(2),
+        ];
     }
 
     /** @return array<int, TextColumn> */

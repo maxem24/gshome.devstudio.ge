@@ -52,6 +52,42 @@ class ListingsPageTest extends TestCase
             ->assertSee('Собственник');
     }
 
+    public function test_grid_and_list_show_the_same_records(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([
+            RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'Первая']]),
+            RealEstateFake::listing(['id' => 2, 'title' => ['ru' => 'Вторая']]),
+        ])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->assertSee('Первая')->assertSee('Вторая')
+            ->callAction('showGrid')
+            ->assertSet('display', 'grid')
+            ->assertSee('Первая')->assertSee('Вторая')
+            ->assertSee('https://re.test/storage/1_t.webp', escape: false);
+    }
+
+    public function test_grid_from_url_renders_grid_columns(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 1])])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['display' => 'grid'])->test(Listings::class)
+            ->assertSet('display', 'grid')
+            ->assertSee('https://re.test/storage/1_t.webp', escape: false);
+    }
+
+    public function test_display_switch_actions(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)
+            ->assertActionVisible('showGrid')->assertActionHidden('showList')
+            ->callAction('showGrid')
+            ->assertActionVisible('showList')->assertActionHidden('showGrid');
+    }
+
     public function test_renting_lead_never_sends_sale_even_with_forged_filter(): void
     {
         RealEstateFake::fake();
