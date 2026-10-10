@@ -6,9 +6,9 @@
  *
  * Запуск (из каталога Real Estate, стек поднят):
  *   cd ~/Sites/real-estate.devstudio.ge
- *   docker compose exec -T app php artisan tinker --execute="$(tail -n +19 ~/Sites/gshome/tools/real-estate-demo-listings.php)"
+ *   docker compose exec -T app php artisan tinker --execute="$(sed '1,/^ \*\//d' ~/Sites/gshome/tools/real-estate-demo-listings.php)"
  *   docker compose exec -T app php artisan listings:cluster
- * (тело скрипта начинается со строки 19)
+ * (sed отрезает этот комментарий — номер строки не важен)
  *
  * Удалить:
  *   docker compose exec -T app php artisan tinker --execute="App\Models\Listing::where('external_id','like','gshome-demo-%')->get()->each->delete();"
