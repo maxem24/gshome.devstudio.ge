@@ -38,7 +38,7 @@ return [
     // API Real Estate (real-estate.devstudio.ge): источник объявлений, с которыми работают сотрудники.
     'real_estate' => [
         'url' => env('REAL_ESTATE_API_URL'),
-        'token' => env('REAL_ESTATE_API_TOKEN'),
+        'key' => env('REAL_ESTATE_API_KEY'),
     ],
 
 ];

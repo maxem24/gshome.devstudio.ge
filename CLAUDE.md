@@ -8,8 +8,10 @@
 получает через API Real Estate, а у себя хранит людей и их работу — компании, команды,
 роли, встречи, заметки, уведомления.
 
-API в Real Estate пока **нет** (только `routes/web.php` и `routes/console.php`) —
-его предстоит спроектировать вместе с клиентом здесь.
+API Real Estate — только чтение, по ключу клиента: `GET /api/v1/me`, `/listings`,
+`/listings/{id}`, `/dictionaries/{name}`. Справочник — `~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md`.
+Настройки — `REAL_ESTATE_API_URL` (`https://real-estate.local/api/v1`) и `REAL_ESTATE_API_KEY`
+в `.env` (ключ в git не класть), в коде — `config('services.real_estate.url|key')`.
 
 Образец оснастки и порядка работы — BigMed (`~/Sites/coda/bigmed.ge`).
 
