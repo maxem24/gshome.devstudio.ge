@@ -5,6 +5,10 @@ tags: [gshome, api, real-estate]
 # Требования GS Home к API Real Estate
 
 Для доработки API в репозитории `maxem24/real-estate.devstudio.ge` (делает отдельная сессия).
+
+**Статус 2026-10-10:** R1–R4, R6, R7 сделаны в ветке `feature/listings-api` Real Estate
+(коммит `c31c987`), на проде ещё нет; R5 — настройка клиента в админке. Дубли — решено двумя
+метками, см. [[02_Решения]].
 Текущий API — `~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md`.
 
 ## Почему нужно
