@@ -301,7 +301,7 @@ Claude-Session: https://claude.ai/code/session_01AqhDHhd8GxYTsuB9uPEghg"
 
 **Interfaces:**
 - Consumes: `Direction` (оргструктура), `PhoneNumber::tryNormalize`.
-- Produces: `Listing::fromApi(array $data, string $locale): Listing`; свойства — см. Step 3; `Listing::direction(): ?Direction`, `Listing::priceLabel(): string`; `SellerCategory` (`Owner|Agency|Agent`, `getLabel()`); `ListingPage` (`listings: list<Listing>`, `nextCursor`, `prevCursor`); `RealEstateFake::configure(bool $phoneFilters = true)`, `::listing(array $overrides = []): array`, `::page(array $listings, ?string $next = null, ?string $prev = null): array`, `::fake(array $pages = [], array $cards = [], ?callable $onList = null): void`, константа `RealEstateFake::URL`.
+- Produces: `Listing::fromApi(array $data, string $locale): Listing`; свойства — см. Step 3; `Listing::direction(): ?Direction`, `Listing::priceLabel(): string`; `SellerCategory` (`Owner|Agency|Agent`, `getLabel()`); `ListingPage` (`listings: list<Listing>`, `nextCursor`, `prevCursor`); `RealEstateFake::configure(bool $phoneFilters = true)`, `::listing(array $overrides = []): array`, `::page(array $listings, ?string $next = null, ?string $prev = null): array`, `::fake(array $pages = [], array $cards = []): void`, константа `RealEstateFake::URL`.
 
 - [ ] **Step 1: Тестовые ответы (помощник для всех тестов)**
 
