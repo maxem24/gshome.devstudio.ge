@@ -36,9 +36,9 @@ class ApiCursorPaginatorTest extends TestCase
         $this->assertTrue($p->hasPages());
     }
 
-    public function test_empty(): void
+    public function test_empty_page(): void
     {
-        $p = ApiCursorPaginator::empty(25);
+        $p = ApiCursorPaginator::emptyPage(25);
 
         $this->assertCount(0, $p->items());
         $this->assertFalse($p->hasPages());

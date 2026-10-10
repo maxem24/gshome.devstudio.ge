@@ -9,6 +9,8 @@ use Illuminate\Pagination\CursorPaginator;
  * Курсорная пагинация поверх API: «вперёд/назад» — курсоры из ответа API, а не
  * вычисленные Laravel по последней строке. Кнопки Filament берут nextCursor()->encode().
  *
+ * Laravel переиндексирует строки (values()), ключи 0..n — id объявления брать из $record['id'], а не из ключа строки.
+ *
  * @extends CursorPaginator<array-key, array<string, mixed>>
  */
 final class ApiCursorPaginator extends CursorPaginator
@@ -29,7 +31,7 @@ final class ApiCursorPaginator extends CursorPaginator
     }
 
     /** @param  array<string, mixed>  $options */
-    public static function empty(int $perPage, array $options = []): self
+    public static function emptyPage(int $perPage, array $options = []): self
     {
         return new self([], $perPage, null, null, null, $options);
     }
