@@ -7,8 +7,10 @@ use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\RealEstateClient;
+use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\RealEstateFake;
@@ -138,6 +140,84 @@ class RealEstateClientTest extends TestCase
             $this->fail('ожидалось исключение');
         } catch (RealEstateUnavailable) {
             Http::assertSentCount(2); // retry(2, ...) = две попытки всего
+        }
+    }
+
+    public function test_after_a_connection_failure_next_calls_make_no_http_request(): void
+    {
+        $attempts = 0;
+        Http::fake(['*' => function () use (&$attempts) {
+            $attempts++;
+
+            throw new ConnectionException('down');
+        }]);
+        $client = $this->client();
+
+        try {
+            $client->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+        }
+        $first = $attempts;
+        $this->assertGreaterThan(0, $first);
+
+        $this->expectException(RealEstateUnavailable::class);
+        try {
+            $client->listings([], null);
+        } finally {
+            $this->assertSame($first, $attempts);
+        }
+    }
+
+    public function test_dictionary_failure_is_remembered_across_instances(): void
+    {
+        Cache::flush();
+        $attempts = 0;
+        Http::fake(['*' => function () use (&$attempts) {
+            $attempts++;
+
+            throw new ConnectionException('down');
+        }]);
+
+        try {
+            $this->client()->dictionary('cities');
+        } catch (RealEstateUnavailable) {
+        }
+        $first = $attempts;
+
+        try {
+            (new RealEstateClient)->dictionary('property-types');
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+            $this->assertSame($first, $attempts);
+        }
+    }
+
+    public function test_retry_after_may_be_an_http_date(): void
+    {
+        $this->travelTo(Carbon::parse('Sat, 10 Oct 2026 12:00:00 GMT'));
+        Http::fake(['*' => Http::response([], 429, ['Retry-After' => 'Sat, 10 Oct 2026 12:01:30 GMT'])]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateRateLimited $e) {
+            $this->assertSame(90, $e->retryAfter);
+        }
+    }
+
+    public function test_retry_after_is_never_zero(): void
+    {
+        foreach (['0', 'garbage', 'Mon, 01 Jan 2001 00:00:00 GMT'] as $value) {
+            Http::fake(['*' => Http::response([], 429, ['Retry-After' => $value])]);
+            $this->app->forgetInstance(RealEstateClient::class);
+
+            try {
+                $this->client()->listings([], null);
+                $this->fail('ожидалось исключение');
+            } catch (RealEstateRateLimited $e) {
+                $this->assertGreaterThanOrEqual(1, $e->retryAfter, $value);
+            }
         }
     }
 }

@@ -6,6 +6,7 @@ use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
+use Carbon\Carbon;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -24,6 +25,14 @@ use Illuminate\Support\Facades\Log;
 class RealEstateClient
 {
     private const DICTIONARY_TTL = 86400;
+
+    /** Сколько секунд после обрыва связи не ходить в API вовсе (общий маркер для всех запросов). */
+    private const DOWN_TTL = 30;
+
+    private const DOWN_KEY = 'real-estate:down';
+
+    /** Связь уже оборвалась в этом запросе — остальные вызовы падают сразу, без новых таймаутов. */
+    private bool $down = false;
 
     /** @param  array<string, string>  $params */
     public function listings(array $params, ?string $cursor): ListingPage
@@ -76,9 +85,15 @@ class RealEstateClient
     /** @param  array<string, scalar>  $query */
     private function get(string $path, array $query, bool $allowNotFound = false): ?Response
     {
+        if ($this->down || Cache::has(self::DOWN_KEY)) {
+            throw new RealEstateUnavailable('Real Estate: нет связи (недавний сбой)');
+        }
+
         try {
             $response = $this->http()->get($path, $query);
         } catch (ConnectionException) {
+            $this->markDown();
+
             throw new RealEstateUnavailable('Real Estate: нет связи');
         } catch (RequestException $e) {
             $response = $e->response;
@@ -91,10 +106,40 @@ class RealEstateClient
         return match (true) {
             $response->successful() => $response,
             in_array($response->status(), [401, 403], true) => $this->denied($response),
-            $response->status() === 429 => throw new RealEstateRateLimited((int) ($response->header('Retry-After') ?: 60)),
+            $response->status() === 429 => throw new RealEstateRateLimited(self::retryAfter($response->header('Retry-After'))),
             $response->status() === 422 => $this->badRequest($path, $response),
-            default => throw new RealEstateUnavailable("Real Estate: HTTP {$response->status()}"),
+            default => $this->unavailable($response),
         };
+    }
+
+    private function markDown(): void
+    {
+        $this->down = true;
+        Cache::put(self::DOWN_KEY, true, self::DOWN_TTL);
+    }
+
+    /** 503 (query_timeout) — беда одного тяжёлого запроса, не всего API: остальные вызовы не блокируем. */
+    private function unavailable(Response $response): never
+    {
+        if ($response->status() !== 503) {
+            $this->markDown();
+        }
+
+        throw new RealEstateUnavailable("Real Estate: HTTP {$response->status()}");
+    }
+
+    /** Retry-After — секунды или HTTP-дата; всегда ≥ 1, при мусоре 60. */
+    private static function retryAfter(string $header): int
+    {
+        $header = trim($header);
+        if (ctype_digit($header)) {
+            return max(1, (int) $header);
+        }
+        try {
+            return $header === '' ? 60 : max(1, (int) ceil(now()->diffInSeconds(Carbon::parse($header), false)));
+        } catch (\Throwable) {
+            return 60;
+        }
     }
 
     private function denied(Response $response): never
@@ -117,8 +162,10 @@ class RealEstateClient
         return Http::baseUrl((string) config('services.real_estate.url'))
             ->withToken((string) config('services.real_estate.key'))
             ->acceptJson()
+            ->connectTimeout(3)
             ->timeout(10)
-            // 503 = query_timeout: API просит не повторять тот же запрос (3 попытки по 10 с вешают страницу на 30 с).
+            // 503 = query_timeout: API просит не повторять тот же запрос. Две попытки по 10 с — предел ~20 с на вызов,
+            // а после первого обрыва остальные вызовы запроса не ходят в сеть (см. $down).
             ->retry(2, 200, fn (\Throwable $e): bool => $e instanceof ConnectionException
                 || ($e instanceof RequestException && in_array($e->response->status(), [500, 502, 504], true)), throw: false);
     }
