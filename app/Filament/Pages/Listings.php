@@ -67,6 +67,7 @@ class Listings extends Page implements HasTable
             ->records(fn (array $filters, ?string $search, int|string $page): ApiCursorPaginator => $this->fetch($filters, $search, $page))
             ->paginationMode(PaginationMode::Cursor)
             ->paginated([ListingQuery::PER_PAGE])
+            ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
             ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
             ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)

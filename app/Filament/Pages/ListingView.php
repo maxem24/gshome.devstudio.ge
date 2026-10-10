@@ -1,0 +1,133 @@
+<?php
+
+namespace App\Filament\Pages;
+
+use App\Access\OrgAccess;
+use App\Access\Ownership;
+use App\Enums\Direction;
+use App\Models\User;
+use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\ListingRows;
+use App\RealEstate\RealEstateClient;
+use Filament\Actions\Action;
+use Filament\Pages\Page;
+use Filament\Panel;
+use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Facades\Auth;
+
+/** Карточка объекта (ТЗ 4.4). Чужое направление, посуточно, залог, снятое — 404. */
+class ListingView extends Page
+{
+    protected string $view = 'filament.pages.listing-view';
+
+    protected static bool $shouldRegisterNavigation = false;
+
+    protected static ?string $slug = 'listing';
+
+    /** @var array<string, mixed> */
+    public array $card = [];
+
+    public ?string $error = null;
+
+    public static function getRoutePath(Panel $panel): string
+    {
+        return '/listings/{listing}';
+    }
+
+    public function mount(int|string $listing): void
+    {
+        $viewer = $this->viewer();
+
+        try {
+            $l = app(RealEstateClient::class)->listing((int) $listing);
+        } catch (RealEstateException $e) {
+            $this->error = $e->userMessage();
+
+            return;
+        }
+
+        $direction = $l?->direction();
+        abort_if($l === null || $direction === null || ! in_array($direction, OrgAccess::directions($viewer), true), 404);
+
+        $numbers = [$l->contactPhoneE164, ...$l->clusterPhonesE164, ...array_column($l->clusterListings, 'phone_e164')];
+        $resolved = OrgAccess::ownershipMany($viewer, $numbers);
+        $own = $l->contactPhoneE164 !== null ? ($resolved[$l->contactPhoneE164] ?? Ownership::other()) : Ownership::other();
+        $group = ListingRows::groupOwnership($own, $l, $resolved);
+        $toArray = fn (?Ownership $o): ?array => $o === null ? null : [
+            'label' => $o->label->getLabel(), 'color' => ListingRows::color($o->label),
+            'company' => $o->companyName, 'name' => $o->contactName, 'phone' => $o->contactPhone,
+            'can_contact' => $o->contactPhone !== null,
+        ];
+
+        $this->card = [
+            'id' => $l->id,
+            'title' => $l->title ?? '—',
+            'direction' => $direction->getLabel(),
+            'price' => $l->priceLabel(),
+            'price_gel' => $l->priceGel !== null && $direction === Direction::Sale ? number_format($l->priceGel, 0, '.', ' ').' ₾' : null,
+            'negotiable' => $l->negotiable,
+            'facts' => $l->facts(),
+            'address' => $l->address,
+            'district' => collect([$l->city, $l->district])->filter()->implode(', '),
+            'map' => $l->lat !== null && $l->lng !== null ? "https://maps.google.com/?q={$l->lat},{$l->lng}" : null,
+            'description' => $l->description,
+            'images' => $l->images,
+            'amenities' => $l->amenities,
+            'subway' => $l->subwayStations,
+            'seller' => $l->sellerCategory->getLabel().($l->agencyName ? " · {$l->agencyName}" : ''),
+            'contact_name' => $l->contactName,
+            'contact_phone' => $l->contactPhone,
+            'viber' => $l->hasViber,
+            'whatsapp' => $l->hasWhatsapp,
+            'source' => $l->source === 'myhome_ge' ? 'myhome.ge' : 'ss.ge',
+            'source_url' => $l->sourceUrl,
+            'created_at' => $l->sourceCreatedAt?->format('d.m.Y'),
+            'own' => $toArray($own),
+            'group' => $toArray($group),
+            'cluster' => array_map(fn (array $m): array => [
+                'source' => $m['source'] === 'myhome_ge' ? 'myhome.ge' : 'ss.ge',
+                'source_url' => $m['source_url'],
+                'seller' => $m['seller_category']->getLabel().($m['agency_name'] ? " · {$m['agency_name']}" : ''),
+                'price' => $m['price_usd'] !== null ? '$'.number_format($m['price_usd'], 0, '.', ' ') : '—',
+                'ownership' => $toArray($m['phone_e164'] !== null ? ($resolved[$m['phone_e164']] ?? Ownership::other()) : Ownership::other()),
+            ], $l->clusterListings),
+        ];
+    }
+
+    public function getTitle(): string
+    {
+        return $this->card['title'] ?? 'Объект';
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [
+            $this->contactAction('contactOwn', 'own'),
+            $this->contactAction('contactGroup', 'group', 'Связаться (группа)'),
+            Action::make('source')->label('Исходное объявление')->icon(Heroicon::OutlinedArrowTopRightOnSquare)->color('gray')
+                ->url(fn (): ?string => $this->card['source_url'] ?? null, shouldOpenInNewTab: true)
+                ->visible(fn (): bool => isset($this->card['source_url'])),
+        ];
+    }
+
+    private function contactAction(string $name, string $key, string $label = 'Связаться'): Action
+    {
+        return Action::make($name)
+            ->label($label)
+            ->icon(Heroicon::OutlinedPhone)
+            ->visible(fn (): bool => (bool) ($this->card[$key]['can_contact'] ?? false))
+            ->modalHeading(fn (): string => (string) ($this->card[$key]['name'] ?? $this->card[$key]['company'] ?? 'Контакт'))
+            ->modalDescription(fn (): string => (string) ($this->card[$key]['company'] ?? ''))
+            ->modalContent(fn () => view('filament.pages.partials.contact', ['phone' => $this->card[$key]['phone'] ?? null]))
+            ->modalSubmitAction(false)
+            ->modalCancelActionLabel('Закрыть');
+    }
+
+    private function viewer(): User
+    {
+        $user = Auth::user();
+        abort_unless($user instanceof User, 403);
+
+        return $user;
+    }
+}

@@ -171,4 +171,12 @@ class ListingsPageTest extends TestCase
         $component->call('setPage', 'NEXT2', 'page')->searchTable('Ваке');
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['q'] ?? null) === 'Ваке' && ! isset($this->apiQuery($r)['cursor']));
     }
+
+    public function test_row_links_to_card(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing()])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->assertSee('/admin/listings/13', escape: false);
+    }
 }
