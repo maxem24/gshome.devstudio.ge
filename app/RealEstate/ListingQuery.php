@@ -27,6 +27,9 @@ final class ListingQuery
         'area_desc' => 'Площадь: по убыванию',
     ];
 
+    /** Допустимые значения фильтра «Комнаты» — всё прочее из адреса отбрасывается. */
+    private const ROOMS = ['1', '2', '3', '4', '5+'];
+
     private const SORT_PARAMS = [
         'new' => '-updated_at', 'price_asc' => 'price_usd', 'price_desc' => '-price_usd',
         'area_asc' => 'area_total', 'area_desc' => '-area_total',
@@ -46,25 +49,55 @@ final class ListingQuery
                 $p[$key] = (string) $value;
             }
         };
-        $set('price_usd_min', $filters['price']['min'] ?? null);
-        $set('price_usd_max', $filters['price']['max'] ?? null);
-        $set('city_id', $filters['location']['city_id'] ?? null);
-        $set('district_id', $filters['location']['district_id'] ?? null);
-        $set('area_min', $filters['area']['min'] ?? null);
-        $set('area_max', $filters['area']['max'] ?? null);
-        $set('rooms', implode(',', $filters['rooms']['values'] ?? []));
-        $set('property_type_id', $filters['property_type']['value'] ?? null);
-        $set('source', $filters['source']['value'] ?? null);
-        $set('is_owner', ($filters['owners_only']['isActive'] ?? false) ? '1' : null);
+        $set('price_usd_min', self::scalar($filters, 'price', 'min'));
+        $set('price_usd_max', self::scalar($filters, 'price', 'max'));
+        $set('city_id', self::scalar($filters, 'location', 'city_id'));
+        $set('district_id', self::scalar($filters, 'location', 'district_id'));
+        $set('area_min', self::scalar($filters, 'area', 'min'));
+        $set('area_max', self::scalar($filters, 'area', 'max'));
+        $set('rooms', implode(',', self::rooms($filters)));
+        $set('property_type_id', self::scalar($filters, 'property_type', 'value'));
+        $set('source', self::scalar($filters, 'source', 'value'));
+        $set('is_owner', self::scalar($filters, 'owners_only', 'isActive') ? '1' : null);
         // Даты без времени: API понимает их как весь день в часовом поясе Тбилиси.
-        $set('created_since', self::date($filters['created']['from'] ?? null));
-        $set('created_until', self::date($filters['created']['until'] ?? null));
-        $set('sort', self::SORT_PARAMS[$filters['sort']['value'] ?? ''] ?? null);
+        $set('created_since', self::date(self::scalar($filters, 'created', 'from')));
+        $set('created_until', self::date(self::scalar($filters, 'created', 'until')));
+        $set('sort', self::SORT_PARAMS[self::scalar($filters, 'sort', 'value') ?? ''] ?? null);
         if (mb_strlen(trim((string) $search)) >= 2) {
             $p['q'] = trim((string) $search);
         }
 
         return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+    }
+
+    /**
+     * Скалярное значение фильтра `$group.$key` строкой. Фильтры приходят из адреса (?filters[…]),
+     * поэтому массив или чужая форма вместо скаляра — не ошибка, а «фильтр не задан».
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    private static function scalar(array $filters, string $group, string $key): ?string
+    {
+        $value = is_array($filters[$group] ?? null) ? ($filters[$group][$key] ?? null) : null;
+
+        return match (true) {
+            is_bool($value) => $value ? '1' : null,
+            is_string($value), is_int($value), is_float($value) => (string) $value,
+            default => null,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return list<string>
+     */
+    private static function rooms(array $filters): array
+    {
+        $values = is_array($filters['rooms'] ?? null) ? ($filters['rooms']['values'] ?? null) : null;
+
+        return is_array($values)
+            ? array_values(array_filter(array_unique(array_filter($values, 'is_string')), fn (string $v): bool => in_array($v, self::ROOMS, true)))
+            : [];
     }
 
     /** Дата из формы «ГГГГ-ММ-ДД»; подделанное или неверное значение молча игнорируется. */
@@ -91,7 +124,7 @@ final class ListingQuery
     private static function dealTypes(User $viewer, array $filters, RealEstateClient $client): string
     {
         $allowed = OrgAccess::directions($viewer);
-        $chosen = Direction::tryFrom((string) ($filters['direction']['value'] ?? ''));
+        $chosen = Direction::tryFrom(self::scalar($filters, 'direction', 'value') ?? '');
         $directions = $chosen !== null && in_array($chosen, $allowed, true) ? [$chosen] : $allowed;
         $ids = $client->dealTypeIds();
 
@@ -107,7 +140,7 @@ final class ListingQuery
      */
     private static function phoneFilters(User $viewer, array $filters, array $p): ?array
     {
-        if (filled($employeeId = $filters['employee']['value'] ?? null)) {
+        if (filled($employeeId = self::scalar($filters, 'employee', 'value'))) {
             $employee = User::query()->with('phones')->whereIn('company_id', OrgAccess::identifiableCompanyIds($viewer))->find($employeeId);
             $numbers = $employee?->phones->pluck('number')->all() ?? [];
             if ($numbers === []) {
@@ -116,7 +149,7 @@ final class ListingQuery
             $p['phones'] = self::phoneList($numbers);
         }
 
-        $ownership = $filters['ownership']['value'] ?? null;
+        $ownership = self::scalar($filters, 'ownership', 'value');
         if ($ownership === 'ours' || $ownership === 'others') {
             $numbers = OrgAccess::identifiablePhones($viewer);
             if ($ownership === 'ours') {

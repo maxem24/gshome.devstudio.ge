@@ -179,4 +179,70 @@ class ListingsPageTest extends TestCase
 
         Livewire::test(Listings::class)->assertSee('/admin/listings/13', escape: false);
     }
+
+    public function test_filters_and_search_come_from_the_url(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['filters' => ['rooms' => ['values' => ['2', '3']]], 'search' => 'Ваке'])->test(Listings::class)
+            ->assertSet('tableFilters.rooms.values', ['2', '3'])
+            ->assertSet('tableSearch', 'Ваке');
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?')
+            && ($this->apiQuery($r)['rooms'] ?? null) === '2,3' && ($this->apiQuery($r)['q'] ?? null) === 'Ваке');
+    }
+
+    public function test_garbage_in_url_filters_does_not_break_the_page(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        foreach ([
+            'filters[rooms][values]=x',
+            'filters[rooms]=x',
+            'filters[price]=x',
+            'filters[price][min][]=1',
+            'filters[direction][value][]=sale',
+            'filters[location][city_id][]=1',
+            'filters[owners_only]=1',
+            'filters[created][from][]=x',
+            'filters[created][from]=not-a-date',
+            'filters[rooms][values][]=x&filters[rooms][values][1][]=y',
+        ] as $query) {
+            $this->get('/admin/listings?'.$query)->assertOk();
+        }
+    }
+
+    public function test_search_box_is_available_in_grid_view(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['display' => 'grid'])->test(Listings::class)
+            ->assertSeeHtml('wire:model.live.debounce.500ms="tableSearch"')
+            ->searchTable('Ваке')
+            ->assertSet('tableSearch', 'Ваке')
+            ->searchTable('')
+            ->assertSet('tableSearch', '');
+    }
+
+    public function test_changing_city_resets_district(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)
+            ->set('tableFilters.location.district_id', '3')
+            ->set('tableFilters.location.city_id', '1')
+            ->assertSet('tableFilters.location.district_id', null);
+    }
+
+    public function test_sort_filter_explains_hidden_listings(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->assertSee('При сортировке по цене или площади объявления без них не показываются');
+    }
 }

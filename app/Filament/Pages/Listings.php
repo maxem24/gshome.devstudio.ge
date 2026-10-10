@@ -19,6 +19,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\ImageColumn;
@@ -56,8 +57,43 @@ class Listings extends Page implements HasTable
     #[Url]
     public string $display = 'list';
 
+    /** Фильтры и поиск живут в адресе: «назад» из карточки возвращает к тем же результатам. */
+    #[Url(as: 'filters')]
+    public ?array $tableFilters = null;
+
+    #[Url(as: 'search')]
+    public $tableSearch = '';
+
     /** Вид, для которого собрана текущая таблица (см. render) */
     private ?string $tableDisplay = null;
+
+    /**
+     * Фильтры из адреса приходят от кого угодно: формы Filament падают на массиве там, где ждут
+     * строку. Оставляем форму «группа → скаляры» (и список строк в `values`), остальное выбрасываем.
+     */
+    public function mount(): void
+    {
+        $clean = [];
+        foreach ($this->tableFilters ?? [] as $name => $group) {
+            if (! is_array($group)) {
+                continue;
+            }
+            foreach ($group as $key => $value) {
+                if ($key === 'values' && is_array($value)) {
+                    $clean[$name][$key] = array_values(array_filter($value, 'is_string'));
+                } elseif (is_scalar($value) || $value === null) {
+                    $clean[$name][$key] = $value;
+                }
+            }
+        }
+        $this->tableFilters = $clean === [] ? null : $clean;
+    }
+
+    /** Район принадлежит городу: другой город — район сбрасывается (и в форме, и при правке состояния напрямую). */
+    public function updatedTableFiltersLocationCityId(): void
+    {
+        data_set($this->tableFilters, 'location.district_id', null);
+    }
 
     public function table(Table $table): Table
     {
@@ -66,6 +102,7 @@ class Listings extends Page implements HasTable
         return $table
             ->records(fn (array $filters, ?string $search, int|string $page): ApiCursorPaginator => $this->fetch($filters, $search, $page))
             ->paginationMode(PaginationMode::Cursor)
+            ->searchable()
             ->paginated([ListingQuery::PER_PAGE])
             ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
@@ -77,7 +114,7 @@ class Listings extends Page implements HasTable
     }
 
     /** @param  array<string, mixed>  $filters */
-    public function fetch(array $filters, ?string $search, int|string $page): ApiCursorPaginator
+    protected function fetch(array $filters, ?string $search, int|string $page): ApiCursorPaginator
     {
         $options = ['path' => request()->url(), 'cursorName' => $this->getTablePaginationPageName()];
         $cursor = is_string($page) && ! ctype_digit($page) ? $page : null;
@@ -152,7 +189,7 @@ class Listings extends Page implements HasTable
     private function listColumns(): array
     {
         return [
-            TextColumn::make('title')->label('Объект')->description(fn (array $record): ?string => $record['address'])->wrap()->searchable(),
+            TextColumn::make('title')->label('Объект')->description(fn (array $record): ?string => $record['address'])->wrap(),
             TextColumn::make('price')->label('Цена'),
             TextColumn::make('direction')->label('Направление')->badge(),
             TextColumn::make('facts')->label('Параметры')->wrap(),
@@ -186,7 +223,8 @@ class Listings extends Page implements HasTable
                 TextInput::make('max')->label('Цена до, $')->numeric(),
             ])->columns(2),
             Filter::make('location')->schema([
-                Select::make('city_id')->label('Город')->options(fn (): array => $dictionary('cities'))->searchable()->live(),
+                Select::make('city_id')->label('Город')->options(fn (): array => $dictionary('cities'))->searchable()->live()
+                    ->afterStateUpdated(fn (Set $set) => $set('district_id', null)),
                 Select::make('district_id')->label('Район')
                     ->options(fn (Get $get): array => filled($get('city_id')) ? $dictionary('districts', ['city_id' => (int) $get('city_id')]) : [])
                     ->searchable(),
@@ -204,7 +242,8 @@ class Listings extends Page implements HasTable
                 DatePicker::make('from')->label('Появилось с'),
                 DatePicker::make('until')->label('Появилось по'),
             ])->columns(2),
-            SelectFilter::make('sort')->label('Сортировка')->options(ListingQuery::SORTS)->placeholder('Сначала новые'),
+            SelectFilter::make('sort')->label('Сортировка')->options(ListingQuery::SORTS)->placeholder('Сначала новые')
+                ->modifyFormFieldUsing(fn (Select $field): Select => $field->helperText('При сортировке по цене или площади объявления без них не показываются')),
             SelectFilter::make('ownership')->label('Принадлежность')
                 ->options(['ours' => 'Наши (видимые мне)', 'others' => 'Другие компании'])
                 ->visible($client->phoneFiltersEnabled()),

@@ -154,4 +154,38 @@ class ListingQueryTest extends TestCase
         $p = ListingQuery::params($lead, ['ownership' => ['value' => 'ours']], null);
         $this->assertArrayNotHasKey('phones', $p);
     }
+
+    public function test_garbage_filter_values_are_ignored_without_errors(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, [
+            'rooms' => ['values' => 'x'],
+            'price' => 'x',
+            'area' => ['min' => ['1'], 'max' => ['2']],
+            'location' => ['city_id' => ['1'], 'district_id' => ['2']],
+            'direction' => ['value' => ['sale']],
+            'created' => ['from' => ['x'], 'until' => 5],
+            'sort' => ['value' => ['price_desc']],
+            'source' => ['value' => ['ss_ge']],
+            'property_type' => 'x',
+            'employee' => ['value' => ['1']],
+            'ownership' => ['value' => ['ours']],
+        ], null);
+
+        $this->assertIsArray($p);
+        foreach (['rooms', 'price_usd_min', 'area_min', 'area_max', 'city_id', 'district_id', 'created_since', 'created_until', 'sort', 'source', 'property_type_id'] as $key) {
+            $this->assertArrayNotHasKey($key, $p, $key);
+        }
+    }
+
+    public function test_rooms_only_from_the_known_list(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, ['rooms' => ['values' => ['2', 'abc', '99', ['3'], '5+']]], null);
+
+        $this->assertSame('2,5+', $p['rooms']);
+        $this->assertArrayNotHasKey('rooms', ListingQuery::params($owner, ['rooms' => ['values' => ['abc']]], null));
+    }
 }
