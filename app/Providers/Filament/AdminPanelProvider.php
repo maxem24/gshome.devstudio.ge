@@ -32,6 +32,8 @@ class AdminPanelProvider extends PanelProvider
             ->login(Login::class)
             // Таблицы людей и номеров широкие: без этого действия уезжали за прокрутку.
             ->maxContentWidth(Width::Full)
+            // Свои классы Tailwind в видах карточки и сетки: без темы их нет в CSS панели.
+            ->viteTheme('resources/css/filament/admin/theme.css')
             ->colors([
                 'primary' => Color::Amber,
             ])
