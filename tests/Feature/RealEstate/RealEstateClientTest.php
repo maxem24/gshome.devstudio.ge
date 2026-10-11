@@ -193,6 +193,152 @@ class RealEstateClientTest extends TestCase
         }
     }
 
+    /** @return array<array-key, array{int}> */
+    public static function requestFaults(): array
+    {
+        return ['500' => [500], '503' => [503], '400' => [400], '404' => [404], '414' => [414]];
+    }
+
+    /** 500 и 4xx — беда одного запроса: следующий вызов (в т.ч. из нового экземпляра клиента) идёт в сеть. */
+    #[DataProvider('requestFaults')]
+    public function test_request_fault_does_not_block_other_calls(int $status): void
+    {
+        Cache::flush();
+        Http::fake(['*' => Http::response(['error' => ['code' => 'x']], $status)]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable|RealEstateBadRequest) {
+        }
+        $this->assertFalse(Cache::has('real-estate:down'));
+        $sent = count(Http::recorded());
+
+        try {
+            (new RealEstateClient)->listings([], null);
+        } catch (RealEstateUnavailable|RealEstateBadRequest) {
+        }
+        $this->assertGreaterThan($sent, count(Http::recorded()));
+    }
+
+    public function test_500_is_retried_once_then_unavailable(): void
+    {
+        Http::fake(['*' => Http::response([], 500)]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+            Http::assertSentCount(2);
+        }
+    }
+
+    public function test_unexpected_4xx_is_bad_request(): void
+    {
+        Http::fake(['*' => Http::response([], 400)]);
+
+        $this->expectException(RealEstateBadRequest::class);
+        $this->client()->listings([], null);
+    }
+
+    #[DataProvider('gatewayFaults')]
+    public function test_gateway_fault_blocks_other_calls_for_everyone(int $status): void
+    {
+        Cache::flush();
+        Http::fake(['*' => Http::response([], $status)]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+        }
+        $this->assertTrue(Cache::has('real-estate:down'));
+        $sent = count(Http::recorded());
+
+        try {
+            (new RealEstateClient)->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+            $this->assertSame($sent, count(Http::recorded()));
+        }
+    }
+
+    /** @return array<array-key, array{int}> */
+    public static function gatewayFaults(): array
+    {
+        return ['502' => [502], '504' => [504]];
+    }
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function brokenBodies(): array
+    {
+        return [
+            'data null' => [['data' => null]],
+            'data string' => [['data' => 'x']],
+            'empty' => [[]],
+            'item without id' => [['data' => [['source' => 'ss_ge']]]],
+            'item not an array' => [['data' => ['x']]],
+        ];
+    }
+
+    /** Отдельный случай на каждое тело: Http::fake копит подмены, и побеждает первая. */
+    #[DataProvider('brokenBodies')]
+    public function test_broken_list_body_is_unavailable_not_a_type_error(array $body): void
+    {
+        Http::fake(['*' => Http::response($body)]);
+
+        $this->expectException(RealEstateUnavailable::class);
+        $this->client()->listings([], null);
+    }
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function brokenCards(): array
+    {
+        return [
+            'data null' => [['data' => null]],
+            'only id' => [['data' => ['id' => 5]]],
+            'bad date' => [['data' => ['id' => 5, 'source' => 'ss_ge', 'source_created_at' => 'not a date']]],
+            'images not arrays' => [['data' => ['id' => 5, 'source' => 'ss_ge', 'images' => ['x']]]],
+        ];
+    }
+
+    #[DataProvider('brokenCards')]
+    public function test_broken_card_body_is_unavailable_not_a_type_error(array $body): void
+    {
+        Http::fake(['*' => Http::response($body)]);
+
+        $this->expectException(RealEstateUnavailable::class);
+        $this->client()->listing(5);
+    }
+
+    public function test_garbage_phones_in_cluster_are_dropped(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['cluster' => [
+            'listings_count' => 2, 'phones_e164' => [null, 5, '+995555000111'], 'listings' => [],
+        ]])]);
+
+        $this->assertSame(['+995555000111'], $this->client()->listing(13)?->clusterPhonesE164);
+    }
+
+    public function test_empty_dictionary_is_not_cached(): void
+    {
+        Cache::flush();
+        Http::fake(['*' => Http::response(['data' => []])]);
+
+        foreach ([1, 2] as $_) {
+            try {
+                $this->client()->dictionary('cities');
+                $this->fail('ожидалось исключение');
+            } catch (RealEstateUnavailable) {
+            }
+        }
+        Http::assertSentCount(2);
+
+        Http::fake(['*' => Http::response([])]);
+        $this->expectException(RealEstateUnavailable::class);
+        $this->client()->dictionary('cities');
+    }
+
     public function test_retry_after_may_be_an_http_date(): void
     {
         $this->travelTo(Carbon::parse('Sat, 10 Oct 2026 12:00:00 GMT'));

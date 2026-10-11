@@ -30,6 +30,9 @@ final class ListingQuery
     /** Допустимые значения фильтра «Комнаты» — всё прочее из адреса отбрасывается. */
     private const ROOMS = ['1', '2', '3', '4', '5+'];
 
+    /** Допустимые значения фильтра «Источник». */
+    private const SOURCES = ['myhome_ge', 'ss_ge'];
+
     private const SORT_PARAMS = [
         'new' => '-updated_at', 'price_asc' => 'price_usd', 'price_desc' => '-price_usd',
         'area_asc' => 'area_total', 'area_desc' => '-area_total',
@@ -49,15 +52,15 @@ final class ListingQuery
                 $p[$key] = (string) $value;
             }
         };
-        $set('price_usd_min', self::scalar($filters, 'price', 'min'));
-        $set('price_usd_max', self::scalar($filters, 'price', 'max'));
-        $set('city_id', self::scalar($filters, 'location', 'city_id'));
-        $set('district_id', self::scalar($filters, 'location', 'district_id'));
-        $set('area_min', self::scalar($filters, 'area', 'min'));
-        $set('area_max', self::scalar($filters, 'area', 'max'));
+        $set('price_usd_min', self::number(self::scalar($filters, 'price', 'min')));
+        $set('price_usd_max', self::number(self::scalar($filters, 'price', 'max')));
+        $set('city_id', self::id(self::scalar($filters, 'location', 'city_id')));
+        $set('district_id', self::id(self::scalar($filters, 'location', 'district_id')));
+        $set('area_min', self::number(self::scalar($filters, 'area', 'min')));
+        $set('area_max', self::number(self::scalar($filters, 'area', 'max')));
         $set('rooms', implode(',', self::rooms($filters)));
-        $set('property_type_id', self::scalar($filters, 'property_type', 'value'));
-        $set('source', self::scalar($filters, 'source', 'value'));
+        $set('property_type_id', self::id(self::scalar($filters, 'property_type', 'value')));
+        $set('source', in_array($source = self::scalar($filters, 'source', 'value'), self::SOURCES, true) ? $source : null);
         $set('is_owner', self::scalar($filters, 'owners_only', 'isActive') ? '1' : null);
         // Даты без времени: API понимает их как весь день в часовом поясе Тбилиси.
         $set('created_since', self::date(self::scalar($filters, 'created', 'from')));
@@ -85,6 +88,18 @@ final class ListingQuery
             is_string($value), is_int($value), is_float($value) => (string) $value,
             default => null,
         };
+    }
+
+    /** Идентификатор — только цифры (и влезающий в bigint), иначе «фильтр не задан»: API ответил бы 422, PostgreSQL — ошибкой типа. */
+    private static function id(?string $value): ?string
+    {
+        return $value !== null && ctype_digit($value) && strlen($value) <= 18 ? $value : null;
+    }
+
+    /** Число не меньше нуля, иначе «фильтр не задан». */
+    private static function number(?string $value): ?string
+    {
+        return $value !== null && is_numeric($value) && (float) $value >= 0 && is_finite((float) $value) ? $value : null;
     }
 
     /**
@@ -140,7 +155,7 @@ final class ListingQuery
      */
     private static function phoneFilters(User $viewer, array $filters, array $p): ?array
     {
-        if (filled($employeeId = self::scalar($filters, 'employee', 'value'))) {
+        if (($employeeId = self::id(self::scalar($filters, 'employee', 'value'))) !== null) {
             $employee = User::query()->with('phones')->whereIn('company_id', OrgAccess::identifiableCompanyIds($viewer))->find($employeeId);
             $numbers = $employee?->phones->pluck('number')->all() ?? [];
             if ($numbers === []) {

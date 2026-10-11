@@ -104,6 +104,25 @@ class ListingViewTest extends TestCase
         $this->get('/admin/listings/999')->assertNotFound();
     }
 
+    public function test_garbage_id_is_404_without_api_request(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        foreach (['-5', 'abc', '0', '1.5'] as $id) {
+            $this->get('/admin/listings/'.$id)->assertNotFound();
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_response_without_data_renders_message_not_500(): void
+    {
+        Http::fake(['*/dictionaries/*' => Http::response(['data' => RealEstateFake::dealTypes()]), '*' => Http::response(['data' => null])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
+    }
+
     public function test_card_state_is_locked(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);

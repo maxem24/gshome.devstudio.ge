@@ -57,6 +57,9 @@ final readonly class Listing
     /** @param  array<string, mixed>  $d */
     public static function fromApi(array $d, string $locale): self
     {
+        if (! isset($d['id'], $d['source'])) {
+            throw new \UnexpectedValueException('в объявлении нет id или source');
+        }
         $text = fn (?array $t): ?string => ($t[$locale] ?? null) ?: ($t['ka'] ?? null);
         $phone = $d['contact']['phone'] ?? null;
         $cluster = $d['cluster'] ?? null;
@@ -95,12 +98,12 @@ final readonly class Listing
             contactName: $d['contact']['name'] ?? null,
             contactPhone: $phone,
             contactPhoneE164: array_key_exists('phone_e164', $d['contact'] ?? [])
-                ? $d['contact']['phone_e164']
+                ? (is_string($d['contact']['phone_e164']) ? $d['contact']['phone_e164'] : null)
                 : PhoneNumber::tryNormalize($phone),
             hasViber: (bool) ($d['contact']['has_viber'] ?? false),
             hasWhatsapp: (bool) ($d['contact']['has_whatsapp'] ?? false),
             clusterListingsCount: (int) ($cluster['listings_count'] ?? 1),
-            clusterPhonesE164: array_values($cluster['phones_e164'] ?? []),
+            clusterPhonesE164: array_values(array_filter(is_array($cluster['phones_e164'] ?? null) ? $cluster['phones_e164'] : [], 'is_string')),
             clusterListings: array_values(array_map(fn (array $m): array => [
                 'id' => (int) $m['id'],
                 'source' => (string) $m['source'],
@@ -108,7 +111,7 @@ final readonly class Listing
                 'seller_category' => self::category($m['seller'] ?? []),
                 'agency_name' => $m['seller']['agency_name'] ?? null,
                 'contact_name' => $m['contact']['name'] ?? null,
-                'phone_e164' => $m['contact']['phone_e164'] ?? null,
+                'phone_e164' => is_string($m['contact']['phone_e164'] ?? null) ? $m['contact']['phone_e164'] : null,
                 'price_usd' => isset($m['price']['usd']) ? (float) $m['price']['usd'] : null,
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,

@@ -179,6 +179,56 @@ class ListingQueryTest extends TestCase
         }
     }
 
+    public function test_garbage_scalar_values_are_not_sent_to_the_api(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, [
+            'location' => ['city_id' => 'abc', 'district_id' => '-3'],
+            'price' => ['min' => '-1e9', 'max' => 'NaN'],
+            'area' => ['min' => '-5', 'max' => 'x'],
+            'source' => ['value' => 'evil'],
+            'property_type' => ['value' => '1.5'],
+            'employee' => ['value' => 'abc'],
+        ], null);
+
+        $this->assertIsArray($p);
+        foreach (['city_id', 'district_id', 'price_usd_min', 'price_usd_max', 'area_min', 'area_max', 'source', 'property_type_id', 'phones'] as $key) {
+            $this->assertArrayNotHasKey($key, $p, $key);
+        }
+
+        $ok = ListingQuery::params($owner, [
+            'location' => ['city_id' => '1', 'district_id' => '2'], 'price' => ['min' => '100.5', 'max' => '0'],
+            'source' => ['value' => 'ss_ge'], 'property_type' => ['value' => '3'],
+        ], null);
+        $this->assertSame(['1', '2', '100.5', '0', 'ss_ge', '3'], [$ok['city_id'], $ok['district_id'], $ok['price_usd_min'], $ok['price_usd_max'], $ok['source'], $ok['property_type_id']]);
+    }
+
+    public function test_non_numeric_employee_is_no_filter_and_no_database_error(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        foreach (['abc', '1.5', '99999999999999999999', '-1', ''] as $value) {
+            $p = ListingQuery::params($owner, ['employee' => ['value' => $value]], null);
+            $this->assertIsArray($p, $value);
+            $this->assertArrayNotHasKey('phones', $p, $value);
+        }
+    }
+
+    public function test_others_excludes_only_phones_of_visible_companies(): void
+    {
+        $a = Company::factory()->create();
+        $lead = User::factory()->teamLead($a)->create();
+        $mine = Phone::factory()->heldBy($lead)->create()->number;
+        $hidden = User::factory()->teamLead()->create(); // другая компания без обмена
+        $hiddenPhone = Phone::factory()->heldBy($hidden)->create()->number;
+
+        $p = ListingQuery::params($lead, ['ownership' => ['value' => 'others']], null);
+
+        $this->assertSame($mine, $p['exclude_phones']);
+        $this->assertStringNotContainsString($hiddenPhone, $p['exclude_phones']);
+    }
+
     public function test_rooms_only_from_the_known_list(): void
     {
         $owner = User::factory()->owner()->create();

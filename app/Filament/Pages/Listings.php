@@ -33,7 +33,9 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 
 /**
@@ -87,6 +89,35 @@ class Listings extends Page implements HasTable
             }
         }
         $this->tableFilters = $clean === [] ? null : $clean;
+
+        // ?search[]=x кладётся в нетипизированное свойство как есть — и роняет getTableSearch().
+        if (! is_scalar($this->tableSearch)) {
+            $this->tableSearch = '';
+        }
+
+        $this->restoreCursorFromUrl();
+    }
+
+    /** Нетипизированное свойство трейта: запрос с массивом (в т.ч. $wire.set) не должен давать 500. */
+    public function getTableSearch(): ?string
+    {
+        return is_scalar($this->tableSearch) && filled($this->tableSearch) ? Str::trim((string) $this->tableSearch) : null;
+    }
+
+    /**
+     * «Назад» из карточки: страница списка — курсор API в ?page=. Числовой резолвер Livewire
+     * принимает только целые и заменяет курсор на 1, поэтому после его инициализации (она же
+     * подключает синхронизацию с адресом) кладём курсор в paginators сами.
+     */
+    private function restoreCursorFromUrl(): void
+    {
+        $name = 'page'; // имя без идентификатора таблицы; таблица в mount() ещё не собрана
+        $cursor = request()->query($name);
+        Paginator::resolveCurrentPage($name);
+
+        if (is_string($cursor) && $cursor !== '' && strlen($cursor) <= 2000 && ! ctype_digit($cursor)) {
+            $this->paginators[$name] = $cursor;
+        }
     }
 
     /** Район принадлежит городу: другой город — район сбрасывается (и в форме, и при правке состояния напрямую). */
@@ -226,7 +257,7 @@ class Listings extends Page implements HasTable
                 Select::make('city_id')->label('Город')->options(fn (): array => $dictionary('cities'))->searchable()->live()
                     ->afterStateUpdated(fn (Set $set) => $set('district_id', null)),
                 Select::make('district_id')->label('Район')
-                    ->options(fn (Get $get): array => filled($get('city_id')) ? $dictionary('districts', ['city_id' => (int) $get('city_id')]) : [])
+                    ->options(fn (Get $get): array => is_scalar($get('city_id')) && ctype_digit((string) $get('city_id')) && (int) $get('city_id') > 0 ? $dictionary('districts', ['city_id' => (int) $get('city_id')]) : [])
                     ->searchable(),
             ])->columns(2),
             Filter::make('area')->schema([

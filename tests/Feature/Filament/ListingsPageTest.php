@@ -214,6 +214,40 @@ class ListingsPageTest extends TestCase
         }
     }
 
+    public function test_array_search_in_url_does_not_break_the_page(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        foreach (['search[]=x', 'search[a][b]=x', 'filters[employee][value]=abc', 'filters[location][city_id]=abc', 'filters[source][value]=evil'] as $query) {
+            $this->get('/admin/listings?'.$query)->assertOk();
+        }
+        Livewire::withQueryParams(['search' => ['x']])->test(Listings::class)->assertSet('tableSearch', '');
+        Livewire::test(Listings::class)->set('tableSearch', ['x'])->assertOk();
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts'));
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
+    }
+
+    public function test_cursor_in_url_goes_to_the_api(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 2])], prev: 'PREV1')]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class)->assertSet('paginators.page', 'CURSOR1');
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['cursor'] ?? null) === 'CURSOR1');
+    }
+
+    public function test_numeric_page_in_url_is_not_a_cursor(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['page' => '3'])->test(Listings::class);
+
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['cursor']));
+    }
+
     public function test_search_box_is_available_in_grid_view(): void
     {
         RealEstateFake::fake();

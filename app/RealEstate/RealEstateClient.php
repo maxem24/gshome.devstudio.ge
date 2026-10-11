@@ -7,6 +7,7 @@ use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use Carbon\Carbon;
+use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -40,18 +41,48 @@ class RealEstateClient
         $query = $params + ['lang' => app()->getLocale()] + ($cursor !== null ? ['cursor' => $cursor] : []);
         $json = $this->get('/listings', $query)->json();
 
-        return new ListingPage(
-            array_values(array_map(fn (array $d): Listing => Listing::fromApi($d, app()->getLocale()), $json['data'] ?? [])),
-            $json['meta']['next_cursor'] ?? null,
-            $json['meta']['prev_cursor'] ?? null,
-        );
+        return $this->parsed('/listings', function () use ($json): ListingPage {
+            if (! is_array($json) || ! is_array($json['data'] ?? null)) {
+                throw new \UnexpectedValueException('data не массив');
+            }
+
+            return new ListingPage(
+                array_values(array_map(fn (mixed $d): Listing => Listing::fromApi($d, app()->getLocale()), $json['data'])),
+                is_string($json['meta']['next_cursor'] ?? null) ? $json['meta']['next_cursor'] : null,
+                is_string($json['meta']['prev_cursor'] ?? null) ? $json['meta']['prev_cursor'] : null,
+            );
+        });
     }
 
     public function listing(int $id): ?Listing
     {
         $response = $this->get("/listings/{$id}", ['lang' => app()->getLocale()], allowNotFound: true);
 
-        return $response === null ? null : Listing::fromApi($response->json('data'), app()->getLocale());
+        if ($response === null) {
+            return null;
+        }
+        $data = $response->json('data');
+
+        return $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, app()->getLocale()));
+    }
+
+    /**
+     * Разбор ответа: 200 с HTML от прокси или сменившийся формат — это «API недоступен», а не 500 на странице.
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $parse
+     * @return T
+     */
+    private function parsed(string $path, \Closure $parse): mixed
+    {
+        try {
+            return $parse();
+        } catch (\TypeError|\ErrorException|\UnexpectedValueException|InvalidFormatException $e) {
+            Log::warning('Real Estate API: неожиданный формат ответа', ['path' => $path, 'error' => $e->getMessage()]);
+
+            throw new RealEstateUnavailable('Real Estate: неожиданный формат ответа');
+        }
     }
 
     /**
@@ -62,7 +93,17 @@ class RealEstateClient
     {
         $key = 'real-estate:dict:'.$name.':'.md5(serialize($params));
 
-        return collect(Cache::remember($key, self::DICTIONARY_TTL, fn (): array => $this->get("/dictionaries/{$name}", $params)->json('data') ?? []));
+        return collect(Cache::remember($key, self::DICTIONARY_TTL, function () use ($name, $params): array {
+            $data = $this->get("/dictionaries/{$name}", $params)->json('data');
+            // Пустой или кривой ответ на сутки не кешируем: иначе одна осечка прокси ломает экран до завтра.
+            if (! is_array($data) || $data === []) {
+                Log::warning('Real Estate API: пустой справочник', ['name' => $name]);
+
+                throw new RealEstateUnavailable("Real Estate: пустой справочник {$name}");
+            }
+
+            return $data;
+        }));
     }
 
     /** @return array<string, int> slug ⇒ id */
@@ -95,8 +136,6 @@ class RealEstateClient
             $this->markDown();
 
             throw new RealEstateUnavailable('Real Estate: нет связи');
-        } catch (RequestException $e) {
-            $response = $e->response;
         }
 
         if ($allowNotFound && $response->status() === 404) {
@@ -107,23 +146,25 @@ class RealEstateClient
             $response->successful() => $response,
             in_array($response->status(), [401, 403], true) => $this->denied($response),
             $response->status() === 429 => throw new RealEstateRateLimited(self::retryAfter($response->header('Retry-After'))),
-            $response->status() === 422 => $this->badRequest($path, $response),
-            default => $this->unavailable($response),
+            in_array($response->status(), [502, 504], true) => $this->gatewayDown($response),
+            $response->status() >= 500 => throw new RealEstateUnavailable("Real Estate: HTTP {$response->status()}"),
+            default => $this->badRequest($path, $response),
         };
     }
 
+    /**
+     * Пометка «API недоступен» (общий кеш, 30 с) — только на обрыв связи и на 502/504 после повторов:
+     * это беда шлюза, а не запроса. 500, 503 и 4xx — ошибка одного запроса, остальных не блокируем.
+     */
     private function markDown(): void
     {
         $this->down = true;
         Cache::put(self::DOWN_KEY, true, self::DOWN_TTL);
     }
 
-    /** 503 (query_timeout) — беда одного тяжёлого запроса, не всего API: остальные вызовы не блокируем. */
-    private function unavailable(Response $response): never
+    private function gatewayDown(Response $response): never
     {
-        if ($response->status() !== 503) {
-            $this->markDown();
-        }
+        $this->markDown();
 
         throw new RealEstateUnavailable("Real Estate: HTTP {$response->status()}");
     }
@@ -152,9 +193,9 @@ class RealEstateClient
 
     private function badRequest(string $path, Response $response): never
     {
-        Log::error('Real Estate API: 422 — ошибка в запросе GS Home', ['path' => $path, 'fields' => $response->json('error.fields')]);
+        Log::error("Real Estate API: {$response->status()} — ошибка в запросе GS Home", ['path' => $path, 'fields' => $response->json('error.fields')]);
 
-        throw new RealEstateBadRequest('Real Estate: validation_failed');
+        throw new RealEstateBadRequest("Real Estate: HTTP {$response->status()}");
     }
 
     private function http(): PendingRequest

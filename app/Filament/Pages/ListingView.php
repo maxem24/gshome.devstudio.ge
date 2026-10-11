@@ -40,6 +40,7 @@ class ListingView extends Page
     public function mount(int|string $listing): void
     {
         $viewer = $this->viewer();
+        abort_unless(ctype_digit((string) $listing) && (int) $listing > 0, 404);
 
         try {
             $l = app(RealEstateClient::class)->listing((int) $listing);
