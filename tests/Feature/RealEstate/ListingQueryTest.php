@@ -236,6 +236,22 @@ class ListingQueryTest extends TestCase
         $this->assertSame(str_repeat('a', 100), ListingQuery::params($owner, [], str_repeat('a', 100))['q']);
     }
 
+    public function test_search_shorter_than_two_after_cut_is_not_sent(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, [], 'a'.str_repeat(' ', 99).'текст');
+        $this->assertArrayNotHasKey('q', $p);
+    }
+
+    public function test_id_with_trailing_newline_is_no_filter(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, ['location' => ['city_id' => "7\n"]], null);
+        $this->assertArrayNotHasKey('city_id', $p);
+    }
+
     public function test_ids_with_leading_zeros_or_zero_are_no_filter(): void
     {
         $owner = User::factory()->owner()->create();

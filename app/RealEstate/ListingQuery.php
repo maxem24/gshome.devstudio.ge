@@ -76,9 +76,10 @@ final class ListingQuery
         $set('created_until', $until);
         $set('sort', self::SORT_PARAMS[self::scalar($filters, 'sort', 'value') ?? ''] ?? null);
         $search = trim((string) $search);
+        // max:100 в API; длиннее — 422, поэтому обрезаем (и после обрезки снова проверяем min:2).
+        $search = trim(mb_substr($search, 0, self::MAX_SEARCH));
         if (mb_strlen($search) >= 2) {
-            // max:100 в API; длиннее — 422, поэтому обрезаем.
-            $p['q'] = trim(mb_substr($search, 0, self::MAX_SEARCH));
+            $p['q'] = $search;
         }
 
         return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
@@ -107,7 +108,7 @@ final class ListingQuery
      */
     private static function id(?string $value): ?string
     {
-        return $value !== null && preg_match('/^[1-9]\d{0,17}$/', $value) === 1 ? $value : null;
+        return $value !== null && preg_match('/^[1-9]\d{0,17}\z/', $value) === 1 ? $value : null;
     }
 
     /** Число не меньше нуля, иначе «фильтр не задан». */
