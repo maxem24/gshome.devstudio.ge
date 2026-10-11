@@ -2,7 +2,7 @@
 # и тестов — один набор расширений на все процессы.
 # Образец — real-estate.devstudio.ge/docker/php/Dockerfile (без Playwright:
 # GS Home ничего не скрейпит, данные берёт из API Real Estate).
-FROM php:8.3-fpm-bookworm
+FROM php:8.5-fpm-bookworm
 
 COPY --from=mlocati/php-extension-installer:2 /usr/bin/install-php-extensions /usr/local/bin/
 

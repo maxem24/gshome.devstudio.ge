@@ -21,10 +21,10 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
-            - name: PHP 8.3
+            - name: PHP 8.5
               uses: shivammathur/setup-php@v2
               with:
-                  php-version: '8.3'
+                  php-version: '8.5'
                   # Расширения нужны composer'у; сам анализ к базе не обращается.
                   extensions: mbstring, intl, bcmath, gd, zip, pdo_pgsql
                   coverage: none
