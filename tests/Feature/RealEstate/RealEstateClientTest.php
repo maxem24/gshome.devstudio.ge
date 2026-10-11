@@ -11,6 +11,7 @@ use App\RealEstate\RealEstateClient;
 use Carbon\Carbon;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
+use Illuminate\Log\LogManager;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -347,6 +348,7 @@ class RealEstateClientTest extends TestCase
             'no data' => [[]],
             'data not an array' => [['data' => 'x']],
             'rows not arrays' => [['data' => ['x']]],
+            'row without id' => [['data' => [['slug' => 'x']]]],
             'one row not an array' => [['data' => [['id' => 1], 'x']]],
         ];
     }
@@ -368,9 +370,24 @@ class RealEstateClientTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_deal_types_without_slug_are_unavailable_and_not_cached(): void
+    {
+        Cache::flush();
+        Http::fake(['*' => Http::response(['data' => [['id' => 1]]])]);
+
+        foreach ([1, 2] as $_) {
+            try {
+                $this->client()->dealTypeIds();
+                $this->fail('ожидалось исключение');
+            } catch (RealEstateUnavailable) {
+            }
+        }
+        Http::assertSentCount(2);
+    }
+
     public function test_stale_cursor_is_not_logged_as_an_error(): void
     {
-        Log::shouldReceive('error')->never();
+        Log::swap($log = \Mockery::spy(LogManager::class));
         Http::fake(['*' => Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], 422)]);
 
         try {
@@ -378,11 +395,12 @@ class RealEstateClientTest extends TestCase
             $this->fail('ожидалось исключение');
         } catch (RealEstateStaleCursor) {
         }
+        $log->shouldNotHaveReceived('error');
     }
 
     public function test_parse_failure_is_logged_with_the_exception(): void
     {
-        Log::shouldReceive('warning')->once()->withArgs(fn (string $m, array $ctx): bool => ($ctx['exception'] ?? null) instanceof \Throwable);
+        Log::swap($log = \Mockery::spy(LogManager::class));
         Http::fake(['*' => Http::response(['data' => 'x'])]);
 
         try {
@@ -390,6 +408,7 @@ class RealEstateClientTest extends TestCase
             $this->fail('ожидалось исключение');
         } catch (RealEstateUnavailable) {
         }
+        $log->shouldHaveReceived('warning')->withArgs(fn (string $m, array $ctx): bool => ($ctx['exception'] ?? null) instanceof \Throwable)->once();
     }
 
     public function test_retry_after_may_be_an_http_date(): void

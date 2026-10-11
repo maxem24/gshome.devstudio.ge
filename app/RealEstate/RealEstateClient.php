@@ -97,8 +97,9 @@ class RealEstateClient
         return collect(Cache::remember($key, self::DICTIONARY_TTL, function () use ($name, $params): array {
             $data = $this->get("/dictionaries/{$name}", $params)->json('data');
             // Пустой или кривой ответ на сутки не кешируем: иначе одна осечка прокси ломает экран до завтра.
-            // Элементы не-массивы (`['x']`) тоже брак: dealTypeIds() и экран упали бы на них целые сутки.
-            if (! is_array($data) || $data === [] || ! array_is_list($data) || array_filter($data, fn (mixed $row): bool => ! is_array($row)) !== []) {
+            // Брак: не список, пустой, строки не массивы или без id (для deal-types ещё и без slug) —
+            // dealTypeIds() и экран падали бы на них целые сутки.
+            if (! is_array($data) || $data === [] || ! array_is_list($data) || array_filter($data, fn (mixed $row): bool => ! is_array($row) || ! isset($row['id']) || ($name === 'deal-types' && ! isset($row['slug']))) !== []) {
                 Log::warning('Real Estate API: пустой справочник', ['name' => $name]);
 
                 throw new RealEstateUnavailable("Real Estate: пустой справочник {$name}");
