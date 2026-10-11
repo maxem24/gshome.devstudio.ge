@@ -8,6 +8,8 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use Livewire\Features\SupportPagination\PaginationUrl;
 use Livewire\Livewire;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -236,6 +238,65 @@ class ListingsPageTest extends TestCase
         Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class)->assertSet('paginators.page', 'CURSOR1');
 
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['cursor'] ?? null) === 'CURSOR1');
+    }
+
+    public function test_stale_cursor_restarts_from_the_first_page_without_error_log(): void
+    {
+        Log::shouldReceive('error')->never();
+        $this->actingAs(User::factory()->owner()->create());
+        $stale = Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], 422);
+        $first = RealEstateFake::page([RealEstateFake::listing(['id' => 77])], next: 'NEXT1');
+        Http::fake(function (Request $r) use ($stale, $first) {
+            return match (true) {
+                str_contains($r->url(), '/dictionaries/deal-types') => Http::response(['data' => RealEstateFake::dealTypes()]),
+                str_contains($r->url(), '/dictionaries/') => Http::response(['data' => [['id' => 1, 'slug' => 'tbilisi', 'title_ru' => 'Тбилиси']]]),
+                isset($this->apiQuery($r)['cursor']) => $stale,
+                default => Http::response($first),
+            };
+        });
+
+        Livewire::withQueryParams(['page' => 'OLD'])->test(Listings::class)
+            ->assertOk()
+            ->assertNotNotified()
+            ->assertSet('paginators.page', 1)
+            ->assertSee('77');
+
+        $sent = Http::recorded(fn (Request $r) => str_contains($r->url(), '/listings?'))->values();
+        $this->assertCount(2, $sent);
+        $this->assertSame('OLD', $this->apiQuery($sent[0][0])['cursor']);
+        $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[1][0]));
+    }
+
+    public function test_array_table_search_set_through_wire_does_not_break_the_next_request(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)
+            ->set('tableSearch', ['x'])
+            ->call('$refresh')
+            ->assertOk()
+            ->assertSet('tableSearch', '');
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
+    }
+
+    /**
+     * Синхронизацию ?page= с адресом включает хук PaginationUrl: его вешает Paginator::resolveCurrentPage()
+     * из Listings::mount(). Без вызова хука нет, и листание перестаёт обновлять адрес («Назад» ломается).
+     * Сам адрес в Livewire-тесте не виден, поэтому проверяем наличие хука на paginators.page.
+     */
+    public function test_cursor_is_kept_in_sync_with_the_url(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 2])], prev: 'PREV1')]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        $component = Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class);
+
+        $hooks = $component->instance()->getAttributes()->filter(
+            fn ($attribute): bool => $attribute instanceof PaginationUrl && $attribute->getName() === 'paginators.page'
+        );
+        $this->assertCount(1, $hooks);
+        $this->assertSame('page', $hooks->first()->as);
     }
 
     public function test_numeric_page_in_url_is_not_a_cursor(): void
