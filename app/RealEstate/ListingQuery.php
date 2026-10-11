@@ -27,6 +27,9 @@ final class ListingQuery
         'area_desc' => 'Площадь: по убыванию',
     ];
 
+    /** Предел API на длину поиска `q`. */
+    private const MAX_SEARCH = 100;
+
     /** Допустимые значения фильтра «Комнаты» — всё прочее из адреса отбрасывается. */
     private const ROOMS = ['1', '2', '3', '4', '5+'];
 
@@ -63,11 +66,20 @@ final class ListingQuery
         $set('source', in_array($source = self::scalar($filters, 'source', 'value'), self::SOURCES, true) ? $source : null);
         $set('is_owner', self::scalar($filters, 'owners_only', 'isActive') ? '1' : null);
         // Даты без времени: API понимает их как весь день в часовом поясе Тбилиси.
-        $set('created_since', self::date(self::scalar($filters, 'created', 'from')));
-        $set('created_until', self::date(self::scalar($filters, 'created', 'until')));
+        // «По» раньше «с» API отвергает (after_or_equal, 422) — границы меняем местами: человек имел в виду этот период.
+        $since = self::date(self::scalar($filters, 'created', 'from'));
+        $until = self::date(self::scalar($filters, 'created', 'until'));
+        if ($since !== null && $until !== null && $until < $since) {
+            [$since, $until] = [$until, $since];
+        }
+        $set('created_since', $since);
+        $set('created_until', $until);
         $set('sort', self::SORT_PARAMS[self::scalar($filters, 'sort', 'value') ?? ''] ?? null);
-        if (mb_strlen(trim((string) $search)) >= 2) {
-            $p['q'] = trim((string) $search);
+        $search = trim((string) $search);
+        // max:100 в API; длиннее — 422, поэтому обрезаем (и после обрезки снова проверяем min:2).
+        $search = trim(mb_substr($search, 0, self::MAX_SEARCH));
+        if (mb_strlen($search) >= 2) {
+            $p['q'] = $search;
         }
 
         return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
@@ -90,10 +102,13 @@ final class ListingQuery
         };
     }
 
-    /** Идентификатор — только цифры (и влезающий в bigint), иначе «фильтр не задан»: API ответил бы 422, PostgreSQL — ошибкой типа. */
+    /**
+     * Идентификатор — целое от 1 без ведущих нулей (и влезающее в bigint), иначе «фильтр не задан»:
+     * API ответил бы 422 (`007`, `0`), PostgreSQL — ошибкой типа.
+     */
     private static function id(?string $value): ?string
     {
-        return $value !== null && ctype_digit($value) && strlen($value) <= 18 ? $value : null;
+        return $value !== null && preg_match('/^[1-9]\d{0,17}\z/', $value) === 1 ? $value : null;
     }
 
     /** Число не меньше нуля, иначе «фильтр не задан». */

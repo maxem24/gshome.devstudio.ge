@@ -215,6 +215,60 @@ class ListingQueryTest extends TestCase
         }
     }
 
+    public function test_reversed_date_range_is_swapped_so_the_api_does_not_answer_422(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, ['created' => ['from' => '2026-10-09', 'until' => '2026-10-01']], null);
+        $this->assertSame(['2026-10-01', '2026-10-09'], [$p['created_since'], $p['created_until']]);
+
+        $p = ListingQuery::params($owner, ['created' => ['from' => '2026-10-05', 'until' => '2026-10-05']], null);
+        $this->assertSame(['2026-10-05', '2026-10-05'], [$p['created_since'], $p['created_until']]);
+    }
+
+    public function test_search_is_cut_to_the_api_limit(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, [], str_repeat('ж', 150));
+        $this->assertSame(100, mb_strlen($p['q']));
+
+        $this->assertSame(str_repeat('a', 100), ListingQuery::params($owner, [], str_repeat('a', 100))['q']);
+    }
+
+    public function test_search_shorter_than_two_after_cut_is_not_sent(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, [], 'a'.str_repeat(' ', 99).'текст');
+        $this->assertArrayNotHasKey('q', $p);
+    }
+
+    public function test_id_with_trailing_newline_is_no_filter(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, ['location' => ['city_id' => "7\n"]], null);
+        $this->assertArrayNotHasKey('city_id', $p);
+    }
+
+    public function test_ids_with_leading_zeros_or_zero_are_no_filter(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        foreach (['007', '0', '00'] as $value) {
+            $p = ListingQuery::params($owner, [
+                'location' => ['city_id' => $value, 'district_id' => $value],
+                'property_type' => ['value' => $value],
+                'employee' => ['value' => $value],
+            ], null);
+            $this->assertIsArray($p, $value);
+            foreach (['city_id', 'district_id', 'property_type_id', 'phones'] as $key) {
+                $this->assertArrayNotHasKey($key, $p, "{$key}={$value}");
+            }
+        }
+    }
+
     public function test_others_excludes_only_phones_of_visible_companies(): void
     {
         $a = Company::factory()->create();

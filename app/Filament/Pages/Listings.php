@@ -7,6 +7,7 @@ use App\Enums\Direction;
 use App\Models\Phone;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\ListingQuery;
 use App\RealEstate\ListingRows;
 use App\RealEstate\Pagination\ApiCursorPaginator;
@@ -98,6 +99,14 @@ class Listings extends Page implements HasTable
         $this->restoreCursorFromUrl();
     }
 
+    /** `$wire.set('tableSearch', [...])` кладёт массив в снапшот, а booted() трейта делает strval() — чистим до него. */
+    public function hydrate(): void
+    {
+        if (! is_scalar($this->tableSearch)) {
+            $this->tableSearch = '';
+        }
+    }
+
     /** Нетипизированное свойство трейта: запрос с массивом (в т.ч. $wire.set) не должен давать 500. */
     public function getTableSearch(): ?string
     {
@@ -155,7 +164,17 @@ class Listings extends Page implements HasTable
             if ($params === null) {
                 return ApiCursorPaginator::emptyPage(ListingQuery::PER_PAGE, $options);
             }
-            $result = app(RealEstateClient::class)->listings($params, $cursor);
+            try {
+                $result = app(RealEstateClient::class)->listings($params, $cursor);
+            } catch (RealEstateStaleCursor $e) {
+                // Курсор от другой сортировки или старой закладки: молча начинаем с первой страницы.
+                if ($cursor === null) {
+                    throw $e;
+                }
+                $cursor = null;
+                $this->resetPage($this->getTablePaginationPageName());
+                $result = app(RealEstateClient::class)->listings($params, null);
+            }
         } catch (RealEstateException $e) {
             Notification::make()->danger()->title($e->userMessage())->send();
 
@@ -270,8 +289,8 @@ class Listings extends Page implements HasTable
             SelectFilter::make('source')->label('Источник')->options(['myhome_ge' => 'myhome.ge', 'ss_ge' => 'ss.ge']),
             Filter::make('owners_only')->label('Только собственники')->toggle(),
             Filter::make('created')->schema([
-                DatePicker::make('from')->label('Появилось с'),
-                DatePicker::make('until')->label('Появилось по'),
+                DatePicker::make('from')->label('Появилось с')->live()->maxDate(fn (Get $get): ?string => $get('until') ?: null),
+                DatePicker::make('until')->label('Появилось по')->live()->minDate(fn (Get $get): ?string => $get('from') ?: null),
             ])->columns(2),
             SelectFilter::make('sort')->label('Сортировка')->options(ListingQuery::SORTS)->placeholder('Сначала новые')
                 ->modifyFormFieldUsing(fn (Select $field): Select => $field->helperText('При сортировке по цене или площади объявления без них не показываются')),
