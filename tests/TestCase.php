@@ -14,6 +14,9 @@ abstract class TestCase extends BaseTestCase
 
         parent::setUp();
 
+        // Сборки фронта в тестах нет (public/build не в git) — манифест не нужен.
+        $this->withoutVite();
+
         // Ни один тест не ходит в сеть: настоящий вызов API Real Estate медленный
         // и зависит от чужого стека. Нужен HTTP — Http::fake().
         Http::preventStrayRequests();

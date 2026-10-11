@@ -39,6 +39,9 @@ return [
     'real_estate' => [
         'url' => env('REAL_ESTATE_API_URL'),
         'key' => env('REAL_ESTATE_API_KEY'),
+        // Фильтры phones / exclude_phones есть в API с ветки Real Estate feature/listings-api;
+        // на проде включать после её выкладки (неизвестный параметр API отвергает 422).
+        'phone_filters' => (bool) env('REAL_ESTATE_PHONE_FILTERS', false),
     ],
 
 ];

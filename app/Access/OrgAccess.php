@@ -5,6 +5,7 @@ namespace App\Access;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
 use App\Enums\Role;
+use App\Models\Company;
 use App\Models\CompanyExchange;
 use App\Models\Phone;
 use App\Models\User;
@@ -60,38 +61,71 @@ final class OrgAccess
     public static function ownership(User $viewer, ?string $rawPhone): Ownership
     {
         $number = PhoneNumber::tryNormalize($rawPhone);
-        if ($number === null) {
-            return Ownership::other();
+
+        return $number === null ? Ownership::other() : self::ownershipMany($viewer, [$number])[$number];
+    }
+
+    /**
+     * Метки для всех номеров страницы сразу: один запрос к phones, один к парам обмена.
+     *
+     * @param  array<int, string|null>  $phonesE164  номера уже в E.164 (из API)
+     * @return array<string, Ownership> номер ⇒ метка
+     */
+    public static function ownershipMany(User $viewer, array $phonesE164): array
+    {
+        $numbers = collect($phonesE164)->filter(fn ($n): bool => is_string($n) && $n !== '')->unique()->values();
+        if ($numbers->isEmpty()) {
+            return [];
         }
 
-        $phone = Phone::query()->with(['company', 'holder'])->where('number', $number)->first();
+        $phones = Phone::query()->with(['company', 'holder'])->whereIn('number', $numbers)->get()->keyBy('number');
+        $partners = $viewer->role->hasTeam() ? CompanyExchange::enabledPartnersOf((int) $viewer->company_id) : [];
+
+        return $numbers->mapWithKeys(fn (string $n): array => [$n => self::ownershipFor($viewer, $phones->get($n), $partners)])->all();
+    }
+
+    /** @param  list<int>  $partners */
+    private static function ownershipFor(User $viewer, ?Phone $phone, array $partners): Ownership
+    {
         if ($phone === null || $phone->company->isArchived()) {
             return Ownership::other();
         }
 
-        $label = self::labelFor($viewer, $phone->company_id);
+        $label = match ($viewer->role) {
+            Role::Owner, Role::CompanyOwner => OwnershipLabel::GroupCompany,
+            Role::TeamLead, Role::Agent => match (true) {
+                $phone->company_id === $viewer->company_id => OwnershipLabel::OurEmployee,
+                in_array($phone->company_id, $partners, true) => OwnershipLabel::LinkedCompany,
+                default => OwnershipLabel::OtherCompany,
+            },
+        };
         if ($label === OwnershipLabel::OtherCompany) {
             return Ownership::other();
         }
 
-        // Архивный или не назначенный держатель — имени нет; контакт — сам
-        // номер: SIM осталась в компании, по нему ответят. Заблокированный
-        // временно — он по-прежнему ведёт объекты, имя видно.
+        // Архивный или не назначенный держатель — имени нет; контакт — сам номер:
+        // SIM осталась в компании. Заблокированный временно — имя видно.
         $holder = $phone->holder;
         $contactName = $holder !== null && ! $holder->isArchived() ? $holder->name : null;
 
         return new Ownership($label, $phone->company->name, $contactName, $phone->number);
     }
 
-    private static function labelFor(User $viewer, int $companyId): OwnershipLabel
+    /** @return list<int> компании группы, чьих людей смотрящий видит на объявлениях по имени */
+    public static function identifiableCompanyIds(User $viewer): array
     {
-        return match ($viewer->role) {
-            Role::Owner, Role::CompanyOwner => OwnershipLabel::GroupCompany,
-            Role::TeamLead, Role::Agent => match (true) {
-                $companyId === $viewer->company_id => OwnershipLabel::OurEmployee,
-                CompanyExchange::enabledBetween((int) $viewer->company_id, $companyId) => OwnershipLabel::LinkedCompany,
-                default => OwnershipLabel::OtherCompany,
-            },
-        };
+        $active = Company::query()->whereNull('archived_at');
+
+        if ($viewer->role->hasTeam()) {
+            $active->whereIn('id', [(int) $viewer->company_id, ...CompanyExchange::enabledPartnersOf((int) $viewer->company_id)]);
+        }
+
+        return $active->pluck('id')->map(fn ($id): int => (int) $id)->all();
+    }
+
+    /** @return list<string> номера этих компаний — для фильтров «наши» / «чужие» */
+    public static function identifiablePhones(User $viewer): array
+    {
+        return Phone::query()->whereIn('company_id', self::identifiableCompanyIds($viewer))->pluck('number')->all();
     }
 }
