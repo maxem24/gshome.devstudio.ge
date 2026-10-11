@@ -60,6 +60,7 @@ API Real Estate — только чтение, по ключу клиента: `
 | «прогони тесты» | `docker compose run --rm test composer test` |
 | «проверь код», «есть ли ошибки» | `docker compose exec app composer analyse` |
 | «подними докер», «запусти среду» | `docker compose up -d`, затем `bin/preflight.sh` |
+| «выложи», «задеплой», «обнови сервер» | `bin/deploy.sh` (после слияния в `main`) |
 | «пересобери автодополнение» | `docker compose exec app composer ide-helper` |
 
 `bin/*` лежат вне репозитория (`.gitignore`) — оснастка рабочего места. Если `bin/`
