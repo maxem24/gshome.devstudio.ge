@@ -38,7 +38,7 @@ API Real Estate — только чтение, по ключу клиента: `
 
 | Компонент | Версия |
 |---|---|
-| PHP | 8.3 (в `composer.json` прибит `config.platform.php`) |
+| PHP | 8.5 (в `composer.json` прибит `config.platform.php`) |
 | Laravel | ^13 |
 | Filament | ^5, панель `admin` → https://gshome.local/admin |
 | База | PostgreSQL 17 (на сервере — рядом с базой Real Estate) |

@@ -38,7 +38,7 @@ x-app-env: &app-env
 
 x-app: &app
     build: ./docker/php
-    image: gshome-app:php8.3
+    image: gshome-app:php8.5
     environment: *app-env
     volumes:
         - .:/var/www/html
@@ -85,7 +85,7 @@ services:
     # Тесты — без x-app-env: переменные окружения сильнее <env> в phpunit.xml,
     # и в app сьют увидел бы рабочую базу. TestCase такой запуск отвергает.
     test:
-        image: gshome-app:php8.3
+        image: gshome-app:php8.5
         pull_policy: never
         environment:
             XDEBUG_MODE: 'off'
