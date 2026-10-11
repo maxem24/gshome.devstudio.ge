@@ -61,6 +61,7 @@ API Real Estate — только чтение, по ключу клиента: `
 | «проверь код», «есть ли ошибки» | `docker compose exec app composer analyse` |
 | «подними докер», «запусти среду» | `docker compose up -d`, затем `bin/preflight.sh` |
 | «выложи», «задеплой», «обнови сервер» | `bin/deploy.sh` (после слияния в `main`) |
+| «какие ошибки на проде», «посмотри Bugsnag» | `docs/GSHome/03_Среда_разработки.md` § Bugsnag (API, токен — `$BUGSNAG_AUTH_TOKEN`) |
 | «пересобери автодополнение» | `docker compose exec app composer ide-helper` |
 
 `bin/*` лежат вне репозитория (`.gitignore`) — оснастка рабочего места. Если `bin/`
