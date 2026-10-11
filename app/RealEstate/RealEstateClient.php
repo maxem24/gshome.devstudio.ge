@@ -5,6 +5,7 @@ namespace App\RealEstate;
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use Carbon\Carbon;
 use Carbon\Exceptions\InvalidFormatException;
@@ -27,12 +28,12 @@ class RealEstateClient
 {
     private const DICTIONARY_TTL = 86400;
 
-    /** Сколько секунд после обрыва связи не ходить в API вовсе (общий маркер для всех запросов). */
+    /** Сколько секунд после обрыва связи или 502/504 не ходить в API вовсе (общий маркер для всех запросов). */
     private const DOWN_TTL = 30;
 
     private const DOWN_KEY = 'real-estate:down';
 
-    /** Связь уже оборвалась в этом запросе — остальные вызовы падают сразу, без новых таймаутов. */
+    /** Связь уже оборвалась (или шлюз ответил 502/504) в этом запросе — остальные вызовы падают сразу, без новых таймаутов. */
     private bool $down = false;
 
     /** @param  array<string, string>  $params */
@@ -79,7 +80,7 @@ class RealEstateClient
         try {
             return $parse();
         } catch (\TypeError|\ErrorException|\UnexpectedValueException|InvalidFormatException $e) {
-            Log::warning('Real Estate API: неожиданный формат ответа', ['path' => $path, 'error' => $e->getMessage()]);
+            Log::warning('Real Estate API: неожиданный формат ответа', ['path' => $path, 'exception' => $e]);
 
             throw new RealEstateUnavailable('Real Estate: неожиданный формат ответа');
         }
@@ -96,7 +97,8 @@ class RealEstateClient
         return collect(Cache::remember($key, self::DICTIONARY_TTL, function () use ($name, $params): array {
             $data = $this->get("/dictionaries/{$name}", $params)->json('data');
             // Пустой или кривой ответ на сутки не кешируем: иначе одна осечка прокси ломает экран до завтра.
-            if (! is_array($data) || $data === []) {
+            // Элементы не-массивы (`['x']`) тоже брак: dealTypeIds() и экран упали бы на них целые сутки.
+            if (! is_array($data) || $data === [] || ! array_is_list($data) || array_filter($data, fn (mixed $row): bool => ! is_array($row)) !== []) {
                 Log::warning('Real Estate API: пустой справочник', ['name' => $name]);
 
                 throw new RealEstateUnavailable("Real Estate: пустой справочник {$name}");
@@ -193,6 +195,12 @@ class RealEstateClient
 
     private function badRequest(string $path, Response $response): never
     {
+        // Курсор действует только с той же sort: старая закладка даёт 422 лишь по cursor — это не баг клиента.
+        $fields = $response->json('error.fields');
+        if ($response->status() === 422 && is_array($fields) && array_keys($fields) === ['cursor']) {
+            throw new RealEstateStaleCursor('Real Estate: курсор устарел');
+        }
+
         Log::error("Real Estate API: {$response->status()} — ошибка в запросе GS Home", ['path' => $path, 'fields' => $response->json('error.fields')]);
 
         throw new RealEstateBadRequest("Real Estate: HTTP {$response->status()}");

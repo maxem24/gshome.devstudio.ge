@@ -5,6 +5,7 @@ namespace Tests\Feature\RealEstate;
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\RealEstateClient;
 use Carbon\Carbon;
@@ -12,6 +13,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -57,7 +59,7 @@ class RealEstateClientTest extends TestCase
         $this->assertSame(13, $this->client()->listing(13)?->id);
     }
 
-    /** @return array<int, array{int, array<string, mixed>, array<string, string>, class-string<\Throwable>}> */
+    /** @return array<int|string, array{int, array<string, mixed>, array<string, string>, class-string<\Throwable>}> */
     public static function errors(): array
     {
         return [
@@ -65,6 +67,8 @@ class RealEstateClientTest extends TestCase
             '403' => [403, ['error' => ['code' => 'client_disabled']], [], RealEstateAccessDenied::class],
             '429' => [429, ['error' => ['code' => 'rate_limited']], ['Retry-After' => '17'], RealEstateRateLimited::class],
             '422' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['x' => ['bad']]]], [], RealEstateBadRequest::class],
+            '422 cursor' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], [], RealEstateStaleCursor::class],
+            '422 cursor and more' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad'], 'q' => ['bad']]]], [], RealEstateBadRequest::class],
             '503' => [503, ['error' => ['code' => 'server_error']], [], RealEstateUnavailable::class],
         ];
     }
@@ -334,9 +338,58 @@ class RealEstateClientTest extends TestCase
         }
         Http::assertSentCount(2);
 
-        Http::fake(['*' => Http::response([])]);
-        $this->expectException(RealEstateUnavailable::class);
-        $this->client()->dictionary('cities');
+    }
+
+    /** @return array<string, array{array<mixed>}> */
+    public static function brokenDictionaries(): array
+    {
+        return [
+            'no data' => [[]],
+            'data not an array' => [['data' => 'x']],
+            'rows not arrays' => [['data' => ['x']]],
+            'one row not an array' => [['data' => [['id' => 1], 'x']]],
+        ];
+    }
+
+    /** Отдельный тест на тело: подмены Http::fake копятся, и побеждает первая. */
+    #[DataProvider('brokenDictionaries')]
+    public function test_broken_dictionary_body_is_unavailable_and_not_cached(array $body): void
+    {
+        Cache::flush();
+        Http::fake(['*' => Http::response($body)]);
+
+        foreach ([1, 2] as $_) {
+            try {
+                $this->client()->dictionary('cities');
+                $this->fail('ожидалось исключение');
+            } catch (RealEstateUnavailable) {
+            }
+        }
+        Http::assertSentCount(2);
+    }
+
+    public function test_stale_cursor_is_not_logged_as_an_error(): void
+    {
+        Log::shouldReceive('error')->never();
+        Http::fake(['*' => Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], 422)]);
+
+        try {
+            $this->client()->listings([], 'OLD');
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateStaleCursor) {
+        }
+    }
+
+    public function test_parse_failure_is_logged_with_the_exception(): void
+    {
+        Log::shouldReceive('warning')->once()->withArgs(fn (string $m, array $ctx): bool => ($ctx['exception'] ?? null) instanceof \Throwable);
+        Http::fake(['*' => Http::response(['data' => 'x'])]);
+
+        try {
+            $this->client()->listings([], null);
+            $this->fail('ожидалось исключение');
+        } catch (RealEstateUnavailable) {
+        }
     }
 
     public function test_retry_after_may_be_an_http_date(): void
