@@ -58,6 +58,11 @@ return [
             'ignore_exceptions' => false,
         ],
 
+        // На проде LOG_STACK=daily,bugsnag; локально bugsnag в стеке нет.
+        'bugsnag' => [
+            'driver' => 'bugsnag',
+        ],
+
         'single' => [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
