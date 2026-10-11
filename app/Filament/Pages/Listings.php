@@ -289,8 +289,8 @@ class Listings extends Page implements HasTable
             SelectFilter::make('source')->label('Источник')->options(['myhome_ge' => 'myhome.ge', 'ss_ge' => 'ss.ge']),
             Filter::make('owners_only')->label('Только собственники')->toggle(),
             Filter::make('created')->schema([
-                DatePicker::make('from')->label('Появилось с')->maxDate(fn (Get $get): ?string => $get('until') ?: null),
-                DatePicker::make('until')->label('Появилось по')->minDate(fn (Get $get): ?string => $get('from') ?: null),
+                DatePicker::make('from')->label('Появилось с')->live()->maxDate(fn (Get $get): ?string => $get('until') ?: null),
+                DatePicker::make('until')->label('Появилось по')->live()->minDate(fn (Get $get): ?string => $get('from') ?: null),
             ])->columns(2),
             SelectFilter::make('sort')->label('Сортировка')->options(ListingQuery::SORTS)->placeholder('Сначала новые')
                 ->modifyFormFieldUsing(fn (Select $field): Select => $field->helperText('При сортировке по цене или площади объявления без них не показываются')),

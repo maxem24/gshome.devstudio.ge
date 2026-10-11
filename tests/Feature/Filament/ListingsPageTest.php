@@ -7,6 +7,8 @@ use App\Filament\Pages\Listings;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Log\LogManager;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportPagination\PaginationUrl;
@@ -242,7 +244,7 @@ class ListingsPageTest extends TestCase
 
     public function test_stale_cursor_restarts_from_the_first_page_without_error_log(): void
     {
-        Log::shouldReceive('error')->never();
+        Log::swap($log = \Mockery::spy(LogManager::class));
         $this->actingAs(User::factory()->owner()->create());
         $stale = Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], 422);
         $first = RealEstateFake::page([RealEstateFake::listing(['id' => 77])], next: 'NEXT1');
@@ -255,7 +257,7 @@ class ListingsPageTest extends TestCase
             };
         });
 
-        Livewire::withQueryParams(['page' => 'OLD'])->test(Listings::class)
+        Livewire::withQueryParams(['page' => 'OLD', 'filters' => ['source' => ['value' => 'ss_ge']]])->test(Listings::class)
             ->assertOk()
             ->assertNotNotified()
             ->assertSet('paginators.page', 1)
@@ -265,6 +267,10 @@ class ListingsPageTest extends TestCase
         $this->assertCount(2, $sent);
         $this->assertSame('OLD', $this->apiQuery($sent[0][0])['cursor']);
         $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[1][0]));
+        // Повтор не теряет ни фильтры, ни направление: отличается от первого запроса только отсутствием cursor.
+        $this->assertSame('ss_ge', $this->apiQuery($sent[1][0])['source']);
+        $this->assertSame(Arr::except($this->apiQuery($sent[0][0]), 'cursor'), $this->apiQuery($sent[1][0]));
+        $log->shouldNotHaveReceived('error');
     }
 
     public function test_array_table_search_set_through_wire_does_not_break_the_next_request(): void

@@ -7,6 +7,6 @@ final class RealEstateStaleCursor extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Страница списка устарела, показана первая.';
+        return 'Не удалось открыть страницу списка, попробуйте ещё раз.';
     }
 }
