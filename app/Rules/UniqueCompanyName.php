@@ -23,7 +23,7 @@ final class UniqueCompanyName implements ValidationRule
             ->exists();
 
         if ($taken) {
-            $fail('Компания с таким названием уже есть.');
+            $fail(__('gshome.validation.company_taken'));
         }
     }
 }

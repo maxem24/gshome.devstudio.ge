@@ -13,7 +13,7 @@
                 >
                 @if ($card['group'])
                     <x-filament::badge :color="$card['group']['color']"
-                        >В группе есть наш сотрудник: {{ $card['group']['name'] ?? $card['group']['company'] }}</x-filament::badge
+                        >{{ __('gshome.listings.group_member', ['name' => $card['group']['name'] ?? $card['group']['company']]) }}</x-filament::badge
                     >
                 @endif
             </div>
@@ -22,7 +22,7 @@
         <div class="grid gap-6 lg:grid-cols-3">
             <div class="space-y-6 lg:col-span-2">
                 @if ($card['images'])
-                    <x-filament::section heading="Фото">
+                    <x-filament::section :heading="__('gshome.listings.photos')">
                         <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
                             @foreach ($card['images'] as $image)
                                 <a href="{{ $image['url'] }}" target="_blank" rel="noopener">
@@ -38,12 +38,12 @@
                     </x-filament::section>
                 @endif
                 @if ($card['description'])
-                    <x-filament::section heading="Описание">
+                    <x-filament::section :heading="__('gshome.listings.description')">
                         <p class="whitespace-pre-line">{{ $card['description'] }}</p>
                     </x-filament::section>
                 @endif
                 @if ($card['cluster'])
-                    <x-filament::section heading="Группа дублей">
+                    <x-filament::section :heading="__('gshome.listings.duplicates')">
                         <ul class="divide-y divide-gray-200 dark:divide-white/10">
                             @foreach ($card['cluster'] as $member)
                                 <li class="flex flex-wrap items-center gap-3 py-2">
@@ -80,11 +80,11 @@
                         <p class="text-gray-500">{{ $card['price_gel'] }}</p>
                     @endif
                     @if ($card['negotiable'])
-                        <p class="text-sm text-gray-500">Торг</p>
+                        <p class="text-sm text-gray-500">{{ __('gshome.listings.bargain') }}</p>
                     @endif
                     <p class="mt-2"><x-filament::badge>{{ $card['direction'] }}</x-filament::badge></p>
                 </x-filament::section>
-                <x-filament::section heading="Характеристики">
+                <x-filament::section :heading="__('gshome.listings.characteristics')">
                     <dl class="space-y-1 text-sm">
                         <div>{{ $card['facts'] }}</div>
                         <div>{{ $card['district'] }}</div>
@@ -96,7 +96,7 @@
                                     target="_blank"
                                     rel="noopener"
                                     class="text-primary-600"
-                                    >на карте</a
+                                    >{{ __('gshome.listings.on_map') }}</a
                                 >
                             @endif
                         </div>
@@ -104,14 +104,14 @@
                             <div>{{ implode(', ', $card['amenities']) }}</div>
                         @endif
                         @if ($card['subway'])
-                            <div>Метро: {{ implode(', ', $card['subway']) }}</div>
+                            <div>{{ __('gshome.listings.metro', ['stations' => implode(', ', $card['subway'])]) }}</div>
                         @endif
                         <div>
-                            Появилось: {{ $card['created_at'] ?? '—' }} · {{ $card['source'] }}
+                            {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
                         </div>
                     </dl>
                 </x-filament::section>
-                <x-filament::section heading="Продавец">
+                <x-filament::section :heading="__('gshome.listings.seller')">
                     <dl class="space-y-1 text-sm">
                         <div>{{ $card['seller'] }}</div>
                         <div>{{ $card['contact_name'] }}</div>

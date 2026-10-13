@@ -24,6 +24,10 @@
         <!-- Xdebug тестам не нужен и замедляет PHP в 5–10 раз. -->
         <env name="XDEBUG_MODE" value="off"/>
         <env name="APP_ENV" value="testing"/>
+        <env name="APP_LOCALE" value="ru" force="true"/>
+        <server name="APP_LOCALE" value="ru" force="true"/>
+        <env name="APP_FALLBACK_LOCALE" value="en" force="true"/>
+        <server name="APP_FALLBACK_LOCALE" value="en" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

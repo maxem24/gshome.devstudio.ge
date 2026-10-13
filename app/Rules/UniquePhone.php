@@ -20,7 +20,7 @@ final class UniquePhone implements ValidationRule
         $number = PhoneNumber::tryNormalize(is_string($value) ? $value : null);
 
         if ($number === null) {
-            $fail('Нужен грузинский номер.');
+            $fail(__('gshome.validation.phone_ge'));
 
             return;
         }
@@ -31,7 +31,7 @@ final class UniquePhone implements ValidationRule
             ->exists();
 
         if ($taken) {
-            $fail('Этот номер уже заведён.');
+            $fail(__('gshome.validation.phone_taken'));
         }
     }
 }

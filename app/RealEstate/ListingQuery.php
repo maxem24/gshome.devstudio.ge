@@ -19,13 +19,17 @@ final class ListingQuery
     /** Предел API на phones / exclude_phones. */
     public const MAX_PHONES = 500;
 
-    public const SORTS = [
-        'new' => 'Сначала новые',
-        'price_asc' => 'Цена: по возрастанию',
-        'price_desc' => 'Цена: по убыванию',
-        'area_asc' => 'Площадь: по возрастанию',
-        'area_desc' => 'Площадь: по убыванию',
-    ];
+    /** @return array<string, string> */
+    public static function sortOptions(): array
+    {
+        return [
+            'new' => __('gshome.listings.sort_new'),
+            'price_asc' => __('gshome.listings.sort_price_asc'),
+            'price_desc' => __('gshome.listings.sort_price_desc'),
+            'area_asc' => __('gshome.listings.sort_area_asc'),
+            'area_desc' => __('gshome.listings.sort_area_desc'),
+        ];
+    }
 
     /** Предел API на длину поиска `q`. */
     private const MAX_SEARCH = 100;

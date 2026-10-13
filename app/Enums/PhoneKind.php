@@ -13,8 +13,8 @@ enum PhoneKind: string implements HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::Personal => 'Личный',
-            self::Office => 'Офис',
+            self::Personal => __('gshome.phone_kind.personal'),
+            self::Office => __('gshome.phone_kind.office'),
         };
     }
 }

@@ -19,9 +19,9 @@ enum UserStatus: string implements HasColor, HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::Active => 'Активен',
-            self::Blocked => 'Заблокирован',
-            self::Archived => 'В архиве',
+            self::Active => __('gshome.status.active'),
+            self::Blocked => __('gshome.status.blocked'),
+            self::Archived => __('gshome.status.archived'),
         };
     }
 

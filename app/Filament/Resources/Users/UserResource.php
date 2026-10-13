@@ -25,13 +25,22 @@ class UserResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedUsers;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Оргструктура';
-
     protected static ?int $navigationSort = 2;
 
-    protected static ?string $modelLabel = 'человек';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('gshome.nav.org');
+    }
 
-    protected static ?string $pluralModelLabel = 'люди';
+    public static function getModelLabel(): string
+    {
+        return __('gshome.user.model');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('gshome.user.plural');
+    }
 
     public static function form(Schema $schema): Schema
     {

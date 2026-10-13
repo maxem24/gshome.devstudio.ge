@@ -49,7 +49,8 @@ class ListingsPageTest extends TestCase
         RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['title' => ['ru' => 'Светлая квартира']])])]);
         $this->actingAs(User::factory()->teamLead()->create());
 
-        Livewire::test(Listings::class)
+        Livewire::withQueryParams(['display' => 'list'])->test(Listings::class)
+            ->assertSet('display', 'list')
             ->assertSee('Светлая квартира')
             ->assertSee('$90 000')
             ->assertSee('Другая компания')
@@ -65,10 +66,14 @@ class ListingsPageTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         Livewire::test(Listings::class)->assertSee('Первая')->assertSee('Вторая')
+            ->assertSet('display', 'grid')
+            ->assertSee('https://re.test/storage/1_t.webp', escape: false)
+            ->callAction('showList')
+            ->assertSet('display', 'list')
+            ->assertSee('Первая')->assertSee('Вторая')
             ->callAction('showGrid')
             ->assertSet('display', 'grid')
-            ->assertSee('Первая')->assertSee('Вторая')
-            ->assertSee('https://re.test/storage/1_t.webp', escape: false);
+            ->assertSee('Первая')->assertSee('Вторая');
     }
 
     public function test_grid_from_url_renders_grid_columns(): void
@@ -87,9 +92,12 @@ class ListingsPageTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         Livewire::test(Listings::class)
-            ->assertActionVisible('showGrid')->assertActionHidden('showList')
-            ->callAction('showGrid')
-            ->assertActionVisible('showList')->assertActionHidden('showGrid');
+            ->assertSet('display', 'grid')
+            ->assertDontSeeHtml('x-show="areFiltersOpen"')
+            ->assertSee(__('gshome.listings.direction'))
+            ->assertActionHidden('showGrid')->assertActionVisible('showList')
+            ->callAction('showList')
+            ->assertActionVisible('showGrid')->assertActionHidden('showList');
     }
 
     public function test_renting_lead_never_sends_sale_even_with_forged_filter(): void
@@ -103,14 +111,39 @@ class ListingsPageTest extends TestCase
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && str_contains((string) ($this->apiQuery($r)['deal_type_id'] ?? ''), '1'));
     }
 
-    public function test_direction_filter_only_for_both_directions(): void
+    public function test_sales_lead_never_sends_rent_even_with_forged_filter(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(Listings::class)
+            ->assertTableFilterHidden('direction')
+            ->set('tableFilters.direction.value', 'rent');
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['deal_type_id'] ?? null) === '1');
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && str_contains((string) ($this->apiQuery($r)['deal_type_id'] ?? ''), '2'));
+    }
+
+    public function test_direction_filter_for_both_directions_and_people_without_a_team(): void
     {
         RealEstateFake::fake();
         $this->actingAs(User::factory()->teamLead()->create());
         Livewire::test(Listings::class)->assertTableFilterHidden('direction');
 
-        $this->actingAs(User::factory()->teamLead()->create(['both_directions' => true]));
-        Livewire::test(Listings::class)->assertTableFilterVisible('direction');
+        foreach ([
+            User::factory()->teamLead()->create(['both_directions' => true]),
+            User::factory()->owner()->create(),
+            User::factory()->companyOwner()->create(),
+        ] as $user) {
+            RealEstateFake::fake();
+            $this->actingAs($user);
+
+            Livewire::test(Listings::class)
+                ->assertTableFilterVisible('direction')
+                ->set('tableFilters.direction.value', 'rent');
+
+            Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['deal_type_id'] ?? null) === '2');
+        }
     }
 
     public function test_filter_becomes_api_parameter(): void

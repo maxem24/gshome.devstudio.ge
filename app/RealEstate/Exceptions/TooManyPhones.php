@@ -7,6 +7,6 @@ final class TooManyPhones extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Фильтр по принадлежности недоступен: в группе больше 500 номеров.';
+        return __('gshome.errors.too_many_phones');
     }
 }

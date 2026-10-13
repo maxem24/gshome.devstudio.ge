@@ -45,7 +45,7 @@ final class ListingRows
                 'ownership_color' => self::color($own->label),
                 'ownership_company' => $own->companyName,
                 'ownership_name' => $own->contactName,
-                'group_label' => $group === null ? null : 'В группе есть наш сотрудник: '.($group->contactName ?? $group->companyName),
+                'group_label' => $group === null ? null : __('gshome.listings.group_member', ['name' => $group->contactName ?? $group->companyName]),
             ];
         }
 

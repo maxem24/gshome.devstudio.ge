@@ -100,31 +100,31 @@ class ListingView extends Page
 
     public function getTitle(): string
     {
-        return $this->card['title'] ?? 'Объект';
+        return $this->card['title'] ?? __('gshome.listings.object');
     }
 
     protected function getHeaderActions(): array
     {
         return [
             $this->contactAction('contactOwn', 'own'),
-            $this->contactAction('contactGroup', 'group', 'Связаться (группа)'),
-            Action::make('source')->label('Исходное объявление')->icon(Heroicon::OutlinedArrowTopRightOnSquare)->color('gray')
+            $this->contactAction('contactGroup', 'group', __('gshome.listings.contact_group')),
+            Action::make('source')->label(__('gshome.listings.source_listing'))->icon(Heroicon::OutlinedArrowTopRightOnSquare)->color('gray')
                 ->url(fn (): ?string => $this->card['source_url'] ?? null, shouldOpenInNewTab: true)
                 ->visible(fn (): bool => isset($this->card['source_url'])),
         ];
     }
 
-    private function contactAction(string $name, string $key, string $label = 'Связаться'): Action
+    private function contactAction(string $name, string $key, ?string $label = null): Action
     {
         return Action::make($name)
-            ->label($label)
+            ->label($label ?? __('gshome.listings.contact'))
             ->icon(Heroicon::OutlinedPhone)
             ->visible(fn (): bool => (bool) ($this->card[$key]['can_contact'] ?? false))
-            ->modalHeading(fn (): string => (string) ($this->card[$key]['name'] ?? $this->card[$key]['company'] ?? 'Контакт'))
+            ->modalHeading(fn (): string => (string) ($this->card[$key]['name'] ?? $this->card[$key]['company'] ?? __('gshome.listings.contact_fallback')))
             ->modalDescription(fn (): string => (string) ($this->card[$key]['company'] ?? ''))
             ->modalContent(fn () => view('filament.pages.partials.contact', ['phone' => $this->card[$key]['phone'] ?? null]))
             ->modalSubmitAction(false)
-            ->modalCancelActionLabel('Закрыть');
+            ->modalCancelActionLabel(__('gshome.listings.close'));
     }
 
     private function viewer(): User

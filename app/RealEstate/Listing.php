@@ -90,7 +90,7 @@ final readonly class Listing
             ], $d['images'] ?? []))),
             amenities: array_values(array_map(fn (array $a): string => (string) ($a['title'] ?? $a['slug'] ?? ''), $d['amenities'] ?? [])),
             subwayStations: array_values(array_map(
-                fn (array $s): string => trim(($s['title'] ?? '').(isset($s['walk_minutes']) ? " ({$s['walk_minutes']} мин)" : '')),
+                fn (array $s): string => trim(($s['title'] ?? '').(isset($s['walk_minutes']) ? " ({$s['walk_minutes']} ".__('gshome.listings.minutes').')' : '')),
                 $d['subway_stations'] ?? [],
             )),
             sellerCategory: self::category($d['seller'] ?? []),

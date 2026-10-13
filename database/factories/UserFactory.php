@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Enums\Direction;
+use App\Enums\Locale;
 use App\Enums\Role;
 use App\Enums\UserStatus;
 use App\Models\Company;
@@ -36,6 +37,9 @@ class UserFactory extends Factory
             'remember_token' => Str::random(10),
             'role' => Role::Owner,
             'status' => UserStatus::Active,
+            // В базе у нового человека язык ka. В тестах язык задан явно: проверки
+            // смотрят русские подписи, а не сегодняшний умолчательный язык.
+            'locale' => Locale::Russian,
         ];
     }
 

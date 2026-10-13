@@ -14,10 +14,10 @@ enum OwnershipLabel: string implements HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::OurEmployee => 'Наш сотрудник',
-            self::LinkedCompany => 'Сотрудник связанной компании',
-            self::GroupCompany => 'Одна из наших компаний',
-            self::OtherCompany => 'Другая компания',
+            self::OurEmployee => __('gshome.ownership.our_employee'),
+            self::LinkedCompany => __('gshome.ownership.linked_company'),
+            self::GroupCompany => __('gshome.ownership.group_company'),
+            self::OtherCompany => __('gshome.ownership.other_company'),
         };
     }
 }

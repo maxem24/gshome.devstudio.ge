@@ -7,6 +7,6 @@ final class RealEstateStaleCursor extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Не удалось открыть страницу списка, попробуйте ещё раз.';
+        return __('gshome.errors.stale_cursor');
     }
 }

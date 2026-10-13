@@ -51,14 +51,20 @@ class Listings extends Page implements HasTable
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedHomeModern;
 
-    protected static ?string $navigationLabel = 'Объекты';
-
-    protected static ?string $title = 'Объекты';
-
     protected static ?int $navigationSort = -1;
 
+    public static function getNavigationLabel(): string
+    {
+        return __('gshome.nav.listings');
+    }
+
+    public function getTitle(): string
+    {
+        return __('gshome.listings.title');
+    }
+
     #[Url]
-    public string $display = 'list';
+    public string $display = 'grid';
 
     /** Фильтры и поиск живут в адресе: «назад» из карточки возвращает к тем же результатам. */
     #[Url(as: 'filters')]
@@ -147,10 +153,10 @@ class Listings extends Page implements HasTable
             ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
             ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
-            ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)
+            ->filters($this->filters(), layout: FiltersLayout::AboveContent)
             ->filtersFormColumns(4)
-            ->emptyStateHeading('Объявлений не найдено')
-            ->emptyStateDescription('Измените фильтры или направление.');
+            ->emptyStateHeading(__('gshome.listings.empty_heading'))
+            ->emptyStateDescription(__('gshome.listings.empty_description'));
     }
 
     /** @param  array<string, mixed>  $filters */
@@ -194,10 +200,10 @@ class Listings extends Page implements HasTable
     protected function getHeaderActions(): array
     {
         return [
-            Action::make('showGrid')->label('Сетка')->icon(Heroicon::OutlinedSquares2x2)->color('gray')
+            Action::make('showGrid')->label(__('gshome.listings.grid'))->icon(Heroicon::OutlinedSquares2x2)->color('gray')
                 ->visible(fn (): bool => $this->display !== 'grid')
                 ->action(fn () => $this->display = 'grid'),
-            Action::make('showList')->label('Список')->icon(Heroicon::OutlinedListBullet)->color('gray')
+            Action::make('showList')->label(__('gshome.listings.list'))->icon(Heroicon::OutlinedListBullet)->color('gray')
                 ->visible(fn (): bool => $this->display === 'grid')
                 ->action(fn () => $this->display = 'list'),
         ];
@@ -239,14 +245,14 @@ class Listings extends Page implements HasTable
     private function listColumns(): array
     {
         return [
-            TextColumn::make('title')->label('Объект')->description(fn (array $record): ?string => $record['address'])->wrap(),
-            TextColumn::make('price')->label('Цена'),
-            TextColumn::make('direction')->label('Направление')->badge(),
-            TextColumn::make('facts')->label('Параметры')->wrap(),
-            TextColumn::make('source')->label('Источник'),
-            TextColumn::make('created_at')->label('Появилось'),
-            TextColumn::make('category')->label('Кто добавил'),
-            TextColumn::make('ownership_label')->label('Принадлежность')->badge()
+            TextColumn::make('title')->label(__('gshome.listings.object'))->description(fn (array $record): ?string => $record['address'])->wrap(),
+            TextColumn::make('price')->label(__('gshome.listings.price')),
+            TextColumn::make('direction')->label(__('gshome.listings.direction'))->badge(),
+            TextColumn::make('facts')->label(__('gshome.listings.facts'))->wrap(),
+            TextColumn::make('source')->label(__('gshome.listings.source')),
+            TextColumn::make('created_at')->label(__('gshome.listings.created')),
+            TextColumn::make('category')->label(__('gshome.listings.category')),
+            TextColumn::make('ownership_label')->label(__('gshome.listings.ownership'))->badge()
                 ->color(fn (array $record): string => $record['ownership_color'])
                 ->description(fn (array $record): ?string => collect([$record['ownership_company'], $record['ownership_name'], $record['group_label']])->filter()->implode(' · ') ?: null),
         ];
@@ -264,40 +270,40 @@ class Listings extends Page implements HasTable
         );
 
         return [
-            SelectFilter::make('direction')->label('Направление')
+            SelectFilter::make('direction')->label(__('gshome.listings.direction'))
                 ->options(collect($directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all())
-                ->placeholder('Все')
+                ->placeholder(__('gshome.listings.all'))
                 ->visible(count($directions) > 1),
             Filter::make('price')->schema([
-                TextInput::make('min')->label('Цена от, $')->numeric(),
-                TextInput::make('max')->label('Цена до, $')->numeric(),
+                TextInput::make('min')->label(__('gshome.listings.price_min'))->numeric(),
+                TextInput::make('max')->label(__('gshome.listings.price_max'))->numeric(),
             ])->columns(2),
             Filter::make('location')->schema([
-                Select::make('city_id')->label('Город')->options(fn (): array => $dictionary('cities'))->searchable()->live()
+                Select::make('city_id')->label(__('gshome.listings.city'))->options(fn (): array => $dictionary('cities'))->searchable()->live()
                     ->afterStateUpdated(fn (Set $set) => $set('district_id', null)),
-                Select::make('district_id')->label('Район')
+                Select::make('district_id')->label(__('gshome.listings.district'))
                     ->options(fn (Get $get): array => is_scalar($get('city_id')) && ctype_digit((string) $get('city_id')) && (int) $get('city_id') > 0 ? $dictionary('districts', ['city_id' => (int) $get('city_id')]) : [])
                     ->searchable(),
             ])->columns(2),
             Filter::make('area')->schema([
-                TextInput::make('min')->label('Площадь от, м²')->numeric(),
-                TextInput::make('max')->label('Площадь до, м²')->numeric(),
+                TextInput::make('min')->label(__('gshome.listings.area_min'))->numeric(),
+                TextInput::make('max')->label(__('gshome.listings.area_max'))->numeric(),
             ])->columns(2),
-            SelectFilter::make('rooms')->label('Комнаты')->multiple()
+            SelectFilter::make('rooms')->label(__('gshome.listings.rooms'))->multiple()
                 ->options(['1' => '1', '2' => '2', '3' => '3', '4' => '4', '5+' => '5+']),
-            SelectFilter::make('property_type')->label('Тип недвижимости')->options(fn (): array => $dictionary('property-types')),
-            SelectFilter::make('source')->label('Источник')->options(['myhome_ge' => 'myhome.ge', 'ss_ge' => 'ss.ge']),
-            Filter::make('owners_only')->label('Только собственники')->toggle(),
+            SelectFilter::make('property_type')->label(__('gshome.listings.property_type'))->options(fn (): array => $dictionary('property-types')),
+            SelectFilter::make('source')->label(__('gshome.listings.source'))->options(['myhome_ge' => 'myhome.ge', 'ss_ge' => 'ss.ge']),
+            Filter::make('owners_only')->label(__('gshome.listings.owners_only'))->toggle(),
             Filter::make('created')->schema([
-                DatePicker::make('from')->label('Появилось с')->live()->maxDate(fn (Get $get): ?string => $get('until') ?: null),
-                DatePicker::make('until')->label('Появилось по')->live()->minDate(fn (Get $get): ?string => $get('from') ?: null),
+                DatePicker::make('from')->label(__('gshome.listings.created_from'))->live()->maxDate(fn (Get $get): ?string => $get('until') ?: null),
+                DatePicker::make('until')->label(__('gshome.listings.created_until'))->live()->minDate(fn (Get $get): ?string => $get('from') ?: null),
             ])->columns(2),
-            SelectFilter::make('sort')->label('Сортировка')->options(ListingQuery::SORTS)->placeholder('Сначала новые')
-                ->modifyFormFieldUsing(fn (Select $field): Select => $field->helperText('При сортировке по цене или площади объявления без них не показываются')),
-            SelectFilter::make('ownership')->label('Принадлежность')
-                ->options(['ours' => 'Наши (видимые мне)', 'others' => 'Другие компании'])
+            SelectFilter::make('sort')->label(__('gshome.listings.sort'))->options(ListingQuery::sortOptions())->placeholder(__('gshome.listings.sort_new'))
+                ->modifyFormFieldUsing(fn (Select $field): Select => $field->helperText(__('gshome.listings.sort_hint'))),
+            SelectFilter::make('ownership')->label(__('gshome.listings.ownership'))
+                ->options(['ours' => __('gshome.listings.ours'), 'others' => __('gshome.listings.others')])
                 ->visible($client->phoneFiltersEnabled()),
-            SelectFilter::make('employee')->label('Сотрудник')
+            SelectFilter::make('employee')->label(__('gshome.listings.employee'))
                 ->options(fn (): array => $this->employeeOptions())
                 ->searchable()
                 ->visible($client->phoneFiltersEnabled()),

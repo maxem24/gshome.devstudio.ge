@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\Direction;
+use App\Enums\Locale;
 use App\Enums\Role;
 use App\Enums\UserStatus;
 use App\Org\UserPlacement;
@@ -20,7 +21,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status'])]
+#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status', 'locale'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser
 {
@@ -63,6 +64,7 @@ class User extends Authenticatable implements FilamentUser
             'team_lead_id' => 'integer',
             'both_directions' => 'boolean',
             'status' => UserStatus::class,
+            'locale' => Locale::class,
         ];
     }
 

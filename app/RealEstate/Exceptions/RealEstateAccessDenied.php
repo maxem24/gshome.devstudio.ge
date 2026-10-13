@@ -6,6 +6,6 @@ final class RealEstateAccessDenied extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Доступ к Real Estate закрыт — ключ истёк или отозван. Сообщите администратору.';
+        return __('gshome.errors.access_denied');
     }
 }

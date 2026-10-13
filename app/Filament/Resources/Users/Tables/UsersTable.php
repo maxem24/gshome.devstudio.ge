@@ -19,25 +19,25 @@ class UsersTable
     {
         return $table
             ->columns([
-                TextColumn::make('name')->label('Имя')->searchable()->sortable(),
-                TextColumn::make('status')->label('Статус')->badge(),
-                TextColumn::make('role')->label('Роль')->badge(),
-                TextColumn::make('company.name')->label('Компания')->placeholder('—')->sortable(),
-                TextColumn::make('direction')->label('Команда')->placeholder('—'),
-                TextColumn::make('teamLead.name')->label('Тимлид')->placeholder('—')->toggleable(),
+                TextColumn::make('name')->label(__('gshome.user.name'))->searchable()->sortable(),
+                TextColumn::make('status')->label(__('gshome.user.status'))->badge(),
+                TextColumn::make('role')->label(__('gshome.user.role'))->badge(),
+                TextColumn::make('company.name')->label(__('gshome.user.company'))->placeholder('—')->sortable(),
+                TextColumn::make('direction')->label(__('gshome.user.team'))->placeholder('—'),
+                TextColumn::make('teamLead.name')->label(__('gshome.user.team_lead'))->placeholder('—')->toggleable(),
                 TextColumn::make('email')->label('Email')->searchable()->toggleable(),
-                IconColumn::make('both_directions')->label('Оба направления')->boolean()
+                IconColumn::make('both_directions')->label(__('gshome.user.both'))->boolean()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 // Архив по умолчанию скрыт: в работе нужны активные и заблокированные.
                 SelectFilter::make('status')
-                    ->label('Статус')
+                    ->label(__('gshome.user.status'))
                     ->options(UserStatus::class)
                     ->multiple()
                     ->default([UserStatus::Active->value, UserStatus::Blocked->value]),
-                SelectFilter::make('role')->label('Роль')->options(Role::class),
-                SelectFilter::make('company_id')->label('Компания')->relationship('company', 'name'),
+                SelectFilter::make('role')->label(__('gshome.user.role'))->options(Role::class),
+                SelectFilter::make('company_id')->label(__('gshome.user.company'))->relationship('company', 'name'),
             ])
             ->recordActions([
                 ActionGroup::make([
