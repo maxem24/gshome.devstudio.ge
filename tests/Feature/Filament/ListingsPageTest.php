@@ -12,7 +12,6 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Livewire\Features\SupportPagination\PaginationUrl;
 use Livewire\Livewire;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -216,17 +215,26 @@ class ListingsPageTest extends TestCase
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['rooms'] ?? null) === '2,3');
     }
 
-    public function test_next_page_sends_api_cursor(): void
+    public function test_load_more_appends_the_next_api_cursor(): void
     {
         RealEstateFake::fake([
-            RealEstateFake::page([RealEstateFake::listing(['id' => 1])], next: 'NEXT1'),
-            RealEstateFake::page([RealEstateFake::listing(['id' => 2])], prev: 'PREV1'),
+            RealEstateFake::page([RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'Первый']])], next: 'NEXT1'),
+            RealEstateFake::page([RealEstateFake::listing(['id' => 2, 'title' => ['ru' => 'Второй']])], prev: 'PREV1'),
         ]);
         $this->actingAs(User::factory()->owner()->create());
 
-        Livewire::test(Listings::class)->call('setPage', 'NEXT1', 'page');
+        Livewire::test(Listings::class)
+            ->assertSee('Первый')
+            ->assertSeeHtml('wire:target="loadMoreListings"')
+            ->assertSeeHtml('fi-loading-indicator')
+            ->call('loadMoreListings')
+            ->assertSee('Первый')
+            ->assertSee('Второй');
 
-        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['cursor'] ?? null) === 'NEXT1');
+        $sent = Http::recorded(fn (Request $r) => str_contains($r->url(), '/listings?'))->values();
+        $this->assertCount(2, $sent);
+        $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[0][0]));
+        $this->assertSame('NEXT1', $this->apiQuery($sent[1][0])['cursor']);
     }
 
     public function test_unavailable_api_gives_empty_list_and_notice(): void
@@ -258,14 +266,14 @@ class ListingsPageTest extends TestCase
         ]);
         $this->actingAs(User::factory()->owner()->create());
 
-        $component = Livewire::test(Listings::class)->call('setPage', 'NEXT1', 'page');
+        $component = Livewire::test(Listings::class)->call('loadMoreListings');
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['cursor'] ?? null) === 'NEXT1');
 
         Http::fake(fn () => Http::response(RealEstateFake::page([])));
         $component->filterTable('sort', 'price_desc');
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['sort'] ?? null) === '-price_usd' && ! isset($this->apiQuery($r)['cursor']));
 
-        $component->call('setPage', 'NEXT2', 'page')->searchTable('Ваке');
+        $component->searchTable('Ваке');
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['q'] ?? null) === 'Ваке' && ! isset($this->apiQuery($r)['cursor']));
     }
 
@@ -325,14 +333,15 @@ class ListingsPageTest extends TestCase
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
     }
 
-    public function test_cursor_in_url_goes_to_the_api(): void
+    public function test_page_query_is_not_sent_as_a_cursor(): void
     {
-        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 2])], prev: 'PREV1')]);
+        RealEstateFake::fake();
         $this->actingAs(User::factory()->owner()->create());
 
-        Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class)->assertSet('paginators.page', 'CURSOR1');
+        Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class);
+        Livewire::withQueryParams(['page' => '3'])->test(Listings::class);
 
-        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['cursor'] ?? null) === 'CURSOR1');
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['cursor']));
     }
 
     public function test_stale_cursor_restarts_from_the_first_page_without_error_log(): void
@@ -340,29 +349,33 @@ class ListingsPageTest extends TestCase
         Log::swap($log = \Mockery::spy(LogManager::class));
         $this->actingAs(User::factory()->owner()->create());
         $stale = Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], 422);
-        $first = RealEstateFake::page([RealEstateFake::listing(['id' => 77])], next: 'NEXT1');
-        Http::fake(function (Request $r) use ($stale, $first) {
+        $first = RealEstateFake::page([RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'Первая']])], next: 'NEXT1');
+        $restart = RealEstateFake::page([RealEstateFake::listing(['id' => 77, 'title' => ['ru' => 'Снова']])]);
+        $plain = 0;
+        Http::fake(function (Request $r) use ($stale, $first, $restart, &$plain) {
             return match (true) {
                 str_contains($r->url(), '/dictionaries/deal-types') => Http::response(['data' => RealEstateFake::dealTypes()]),
                 str_contains($r->url(), '/dictionaries/') => Http::response(['data' => [['id' => 1, 'slug' => 'tbilisi', 'title_ru' => 'Тбилиси']]]),
                 isset($this->apiQuery($r)['cursor']) => $stale,
-                default => Http::response($first),
+                default => $plain++ === 0 ? Http::response($first) : Http::response($restart),
             };
         });
 
-        Livewire::withQueryParams(['page' => 'OLD', 'filters' => ['source' => ['value' => 'ss_ge']]])->test(Listings::class)
+        Livewire::withQueryParams(['filters' => ['source' => ['value' => 'ss_ge']]])->test(Listings::class)
+            ->call('loadMoreListings')
             ->assertOk()
             ->assertNotNotified()
-            ->assertSet('paginators.page', 1)
-            ->assertSee('77');
+            ->assertDontSee('Первая')
+            ->assertSee('Снова');
 
         $sent = Http::recorded(fn (Request $r) => str_contains($r->url(), '/listings?'))->values();
-        $this->assertCount(2, $sent);
-        $this->assertSame('OLD', $this->apiQuery($sent[0][0])['cursor']);
-        $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[1][0]));
-        // Повтор не теряет ни фильтры, ни направление: отличается от первого запроса только отсутствием cursor.
-        $this->assertSame('ss_ge', $this->apiQuery($sent[1][0])['source']);
-        $this->assertSame(Arr::except($this->apiQuery($sent[0][0]), 'cursor'), $this->apiQuery($sent[1][0]));
+        $this->assertCount(3, $sent);
+        $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[0][0]));
+        $this->assertSame('NEXT1', $this->apiQuery($sent[1][0])['cursor']);
+        $this->assertArrayNotHasKey('cursor', $this->apiQuery($sent[2][0]));
+        // Повтор не теряет ни фильтры, ни направление: отличается от запроса с курсором только его отсутствием.
+        $this->assertSame('ss_ge', $this->apiQuery($sent[2][0])['source']);
+        $this->assertSame(Arr::except($this->apiQuery($sent[1][0]), 'cursor'), $this->apiQuery($sent[2][0]));
         $log->shouldNotHaveReceived('error');
     }
 
@@ -377,35 +390,6 @@ class ListingsPageTest extends TestCase
             ->assertOk()
             ->assertSet('tableSearch', '');
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
-    }
-
-    /**
-     * Синхронизацию ?page= с адресом включает хук PaginationUrl: его вешает Paginator::resolveCurrentPage()
-     * из Listings::mount(). Без вызова хука нет, и листание перестаёт обновлять адрес («Назад» ломается).
-     * Сам адрес в Livewire-тесте не виден, поэтому проверяем наличие хука на paginators.page.
-     */
-    public function test_cursor_is_kept_in_sync_with_the_url(): void
-    {
-        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 2])], prev: 'PREV1')]);
-        $this->actingAs(User::factory()->owner()->create());
-
-        $component = Livewire::withQueryParams(['page' => 'CURSOR1'])->test(Listings::class);
-
-        $hooks = $component->instance()->getAttributes()->filter(
-            fn ($attribute): bool => $attribute instanceof PaginationUrl && $attribute->getName() === 'paginators.page'
-        );
-        $this->assertCount(1, $hooks);
-        $this->assertSame('page', $hooks->first()->as);
-    }
-
-    public function test_numeric_page_in_url_is_not_a_cursor(): void
-    {
-        RealEstateFake::fake();
-        $this->actingAs(User::factory()->owner()->create());
-
-        Livewire::withQueryParams(['page' => '3'])->test(Listings::class);
-
-        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['cursor']));
     }
 
     public function test_search_box_is_available_in_grid_view(): void

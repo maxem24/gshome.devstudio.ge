@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Access\OrgAccess;
 use App\Access\Ownership;
 use App\Enums\Direction;
+use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\ListingRows;
@@ -111,7 +112,40 @@ class ListingView extends Page
             Action::make('source')->label(__('gshome.listings.source_listing'))->icon(Heroicon::OutlinedArrowTopRightOnSquare)->color('gray')
                 ->url(fn (): ?string => $this->card['source_url'] ?? null, shouldOpenInNewTab: true)
                 ->visible(fn (): bool => isset($this->card['source_url'])),
+            Action::make('saveForLater')
+                ->label(fn (): string => $this->isSaved()
+                    ? __('gshome.saved.remove')
+                    : __('gshome.listings.save_for_later'))
+                ->icon(fn (): Heroicon => $this->isSaved() ? Heroicon::Bookmark : Heroicon::OutlinedBookmark)
+                ->color('gray')
+                ->visible(fn (): bool => (int) ($this->card['id'] ?? 0) > 0)
+                ->action(function (): void {
+                    $id = (int) ($this->card['id'] ?? 0);
+                    abort_unless($id > 0, 404);
+                    $saved = SavedListing::query()
+                        ->where('user_id', $this->viewer()->id)
+                        ->where('listing_id', $id);
+                    if ($saved->exists()) {
+                        $saved->delete();
+
+                        return;
+                    }
+                    SavedListing::query()->firstOrCreate([
+                        'user_id' => $this->viewer()->id,
+                        'listing_id' => $id,
+                    ]);
+                }),
         ];
+    }
+
+    private function isSaved(): bool
+    {
+        $id = (int) ($this->card['id'] ?? 0);
+
+        return $id > 0 && SavedListing::query()
+            ->where('user_id', $this->viewer()->id)
+            ->where('listing_id', $id)
+            ->exists();
     }
 
     private function contactAction(string $name, string $key, ?string $label = null): Action

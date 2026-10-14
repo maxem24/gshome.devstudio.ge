@@ -5,12 +5,12 @@ namespace App\Filament\Pages;
 use App\Access\OrgAccess;
 use App\Enums\Direction;
 use App\Models\Phone;
+use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\ListingQuery;
 use App\RealEstate\ListingRows;
-use App\RealEstate\Pagination\ApiCursorPaginator;
 use App\RealEstate\RealEstateClient;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -29,23 +29,27 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Enums\FiltersLayout;
-use Filament\Tables\Enums\PaginationMode;
+use Filament\Tables\Enums\RecordActionsPosition;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Contracts\View\View;
-use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Url;
 
 /**
  * Объекты — живые запросы к API Real Estate (решение 2026-10-10). Направление —
  * только из прав смотрящего (ListingQuery), метки — ListingRows.
+ * Страницы курсора дописываются вниз, а не заменяют список (решение 2026-10-14).
  */
 class Listings extends Page implements HasTable
 {
     use InteractsWithTable;
+
+    /** Сколько строк держим в состоянии компонента: дальше прокрутка останавливается. */
+    private const MAX_LOADED = 200;
 
     protected string $view = 'filament.pages.listings';
 
@@ -84,8 +88,36 @@ class Listings extends Page implements HasTable
     #[Url(as: 'search')]
     public $tableSearch = '';
 
+    /**
+     * Уже показанные строки, ключ — id объявления. Курсор следующей страницы API.
+     * Из браузера их не меняют: догрузка и сохранение читают только это состояние.
+     *
+     * @var array<int|string, array<string, mixed>>
+     */
+    #[Locked]
+    public array $loadedRows = [];
+
+    #[Locked]
+    public ?string $nextCursor = null;
+
+    #[Locked]
+    public bool $listingsLoaded = false;
+
+    #[Locked]
+    public bool $noMoreListings = false;
+
+    #[Locked]
+    public ?string $loadedFingerprint = null;
+
+    /** @var array<string, string>|null */
+    #[Locked]
+    public ?array $loadedParams = null;
+
     /** Вид, для которого собрана текущая таблица (см. render) */
     private ?string $tableDisplay = null;
+
+    /** @var list<int>|null */
+    private ?array $savedIds = null;
 
     /**
      * Фильтры из адреса приходят от кого угодно: формы Filament падают на массиве там, где ждут
@@ -112,8 +144,6 @@ class Listings extends Page implements HasTable
         if (! is_scalar($this->tableSearch)) {
             $this->tableSearch = '';
         }
-
-        $this->restoreCursorFromUrl();
     }
 
     /** `$wire.set('tableSearch', [...])` кладёт массив в снапшот, а booted() трейта делает strval() — чистим до него. */
@@ -130,22 +160,6 @@ class Listings extends Page implements HasTable
         return is_scalar($this->tableSearch) && filled($this->tableSearch) ? Str::trim((string) $this->tableSearch) : null;
     }
 
-    /**
-     * «Назад» из карточки: страница списка — курсор API в ?page=. Числовой резолвер Livewire
-     * принимает только целые и заменяет курсор на 1, поэтому после его инициализации (она же
-     * подключает синхронизацию с адресом) кладём курсор в paginators сами.
-     */
-    private function restoreCursorFromUrl(): void
-    {
-        $name = 'page'; // имя без идентификатора таблицы; таблица в mount() ещё не собрана
-        $cursor = request()->query($name);
-        Paginator::resolveCurrentPage($name);
-
-        if (is_string($cursor) && $cursor !== '' && strlen($cursor) <= 2000 && ! ctype_digit($cursor)) {
-            $this->paginators[$name] = $cursor;
-        }
-    }
-
     /** Район принадлежит городу: другой город — район сбрасывается (и в форме, и при правке состояния напрямую). */
     public function updatedTableFiltersLocationCityId(): void
     {
@@ -157,11 +171,28 @@ class Listings extends Page implements HasTable
         $this->tableDisplay = $this->display;
 
         return $table
-            ->records(fn (array $filters, ?string $search, int|string $page): ApiCursorPaginator => $this->fetch($filters, $search, $page))
-            ->paginationMode(PaginationMode::Cursor)
+            ->records(fn (array $filters, ?string $search): array => $this->listingRows($filters, $search))
             ->searchable()
-            ->paginated([ListingQuery::PER_PAGE])
+            ->paginated(false)
             ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
+            ->recordActions([
+                Action::make('saveForLater')
+                    ->label(fn (array $record): string => $this->isSaved((int) $record['id'])
+                        ? __('gshome.listings.saved')
+                        : __('gshome.listings.save_for_later'))
+                    ->icon(fn (array $record): Heroicon => $this->isSaved((int) $record['id'])
+                        ? Heroicon::Bookmark
+                        : Heroicon::OutlinedBookmark)
+                    ->color('gray')
+                    ->action(function (array $record): void {
+                        $id = (int) $record['id'];
+                        if ($this->isSaved($id)) {
+                            $this->forgetListing($id);
+                        } else {
+                            $this->saveListing($id);
+                        }
+                    }),
+            ], position: RecordActionsPosition::AfterContent)
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
             ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
             ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)
@@ -171,42 +202,122 @@ class Listings extends Page implements HasTable
             ->emptyStateDescription(__('gshome.listings.empty_description'));
     }
 
-    /** @param  array<string, mixed>  $filters */
-    protected function fetch(array $filters, ?string $search, int|string $page): ApiCursorPaginator
+    /**
+     * Первая страница запрашивается один раз на сочетание фильтров и поиска.
+     * Смена фильтра или поиска начинает список заново, без старого курсора.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<int|string, array<string, mixed>>
+     */
+    private function listingRows(array $filters, ?string $search): array
     {
-        $options = ['path' => request()->url(), 'cursorName' => $this->getTablePaginationPageName()];
-        $cursor = is_string($page) && ! ctype_digit($page) ? $page : null;
+        $params = $this->paramsFor($filters, $search);
+        if (! $this->listingsLoaded) {
+            $this->append($params, null);
+        }
+
+        return $this->loadedRows;
+    }
+
+    /** Догрузить следующую страницу курсора API и дописать её к уже показанным строкам. */
+    public function loadMoreListings(): void
+    {
+        if ($this->noMoreListings || $this->nextCursor === null || $this->loadedParams === null) {
+            return;
+        }
+
+        $this->append($this->loadedParams, $this->nextCursor);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     * @return array<string, string>|null
+     */
+    private function paramsFor(array $filters, ?string $search): ?array
+    {
+        $params = ListingQuery::params($this->viewer(), $filters, $search);
+        $fingerprint = md5((string) json_encode($params));
+        if ($this->loadedFingerprint !== $fingerprint) {
+            $this->loadedRows = [];
+            $this->nextCursor = null;
+            $this->listingsLoaded = false;
+            $this->noMoreListings = false;
+            $this->loadedFingerprint = $fingerprint;
+            $this->loadedParams = $params;
+        }
+
+        return $params;
+    }
+
+    /** @param  array<string, string>|null  $params */
+    private function append(?array $params, ?string $cursor): void
+    {
+        if ($params === null) {
+            $this->listingsLoaded = true;
+            $this->nextCursor = null;
+            $this->noMoreListings = true;
+
+            return;
+        }
 
         try {
-            $params = ListingQuery::params($this->viewer(), $filters, $search);
-            if ($params === null) {
-                return ApiCursorPaginator::emptyPage(ListingQuery::PER_PAGE, $options);
-            }
             try {
                 $result = app(RealEstateClient::class)->listings($params, $cursor);
             } catch (RealEstateStaleCursor $e) {
-                // Курсор от другой сортировки или старой закладки: молча начинаем с первой страницы.
+                // Курсор от другой сортировки: молча начинаем с первой страницы.
                 if ($cursor === null) {
                     throw $e;
                 }
-                $cursor = null;
-                $this->resetPage($this->getTablePaginationPageName());
-                $result = app(RealEstateClient::class)->listings($params, null);
+                $this->loadedRows = [];
+                $this->nextCursor = null;
+                $this->listingsLoaded = false;
+                $this->append($params, null);
+
+                return;
             }
         } catch (RealEstateException $e) {
             Notification::make()->danger()->title($e->userMessage())->send();
+            $this->listingsLoaded = true;
+            $this->nextCursor = null;
+            $this->noMoreListings = true;
 
-            return ApiCursorPaginator::emptyPage(ListingQuery::PER_PAGE, $options);
+            return;
         }
 
-        return new ApiCursorPaginator(
-            ListingRows::build($this->viewer(), $result->listings),
-            ListingQuery::PER_PAGE,
-            $cursor,
-            $result->nextCursor,
-            $result->prevCursor,
-            $options,
-        );
+        foreach (ListingRows::build($this->viewer(), $result->listings) as $id => $row) {
+            $this->loadedRows[$id] = $row;
+        }
+        $this->listingsLoaded = true;
+        $this->nextCursor = count($this->loadedRows) >= self::MAX_LOADED ? null : $result->nextCursor;
+        $this->noMoreListings = $this->nextCursor === null;
+    }
+
+    public function saveListing(int $id): void
+    {
+        abort_unless($id > 0 && isset($this->loadedRows[$id]), 404);
+        SavedListing::query()->firstOrCreate([
+            'user_id' => $this->viewer()->id,
+            'listing_id' => $id,
+        ]);
+        $this->savedIds = null;
+    }
+
+    public function forgetListing(int $id): void
+    {
+        abort_unless($id > 0 && isset($this->loadedRows[$id]), 404);
+        SavedListing::query()->where('user_id', $this->viewer()->id)->where('listing_id', $id)->delete();
+        $this->savedIds = null;
+    }
+
+    private function isSaved(int $id): bool
+    {
+        $this->savedIds ??= SavedListing::query()
+            ->where('user_id', $this->viewer()->id)
+            ->pluck('listing_id')
+            ->map(fn (mixed $value): int => (int) $value)
+            ->all();
+
+        return in_array($id, $this->savedIds, true);
     }
 
     protected function getHeaderActions(): array

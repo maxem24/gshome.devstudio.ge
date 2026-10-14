@@ -3,6 +3,7 @@
 return [
     'nav' => [
         'listings' => 'Properties',
+        'saved' => 'Saved for later',
         'org' => 'Organization',
         'exchange' => 'Exchange between companies',
     ],
@@ -59,6 +60,16 @@ return [
         'contact_fallback' => 'Contact',
         'close' => 'Close',
         'contact_hint' => 'Tap the number to call, or copy it.',
+        'save_for_later' => 'Save for later',
+        'saved' => 'Saved',
+        'loading_more' => 'Loading more',
+    ],
+    'saved' => [
+        'title' => 'Saved for later',
+        'empty_heading' => 'Nothing saved yet',
+        'empty_description' => 'Save a listing from the properties list and it will show up here.',
+        'remove' => 'Remove from saved',
+        'limit' => 'Showing the :count most recently saved listings.',
     ],
     'direction' => [
         'sale' => 'Sale',

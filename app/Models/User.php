@@ -119,4 +119,10 @@ class User extends Authenticatable implements FilamentUser
     {
         return $this->hasMany(User::class, 'team_lead_id');
     }
+
+    /** @return HasMany<SavedListing, $this> */
+    public function savedListings(): HasMany
+    {
+        return $this->hasMany(SavedListing::class);
+    }
 }

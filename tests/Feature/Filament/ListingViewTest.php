@@ -5,6 +5,7 @@ namespace Tests\Feature\Filament;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
 use App\Models\Phone;
+use App\Models\SavedListing;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -139,5 +140,30 @@ class ListingViewTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
+    }
+
+    public function test_card_saves_for_later_and_removes_only_this_users_row(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $user = User::factory()->owner()->create();
+        $other = User::factory()->owner()->create();
+        SavedListing::query()->create(['user_id' => $other->id, 'listing_id' => 13]);
+        $this->actingAs($user);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionVisible('saveForLater')
+            ->assertSee('Сохранить')
+            ->callAction('saveForLater')
+            ->assertSee('Убрать из сохранённых');
+
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $user->id, 'listing_id' => 13]);
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $other->id, 'listing_id' => 13]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('saveForLater')
+            ->assertSee('Сохранить');
+
+        $this->assertDatabaseMissing('saved_listings', ['user_id' => $user->id, 'listing_id' => 13]);
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $other->id, 'listing_id' => 13]);
     }
 }
