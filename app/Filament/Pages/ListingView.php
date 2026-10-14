@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Access\OrgAccess;
 use App\Access\Ownership;
 use App\Enums\Direction;
+use App\Enums\OwnershipLabel;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
@@ -59,10 +60,12 @@ class ListingView extends Page
         $resolved = OrgAccess::ownershipMany($viewer, $numbers);
         $own = $l->contactPhoneE164 !== null ? ($resolved[$l->contactPhoneE164] ?? Ownership::other()) : Ownership::other();
         $group = ListingRows::groupOwnership($own, $l, $resolved);
+        $copy = ListingRows::duplicateCopy($l, $resolved);
         $toArray = fn (?Ownership $o): ?array => $o === null ? null : [
             'label' => $o->label->getLabel(), 'color' => ListingRows::color($o->label),
             'company' => $o->companyName, 'name' => $o->contactName, 'phone' => $o->contactPhone,
             'can_contact' => $o->contactPhone !== null,
+            'same_owner' => $o->label === OwnershipLabel::LinkedCompany,
         ];
 
         $this->card = [
@@ -93,6 +96,10 @@ class ListingView extends Page
             'created_at' => $l->sourceCreatedAt?->format('d.m.Y'),
             'own' => $toArray($own),
             'group' => $toArray($group),
+            'company_line' => filled($own->companyName) ? __('gshome.listings.company_line', ['name' => $own->companyName]) : null,
+            'same_owner' => $own->label === OwnershipLabel::LinkedCompany,
+            'agency_in_group' => $copy['agency_in_group'],
+            'owner_still_listed' => $copy['owner_still_listed'],
             'cluster' => array_map(fn (array $m): array => [
                 'source' => $m['source'] === 'myhome_ge' ? 'myhome.ge' : 'ss.ge',
                 'source_url' => $m['source_url'],

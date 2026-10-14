@@ -8,9 +8,21 @@
                     :color="$card['own']['color']"
                     >{{ $card['own']['label'] }}</x-filament::badge
                 >
-                <span
-                    >{{ collect([$card['own']['company'], $card['own']['name']])->filter()->implode(' · ') }}</span
-                >
+                @if ($card['same_owner'])
+                    <span>{{ __('gshome.ownership.same_owner') }}</span>
+                @endif
+                @if ($card['company_line'])
+                    <span>{{ $card['company_line'] }}</span>
+                @endif
+                @if ($card['own']['name'])
+                    <span>{{ $card['own']['name'] }}</span>
+                @endif
+                @if ($card['agency_in_group'])
+                    <span>{{ $card['agency_in_group'] }}</span>
+                @endif
+                @if ($card['owner_still_listed'])
+                    <span>{{ $card['owner_still_listed'] }}</span>
+                @endif
                 @if ($card['group'])
                     <x-filament::badge :color="$card['group']['color']"
                         >{{ __('gshome.listings.group_member', ['name' => $card['group']['name'] ?? $card['group']['company']]) }}</x-filament::badge
@@ -64,9 +76,15 @@
                                         :color="$member['ownership']['color']"
                                         >{{ $member['ownership']['label'] }}</x-filament::badge
                                     >
-                                    <span
-                                        >{{ collect([$member['ownership']['company'], $member['ownership']['name']])->filter()->implode(' · ') }}</span
-                                    >
+                                    @if ($member['ownership']['same_owner'])
+                                        <span>{{ __('gshome.ownership.same_owner') }}</span>
+                                    @endif
+                                    @if ($member['ownership']['company'])
+                                        <span>{{ __('gshome.listings.company_line', ['name' => $member['ownership']['company']]) }}</span>
+                                    @endif
+                                    @if ($member['ownership']['name'])
+                                        <span>{{ $member['ownership']['name'] }}</span>
+                                    @endif
                                 </li>
                             @endforeach
                         </ul>

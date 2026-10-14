@@ -39,6 +39,8 @@ class ListingRowsTest extends TestCase
         $this->assertSame([1, 2, 3], array_keys($rows));
         $this->assertSame(OwnershipLabel::OurEmployee->getLabel(), $rows[1]['ownership_label']);
         $this->assertSame('Нино', $rows[1]['ownership_name']);
+        $this->assertNull($rows[1]['same_owner_label']);
+        $this->assertSame('Компания: '.$a->name, $rows[1]['ownership_company_line']);
         $this->assertNull($rows[1]['group_label']);
         $this->assertSame(OwnershipLabel::OtherCompany->getLabel(), $rows[2]['ownership_label']);
         $this->assertSame('В группе есть наш сотрудник: Нино', $rows[2]['group_label']);
@@ -71,5 +73,61 @@ class ListingRowsTest extends TestCase
         ]);
 
         $this->assertNull($rows[1]['group_label']);
+    }
+
+    public function test_linked_company_shows_the_same_owner_and_its_own_name(): void
+    {
+        [$a, $b] = Company::factory()->count(2)->create()->all();
+        CompanyExchange::create(['company_a_id' => $a->id, 'company_b_id' => $b->id, 'enabled' => true]);
+        $viewer = User::factory()->teamLead($a)->create();
+        $phone = Phone::factory()->heldBy(User::factory()->teamLead($b)->create(['name' => 'Лида']))->create()->number;
+
+        $rows = ListingRows::build($viewer, [
+            $this->listing(['id' => 1, 'contact' => ['phone_e164' => $phone]]),
+        ]);
+
+        $this->assertSame('Тот же владелец', $rows[1]['same_owner_label']);
+        $this->assertSame('Компания: '.$b->name, $rows[1]['ownership_company_line']);
+        $this->assertNull($rows[1]['owner_still_listed']);
+    }
+
+    public function test_owner_copy_and_our_copy_are_named_separately(): void
+    {
+        $company = Company::factory()->create();
+        $viewer = User::factory()->teamLead($company)->create();
+        $our = Phone::factory()->heldBy(User::factory()->agent($viewer)->create())->create()->number;
+        $ownerPhone = '+995599000099';
+
+        $rows = ListingRows::build($viewer, [
+            $this->listing([
+                'id' => 1,
+                'seller' => ['is_owner' => true, 'is_agency' => false, 'agency_name' => null],
+                'contact' => ['phone_e164' => $ownerPhone],
+                'cluster' => ['id' => 4, 'listings_count' => 2, 'phones_e164' => [$ownerPhone, $our]],
+            ]),
+            $this->listing([
+                'id' => 2,
+                'seller' => ['is_owner' => false, 'is_agency' => true, 'agency_name' => 'Дом'],
+                'contact' => ['phone_e164' => $our],
+                'cluster' => [
+                    'id' => 5,
+                    'listings_count' => 2,
+                    'phones_e164' => [$our, $ownerPhone],
+                    'listings' => [[
+                        'id' => 9,
+                        'source' => 'ss_ge',
+                        'seller' => ['is_owner' => true, 'is_agency' => false, 'agency_name' => null],
+                        'contact' => ['phone_e164' => $ownerPhone],
+                        'price' => ['usd' => 1],
+                    ]],
+                ],
+            ]),
+        ]);
+
+        $this->assertSame('Это объявление есть у агентства: '.$company->name, $rows[1]['agency_in_group']);
+        $this->assertSame('У собственника на площадке остаётся своё объявление', $rows[1]['owner_still_listed']);
+        $this->assertSame('Это объявление есть у агентства: '.$company->name, $rows[2]['agency_in_group']);
+        $this->assertSame('У собственника на площадке остаётся своё объявление', $rows[2]['owner_still_listed']);
+        $this->assertSame('Компания: '.$company->name, $rows[2]['ownership_company_line']);
     }
 }

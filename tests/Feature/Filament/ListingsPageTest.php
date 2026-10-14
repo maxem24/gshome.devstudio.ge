@@ -3,7 +3,11 @@
 namespace Tests\Feature\Filament;
 
 use App\Enums\Direction;
+use App\Enums\ListingScope;
 use App\Filament\Pages\Listings;
+use App\Models\Company;
+use App\Models\CompanyExchange;
+use App\Models\Phone;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -422,5 +426,84 @@ class ListingsPageTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         Livewire::test(Listings::class)->assertSee('При сортировке по цене или площади объявления без них не показываются');
+    }
+
+    public function test_company_owner_sees_the_company_they_represent(): void
+    {
+        RealEstateFake::fake();
+        $user = User::factory()->companyOwner()->create();
+
+        $this->actingAs($user)->get('/admin/listings')
+            ->assertOk()
+            ->assertSee($user->name.' · '.$user->company->name)
+            ->assertSee(__('gshome.listings.represents', ['name' => $user->company->name]))
+            ->assertSee(__('gshome.listings.scope_our_agency'));
+    }
+
+    public function test_scope_buttons_narrow_owners_our_agency_and_agencies(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([
+            RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'От собственника']]),
+            RealEstateFake::listing(['id' => 2, 'title' => ['ru' => 'От агентства'], 'seller' => ['is_owner' => false, 'is_agency' => true, 'agency_name' => 'Дом']]),
+        ])]);
+        [$company, $partner] = Company::factory()->count(2)->create()->all();
+        CompanyExchange::create(['company_a_id' => $company->id, 'company_b_id' => $partner->id, 'enabled' => true]);
+        $lead = User::factory()->teamLead($company)->create();
+        $ours = Phone::factory()->heldBy($lead)->create()->number;
+        $linked = Phone::factory()->create(['company_id' => $partner->id])->number;
+        $this->actingAs($lead);
+
+        Livewire::test(Listings::class)
+            ->assertSee(__('gshome.listings.scope_owners'))
+            ->call('setScope', ListingScope::Owners->value)
+            ->assertSet('scope', ListingScope::Owners->value);
+        Http::assertSent(fn (Request $r): bool => str_contains($r->url(), '/listings?')
+            && ($this->apiQuery($r)['is_owner'] ?? null) === '1'
+            && ($this->apiQuery($r)['deal_type_id'] ?? null) === '1');
+
+        Livewire::test(Listings::class)->call('setScope', ListingScope::OurAgency->value);
+        Http::assertSent(function (Request $r) use ($ours, $linked): bool {
+            if (! str_contains($r->url(), '/listings?')) {
+                return false;
+            }
+            $phones = explode(',', (string) ($this->apiQuery($r)['phones'] ?? ''));
+
+            return in_array($ours, $phones, true) && ! in_array($linked, $phones, true);
+        });
+
+        Livewire::test(Listings::class)
+            ->call('setScope', ListingScope::Agencies->value)
+            ->assertSee('От агентства')
+            ->assertDontSee('От собственника');
+        Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), 'is_agency'));
+    }
+
+    public function test_my_listings_use_only_the_signed_in_agents_phone(): void
+    {
+        RealEstateFake::fake();
+        $lead = User::factory()->teamLead()->create();
+        $agent = User::factory()->agent($lead)->create();
+        $mine = Phone::factory()->heldBy($agent)->create()->number;
+        $colleague = Phone::factory()->heldBy($lead)->create()->number;
+        $this->actingAs($agent);
+
+        Livewire::test(Listings::class)->call('setScope', ListingScope::Mine->value);
+
+        Http::assertSent(function (Request $r) use ($mine, $colleague): bool {
+            if (! str_contains($r->url(), '/listings?')) {
+                return false;
+            }
+            $phones = (string) ($this->apiQuery($r)['phones'] ?? '');
+
+            return $phones === $mine && ! str_contains($phones, $colleague);
+        });
+    }
+
+    public function test_unknown_scope_in_the_url_falls_back_to_all(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::withQueryParams(['scope' => 'nope'])->test(Listings::class)->assertSet('scope', 'all');
     }
 }

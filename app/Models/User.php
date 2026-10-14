@@ -10,6 +10,7 @@ use App\Enums\UserStatus;
 use App\Org\UserPlacement;
 use Database\Factories\UserFactory;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasName;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -23,7 +24,7 @@ use Illuminate\Support\Str;
 
 #[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status', 'locale'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, HasName
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
@@ -84,6 +85,18 @@ class User extends Authenticatable implements FilamentUser
             get: fn (string $value): string => $value,
             set: fn (string $value): string => Str::squish($value),
         );
+    }
+
+    /** В меню аккаунта у администратора компании видно, какую компанию он представляет. */
+    public function getFilamentName(): string
+    {
+        if ($this->role !== Role::CompanyOwner) {
+            return $this->name;
+        }
+
+        $company = $this->company?->name;
+
+        return $company !== null ? "{$this->name} · {$company}" : $this->name;
     }
 
     public function isActive(): bool

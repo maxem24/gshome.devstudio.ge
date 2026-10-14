@@ -4,6 +4,7 @@ namespace App\RealEstate;
 
 use App\Access\OrgAccess;
 use App\Enums\Direction;
+use App\Enums\ListingScope;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\Exceptions\TooManyPhones;
@@ -49,7 +50,7 @@ final class ListingQuery
      * @param  array<string, mixed>  $filters  данные фильтров таблицы Filament
      * @return array<string, string>|null null — результат заведомо пуст, в API не ходить
      */
-    public static function params(User $viewer, array $filters, ?string $search): ?array
+    public static function params(User $viewer, array $filters, ?string $search, ListingScope $scope = ListingScope::All): ?array
     {
         $client = app(RealEstateClient::class);
         $p = ['per_page' => (string) self::PER_PAGE, 'deal_type_id' => self::dealTypes($viewer, $filters, $client)];
@@ -86,7 +87,9 @@ final class ListingQuery
             $p['q'] = $search;
         }
 
-        return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+        $p = $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+
+        return $p === null ? null : self::applyScope($viewer, $scope, $p);
     }
 
     /**
@@ -195,6 +198,52 @@ final class ListingQuery
                 $p['exclude_phones'] = self::phoneList($numbers);
             }
         }
+
+        return $p;
+    }
+
+    /**
+     * Кнопки над списком. «Агентства» не шлют свой параметр: API его не знает (422),
+     * отбор по типу продавца делает экран. «Наше агентство» и «Мои» — только номера,
+     * и только когда фильтр телефонов включён.
+     *
+     * @param  array<string, string>  $p
+     * @return array<string, string>|null
+     */
+    private static function applyScope(User $viewer, ListingScope $scope, array $p): ?array
+    {
+        if ($scope === ListingScope::Owners) {
+            $p['is_owner'] = '1';
+
+            return $p;
+        }
+
+        if ($scope === ListingScope::Agencies) {
+            unset($p['is_owner']);
+
+            return $p;
+        }
+
+        if ($scope === ListingScope::All) {
+            return $p;
+        }
+
+        if (! app(RealEstateClient::class)->phoneFiltersEnabled()) {
+            return null;
+        }
+
+        $numbers = $scope === ListingScope::Mine
+            ? OrgAccess::holderPhones($viewer)
+            : OrgAccess::agencyPhones($viewer);
+        if (isset($p['phones'])) {
+            $numbers = array_values(array_intersect($numbers, explode(',', $p['phones'])));
+        }
+        if ($numbers === []) {
+            return null;
+        }
+
+        unset($p['exclude_phones']);
+        $p['phones'] = self::phoneList($numbers);
 
         return $p;
     }

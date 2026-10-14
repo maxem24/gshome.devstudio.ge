@@ -102,8 +102,8 @@ class SavedListings extends Page implements HasTable
                     TextColumn::make('direction')->badge(),
                     TextColumn::make('address')->color('gray')->wrap(),
                     TextColumn::make('facts')->wrap(),
-                    TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color'])
-                        ->description(fn (array $record): ?string => collect([$record['ownership_company'], $record['ownership_name']])->filter()->implode(' · ') ?: null),
+                    TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color']),
+                    TextColumn::make('ownership_notes')->html()->placeholder(''),
                 ])->space(2),
             ])
             ->contentGrid(['md' => 2, 'xl' => 3])

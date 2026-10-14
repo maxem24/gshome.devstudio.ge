@@ -3,6 +3,7 @@
 namespace Tests\Feature\RealEstate;
 
 use App\Enums\Direction;
+use App\Enums\ListingScope;
 use App\Models\Company;
 use App\Models\CompanyExchange;
 use App\Models\Phone;
@@ -291,5 +292,73 @@ class ListingQueryTest extends TestCase
 
         $this->assertSame('2,5+', $p['rooms']);
         $this->assertArrayNotHasKey('rooms', ListingQuery::params($owner, ['rooms' => ['values' => ['abc']]], null));
+    }
+
+    public function test_scope_owners_sends_is_owner_and_does_not_widen_direction(): void
+    {
+        $lead = User::factory()->teamLead(direction: Direction::Rent)->create();
+
+        $p = ListingQuery::params($lead, ['direction' => ['value' => 'sale']], null, ListingScope::Owners);
+
+        $this->assertSame('2', $p['deal_type_id']);
+        $this->assertSame('1', $p['is_owner']);
+    }
+
+    public function test_scope_agencies_does_not_send_an_unknown_parameter(): void
+    {
+        $owner = User::factory()->owner()->create();
+
+        $p = ListingQuery::params($owner, ['owners_only' => ['isActive' => true]], null, ListingScope::Agencies);
+
+        $this->assertArrayNotHasKey('is_owner', $p);
+        $this->assertArrayNotHasKey('is_agency', $p);
+    }
+
+    public function test_scope_our_agency_is_the_viewers_company_not_a_linked_one(): void
+    {
+        [$a, $b] = Company::factory()->count(2)->create()->all();
+        CompanyExchange::create(['company_a_id' => $a->id, 'company_b_id' => $b->id, 'enabled' => true]);
+        $lead = User::factory()->teamLead($a)->create();
+        $ours = Phone::factory()->heldBy($lead)->create()->number;
+        $linked = Phone::factory()->create(['company_id' => $b->id])->number;
+
+        $phones = explode(',', ListingQuery::params($lead, [], null, ListingScope::OurAgency)['phones']);
+
+        $this->assertContains($ours, $phones);
+        $this->assertNotContains($linked, $phones);
+    }
+
+    public function test_scope_our_agency_for_the_group_owner_is_every_active_company(): void
+    {
+        [$a, $b] = Company::factory()->count(2)->create()->all();
+        $owner = User::factory()->owner()->create();
+        $pa = Phone::factory()->create(['company_id' => $a->id])->number;
+        $pb = Phone::factory()->create(['company_id' => $b->id])->number;
+
+        $phones = explode(',', ListingQuery::params($owner, [], null, ListingScope::OurAgency)['phones']);
+
+        $this->assertEqualsCanonicalizing([$pa, $pb], $phones);
+    }
+
+    public function test_scope_mine_is_only_the_signed_in_persons_phones(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        $agent = User::factory()->agent($lead)->create();
+        $mine = Phone::factory()->heldBy($agent)->create()->number;
+        $colleague = Phone::factory()->heldBy($lead)->create()->number;
+
+        $this->assertSame($mine, ListingQuery::params($agent, [], null, ListingScope::Mine)['phones']);
+        $this->assertStringNotContainsString($colleague, ListingQuery::params($agent, [], null, ListingScope::Mine)['phones']);
+        $this->assertNull(ListingQuery::params(User::factory()->agent($lead)->create(), [], null, ListingScope::Mine));
+    }
+
+    public function test_phone_scopes_are_empty_when_phone_filters_are_disabled(): void
+    {
+        RealEstateFake::configure(phoneFilters: false);
+        $lead = User::factory()->teamLead()->create();
+        Phone::factory()->heldBy($lead)->create();
+
+        $this->assertNull(ListingQuery::params($lead, [], null, ListingScope::OurAgency));
+        $this->assertNull(ListingQuery::params($lead, [], null, ListingScope::Mine));
     }
 }

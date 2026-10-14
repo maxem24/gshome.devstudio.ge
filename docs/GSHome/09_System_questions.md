@@ -40,13 +40,22 @@ Ownership is a phone match (decision of 2026-10-09). The spec still says the car
 8. myhome.ge often stores a masked phone. That listing cannot be tied to our employee and shows as "other company". Is a manual "this listing is ours" action allowed, or does the system stay phone-only even when the match is impossible?
 9. A duplicate group often keeps the owner's copy as the main listing, so our agent's copy is hidden inside the group. The list then shows "other company" plus a second label "our employee is in this group". Is that the label agents should trust when deciding who leads the object?
 
-## 3. "Who added it" and "whose listing it is"
+## 3. Five buttons above the list
 
-Section 4.5 is a switch of four categories: added by an agent, by an agency, by an owner, by another agency. Section 5.7 is a different axis: our employee, linked company, other company. The spec says the four categories do not replace the ownership label.
+Built on 2026-10-14. The buttons sit above the collapsed filter. They narrow the list the person already sees. They are not a deal direction. The collapsed filter still has "owners only", "ours / other companies", and "employee".
 
-10. Are the four categories the seller type on the source site, or "added by our agent / our agency"?
-11. Does "other agency" stay a fourth category, or is it the same thing as the ownership label "other company"?
-12. Can one listing be "added by the owner" and "led by our employee" at the same time (our agent republished the owner's listing)? Which label wins in the list?
+| Button | What it shows |
+|---|---|
+| All | Every listing of the allowed direction. The ownership badge stays. |
+| Owners | `is_owner=1`. The seller on the source is an owner. |
+| Agencies | The seller on the source is an agency, including agencies that are not ours. The API has no such parameter, so the screen keeps those rows and reads at most eight pages per step. The listing assembler should accept `is_agency` and should send each cluster member's seller fields on the list row. That cuts the extra page reads and the follow-up card reads. See `07_Требования_к_API_Real_Estate.md`, R8 and R9. |
+| Our agency | Phones of the signed-in person's company. Linked companies are not included. The group owner has no company, so this button uses every active company. |
+| My listings | Phones held by the signed-in person, not the whole agency. |
+
+A company administrator sees that company's name in the account menu and above the list. When exchange between two companies is on, an employee of one sees "Same owner" on the other's listing and, on a separate line, the name of the company that listing belongs to. A duplicate group that contains an owner copy and our side says both that this company has the listing and that the owner still has another listing on the site.
+
+10. Closed. For the group owner, "Our agency" is every active company.
+11. Closed. "My listings" is the signed-in person's phone. A listing with no matching phone is not included.
 
 ## 4. Duplicates
 

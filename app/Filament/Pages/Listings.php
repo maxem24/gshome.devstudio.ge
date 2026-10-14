@@ -4,11 +4,16 @@ namespace App\Filament\Pages;
 
 use App\Access\OrgAccess;
 use App\Enums\Direction;
+use App\Enums\ListingScope;
+use App\Enums\Role;
+use App\Enums\SellerCategory;
 use App\Models\Phone;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
+use App\RealEstate\Listing;
+use App\RealEstate\ListingPage;
 use App\RealEstate\ListingQuery;
 use App\RealEstate\ListingRows;
 use App\RealEstate\RealEstateClient;
@@ -51,6 +56,9 @@ class Listings extends Page implements HasTable
     /** Сколько строк держим в состоянии компонента: дальше прокрутка останавливается. */
     private const MAX_LOADED = 200;
 
+    /** Сколько страниц API смотреть за один заход, пока среди них нет агентств. */
+    private const MAX_AGENCY_PAGES = 8;
+
     protected string $view = 'filament.pages.listings';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedHomeModern;
@@ -69,6 +77,10 @@ class Listings extends Page implements HasTable
 
     #[Url]
     public string $display = 'grid';
+
+    /** Пять кнопок над свёрнутым фильтром. Не направление сделки. */
+    #[Url]
+    public string $scope = 'all';
 
     /** Ключ сессии Filament для значений фильтров (`getTableFiltersSessionKey`, без арендатора). */
     public static function filtersSessionKey(): string
@@ -125,6 +137,10 @@ class Listings extends Page implements HasTable
      */
     public function mount(): void
     {
+        if (ListingScope::tryFrom($this->scope) === null) {
+            $this->scope = ListingScope::All->value;
+        }
+
         $clean = [];
         foreach ($this->tableFilters ?? [] as $name => $group) {
             if (! is_array($group)) {
@@ -158,6 +174,20 @@ class Listings extends Page implements HasTable
     public function getTableSearch(): ?string
     {
         return is_scalar($this->tableSearch) && filled($this->tableSearch) ? Str::trim((string) $this->tableSearch) : null;
+    }
+
+    public function setScope(string $scope): void
+    {
+        abort_unless(ListingScope::tryFrom($scope) !== null, 404);
+        $this->scope = $scope;
+    }
+
+    /** Компания, которую администратор представляет. У остальных ролей строки нет. */
+    public function representedCompany(): ?string
+    {
+        $user = $this->viewer();
+
+        return $user->role === Role::CompanyOwner ? $user->company?->name : null;
     }
 
     /** Район принадлежит городу: другой город — район сбрасывается (и в форме, и при правке состояния напрямую). */
@@ -235,8 +265,9 @@ class Listings extends Page implements HasTable
      */
     private function paramsFor(array $filters, ?string $search): ?array
     {
-        $params = ListingQuery::params($this->viewer(), $filters, $search);
-        $fingerprint = md5((string) json_encode($params));
+        $scope = ListingScope::tryFrom($this->scope) ?? ListingScope::All;
+        $params = ListingQuery::params($this->viewer(), $filters, $search, $scope);
+        $fingerprint = md5($scope->value.'|'.(string) json_encode($params));
         if ($this->loadedFingerprint !== $fingerprint) {
             $this->loadedRows = [];
             $this->nextCursor = null;
@@ -260,11 +291,45 @@ class Listings extends Page implements HasTable
             return;
         }
 
+        $scope = ListingScope::tryFrom($this->scope) ?? ListingScope::All;
+        $added = 0;
+        $guard = 0;
+        do {
+            $result = $this->fetchPage($params, $cursor);
+            if ($result === null) {
+                return;
+            }
+
+            $listings = $scope === ListingScope::Agencies
+                ? array_values(array_filter($result->listings, fn (Listing $listing): bool => $listing->sellerCategory === SellerCategory::Agency))
+                : $result->listings;
+            foreach (ListingRows::build($this->viewer(), $this->enrichClusters($listings)) as $id => $row) {
+                if (count($this->loadedRows) >= self::MAX_LOADED) {
+                    break;
+                }
+                $this->loadedRows[$id] = $row;
+                $added++;
+            }
+            $this->listingsLoaded = true;
+            $this->nextCursor = count($this->loadedRows) >= self::MAX_LOADED ? null : $result->nextCursor;
+            $this->noMoreListings = $this->nextCursor === null;
+            $cursor = $this->nextCursor;
+            $guard++;
+        } while ($scope === ListingScope::Agencies && $added === 0 && $cursor !== null && $guard < self::MAX_AGENCY_PAGES);
+
+        if ($scope === ListingScope::Agencies && $added === 0 && $guard >= self::MAX_AGENCY_PAGES) {
+            $this->nextCursor = null;
+            $this->noMoreListings = true;
+        }
+    }
+
+    /** @param  array<string, string>  $params */
+    private function fetchPage(array $params, ?string $cursor): ?ListingPage
+    {
         try {
             try {
-                $result = app(RealEstateClient::class)->listings($params, $cursor);
+                return app(RealEstateClient::class)->listings($params, $cursor);
             } catch (RealEstateStaleCursor $e) {
-                // Курсор от другой сортировки: молча начинаем с первой страницы.
                 if ($cursor === null) {
                     throw $e;
                 }
@@ -273,7 +338,7 @@ class Listings extends Page implements HasTable
                 $this->listingsLoaded = false;
                 $this->append($params, null);
 
-                return;
+                return null;
             }
         } catch (RealEstateException $e) {
             Notification::make()->danger()->title($e->userMessage())->send();
@@ -281,15 +346,44 @@ class Listings extends Page implements HasTable
             $this->nextCursor = null;
             $this->noMoreListings = true;
 
-            return;
+            return null;
+        }
+    }
+
+    /**
+     * В списке у кластера есть телефоны, но нет типа продавца соседей.
+     * Карточку читаем, только если наша сторона уже в группе, а видимое объявление — не собственник.
+     *
+     * @param  list<Listing>  $listings
+     * @return list<Listing>
+     */
+    private function enrichClusters(array $listings): array
+    {
+        $ours = array_flip(OrgAccess::identifiablePhones($this->viewer()));
+        $fetched = 0;
+        $out = [];
+        foreach ($listings as $listing) {
+            $touchesUs = false;
+            foreach ([$listing->contactPhoneE164, ...$listing->clusterPhonesE164] as $number) {
+                if (is_string($number) && isset($ours[$number])) {
+                    $touchesUs = true;
+                    break;
+                }
+            }
+            if ($fetched >= 5 || $listing->clusterListings !== [] || $listing->clusterListingsCount < 2 || $listing->sellerCategory === SellerCategory::Owner || ! $touchesUs) {
+                $out[] = $listing;
+
+                continue;
+            }
+            $fetched++;
+            try {
+                $out[] = app(RealEstateClient::class)->listing($listing->id) ?? $listing;
+            } catch (RealEstateException) {
+                $out[] = $listing;
+            }
         }
 
-        foreach (ListingRows::build($this->viewer(), $result->listings) as $id => $row) {
-            $this->loadedRows[$id] = $row;
-        }
-        $this->listingsLoaded = true;
-        $this->nextCursor = count($this->loadedRows) >= self::MAX_LOADED ? null : $result->nextCursor;
-        $this->noMoreListings = $this->nextCursor === null;
+        return $out;
     }
 
     public function saveListing(int $id): void
@@ -357,9 +451,8 @@ class Listings extends Page implements HasTable
                 TextColumn::make('direction')->badge(),
                 TextColumn::make('address')->color('gray')->wrap(),
                 TextColumn::make('facts')->wrap(),
-                TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color'])
-                    ->description(fn (array $record): ?string => collect([$record['ownership_company'], $record['ownership_name']])->filter()->implode(' · ') ?: null),
-                TextColumn::make('group_label')->color('success')->size('sm')->wrap(),
+                TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color']),
+                TextColumn::make('ownership_notes')->html()->placeholder(''),
             ])->space(2),
         ];
     }
@@ -376,8 +469,8 @@ class Listings extends Page implements HasTable
             TextColumn::make('created_at')->label(__('gshome.listings.created')),
             TextColumn::make('category')->label(__('gshome.listings.category')),
             TextColumn::make('ownership_label')->label(__('gshome.listings.ownership'))->badge()
-                ->color(fn (array $record): string => $record['ownership_color'])
-                ->description(fn (array $record): ?string => collect([$record['ownership_company'], $record['ownership_name'], $record['group_label']])->filter()->implode(' · ') ?: null),
+                ->color(fn (array $record): string => $record['ownership_color']),
+            TextColumn::make('ownership_notes')->label('')->html()->placeholder(''),
         ];
     }
 
