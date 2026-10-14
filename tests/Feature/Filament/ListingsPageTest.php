@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\LogManager;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Livewire\Features\SupportPagination\PaginationUrl;
@@ -93,7 +94,8 @@ class ListingsPageTest extends TestCase
 
         Livewire::test(Listings::class)
             ->assertSet('display', 'grid')
-            ->assertDontSeeHtml('x-show="areFiltersOpen"')
+            ->assertSeeHtml('x-show="areFiltersOpen"')
+            ->assertSeeHtml('fi-ta-filters-trigger-action-ctn')
             ->assertSee(__('gshome.listings.direction'))
             ->assertActionHidden('showGrid')->assertActionVisible('showList')
             ->callAction('showList')
@@ -144,6 +146,64 @@ class ListingsPageTest extends TestCase
 
             Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['deal_type_id'] ?? null) === '2');
         }
+    }
+
+    public function test_filters_return_from_the_session_without_a_query_string(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->filterTable('rooms', ['2', '3']);
+        $this->assertNotNull(session(Listings::filtersSessionKey()));
+
+        RealEstateFake::fake();
+        Livewire::test(Listings::class)->assertSet('tableFilters.rooms.values', ['2', '3']);
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['rooms'] ?? null) === '2,3');
+    }
+
+    public function test_url_filters_win_over_the_session(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+        session()->put(Listings::filtersSessionKey(), ['rooms' => ['values' => ['1']]]);
+
+        Livewire::withQueryParams(['filters' => ['rooms' => ['values' => ['2', '3']]]])->test(Listings::class)
+            ->assertSet('tableFilters.rooms.values', ['2', '3']);
+    }
+
+    public function test_reset_forgets_remembered_filters(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)
+            ->filterTable('rooms', ['2', '3'])
+            ->call('resetTableFiltersForm');
+
+        RealEstateFake::fake();
+        Livewire::test(Listings::class);
+
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['rooms']));
+    }
+
+    public function test_new_login_forgets_remembered_filters(): void
+    {
+        RealEstateFake::fake();
+        $user = User::factory()->owner()->create();
+        $this->actingAs($user);
+
+        Livewire::test(Listings::class)->filterTable('rooms', ['2', '3']);
+        $this->assertNotNull(session(Listings::filtersSessionKey()));
+
+        Auth::guard('web')->logout();
+        Auth::guard('web')->login($user);
+        $this->assertNull(session(Listings::filtersSessionKey()));
+
+        RealEstateFake::fake();
+        Livewire::test(Listings::class);
+
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['rooms']));
     }
 
     public function test_filter_becomes_api_parameter(): void

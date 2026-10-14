@@ -66,6 +66,17 @@ class Listings extends Page implements HasTable
     #[Url]
     public string $display = 'grid';
 
+    /** Ключ сессии Filament для значений фильтров (`getTableFiltersSessionKey`, без арендатора). */
+    public static function filtersSessionKey(): string
+    {
+        return 'tables.'.md5(self::class).'_filters';
+    }
+
+    public static function forgetRememberedFilters(): void
+    {
+        session()->forget(self::filtersSessionKey());
+    }
+
     /** Фильтры и поиск живут в адресе: «назад» из карточки возвращает к тем же результатам. */
     #[Url(as: 'filters')]
     public ?array $tableFilters = null;
@@ -153,7 +164,8 @@ class Listings extends Page implements HasTable
             ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
             ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
-            ->filters($this->filters(), layout: FiltersLayout::AboveContent)
+            ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)
+            ->persistFiltersInSession()
             ->filtersFormColumns(4)
             ->emptyStateHeading(__('gshome.listings.empty_heading'))
             ->emptyStateDescription(__('gshome.listings.empty_description'));
