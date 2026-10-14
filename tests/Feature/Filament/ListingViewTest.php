@@ -142,6 +142,28 @@ class ListingViewTest extends TestCase
         $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
     }
 
+    public function test_detail_splits_characteristics_and_marks_missing_extras(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing([
+            'bedrooms' => 2,
+            'amenities' => [['id' => 1, 'slug' => 'elevator', 'title' => 'Лифт']],
+        ])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee('Комнаты')
+            ->assertSee('65 м²')
+            ->assertSee('5/9')
+            ->assertSee('Квартира')
+            ->assertSee('Дополнительно')
+            ->assertSee('Спальни: 2')
+            ->assertSee('Санузлы')
+            ->assertSee('Лифт')
+            ->assertSee('Газ')
+            ->assertSeeHtml('text-green-600')
+            ->assertSeeHtml('text-gray-400');
+    }
+
     public function test_card_saves_for_later_and_removes_only_this_users_row(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);

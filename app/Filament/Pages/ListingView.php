@@ -8,6 +8,7 @@ use App\Enums\Direction;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\ListingDetails;
 use App\RealEstate\ListingRows;
 use App\RealEstate\RealEstateClient;
 use Filament\Actions\Action;
@@ -72,13 +73,16 @@ class ListingView extends Page
             'price_gel' => $l->priceGel !== null && $direction === Direction::Sale ? number_format($l->priceGel, 0, '.', ' ').' ₾' : null,
             'negotiable' => $l->negotiable,
             'facts' => $l->facts(),
+            'rooms' => $l->rooms === null ? null : ($l->rooms === 0 ? __('gshome.listings.studio') : (string) $l->rooms),
+            'area' => $l->areaTotal === null ? null : __('gshome.listings.square_meters', ['value' => self::number($l->areaTotal)]),
+            'floor' => self::floor($l->floor, $l->floorsTotal),
+            'property_type' => $l->propertyType,
             'address' => $l->address,
             'district' => collect([$l->city, $l->district])->filter()->implode(', '),
             'map' => $l->lat !== null && $l->lng !== null ? "https://maps.google.com/?q={$l->lat},{$l->lng}" : null,
             'description' => $l->description,
             'images' => $l->images,
-            'amenities' => $l->amenities,
-            'subway' => $l->subwayStations,
+            'additional' => ListingDetails::additional($l, $this->amenityCatalog()),
             'seller' => $l->sellerCategory->getLabel().($l->agencyName ? " · {$l->agencyName}" : ''),
             'contact_name' => $l->contactName,
             'contact_phone' => $l->contactPhone,
@@ -159,6 +163,40 @@ class ListingView extends Page
             ->modalContent(fn () => view('filament.pages.partials.contact', ['phone' => $this->card[$key]['phone'] ?? null]))
             ->modalSubmitAction(false)
             ->modalCancelActionLabel(__('gshome.listings.close'));
+    }
+
+    /** @return list<array{slug: string, title: string}> */
+    private function amenityCatalog(): array
+    {
+        try {
+            return app(RealEstateClient::class)->dictionary('amenities')
+                ->map(fn (array $row): array => [
+                    'slug' => is_string($row['slug'] ?? null) ? $row['slug'] : '',
+                    'title' => RealEstateClient::title($row),
+                ])
+                ->filter(fn (array $row): bool => $row['slug'] !== '')
+                ->values()
+                ->all();
+        } catch (RealEstateException) {
+            return [];
+        }
+    }
+
+    private static function floor(?int $floor, ?int $total): ?string
+    {
+        if ($floor === null && $total === null) {
+            return null;
+        }
+        if ($floor !== null && $total !== null) {
+            return $floor.'/'.$total;
+        }
+
+        return (string) ($floor ?? $total);
+    }
+
+    private static function number(float $value): string
+    {
+        return rtrim(rtrim(number_format($value, 1, '.', ''), '0'), '.');
     }
 
     private function viewer(): User

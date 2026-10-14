@@ -85,31 +85,51 @@
                     <p class="mt-2"><x-filament::badge>{{ $card['direction'] }}</x-filament::badge></p>
                 </x-filament::section>
                 <x-filament::section :heading="__('gshome.listings.characteristics')">
-                    <dl class="space-y-1 text-sm">
-                        <div>{{ $card['facts'] }}</div>
-                        <div>{{ $card['district'] }}</div>
+                    <dl class="space-y-2 text-sm">
+                        @foreach ([
+                            __('gshome.listings.rooms') => $card['rooms'],
+                            __('gshome.listings.area') => $card['area'],
+                            __('gshome.listings.floor') => $card['floor'],
+                            __('gshome.listings.property_type') => $card['property_type'],
+                        ] as $label => $value)
+                            <div class="flex justify-between gap-3">
+                                <dt class="text-gray-500">{{ $label }}</dt>
+                                <dd class="text-right">{{ filled($value) ? $value : '—' }}</dd>
+                            </div>
+                        @endforeach
                         <div>
-                            {{ $card['address'] }}
-                            @if ($card['map'])
-                                <a
-                                    href="{{ $card['map'] }}"
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="text-primary-600"
-                                    >{{ __('gshome.listings.on_map') }}</a
-                                >
-                            @endif
+                            <dt class="text-gray-500">{{ __('gshome.listings.address') }}</dt>
+                            <dd>
+                                {{ collect([$card['district'], $card['address']])->filter()->implode(', ') ?: '—' }}
+                                @if ($card['map'])
+                                    <a
+                                        href="{{ $card['map'] }}"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="text-primary-600"
+                                        >{{ __('gshome.listings.on_map') }}</a
+                                    >
+                                @endif
+                            </dd>
                         </div>
-                        @if ($card['amenities'])
-                            <div>{{ implode(', ', $card['amenities']) }}</div>
-                        @endif
-                        @if ($card['subway'])
-                            <div>{{ __('gshome.listings.metro', ['stations' => implode(', ', $card['subway'])]) }}</div>
-                        @endif
                         <div>
                             {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
                         </div>
                     </dl>
+                </x-filament::section>
+                <x-filament::section :heading="__('gshome.listings.additional')">
+                    <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        @foreach ($card['additional'] as $item)
+                            <li @class([
+                                'flex items-center gap-2 text-sm',
+                                'text-green-600' => $item['active'],
+                                'text-gray-400' => ! $item['active'],
+                            ])>
+                                <x-filament::icon :icon="$item['icon']" class="h-5 w-5 shrink-0" />
+                                <span>{{ $item['label'] }}</span>
+                            </li>
+                        @endforeach
+                    </ul>
                 </x-filament::section>
                 <x-filament::section :heading="__('gshome.listings.seller')">
                     <dl class="space-y-1 text-sm">

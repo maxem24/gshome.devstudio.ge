@@ -12,7 +12,7 @@ final readonly class Listing
 {
     /**
      * @param  list<array{url: string, url_thumb: ?string, is_main: bool}>  $images
-     * @param  list<string>  $amenities
+     * @param  list<array{slug: string, title: string}>  $amenities
      * @param  list<string>  $subwayStations
      * @param  list<string>  $clusterPhonesE164
      * @param  list<array{id: int, source: string, source_url: ?string, seller_category: SellerCategory, agency_name: ?string, contact_name: ?string, phone_e164: ?string, price_usd: ?float}>  $clusterListings
@@ -33,6 +33,15 @@ final readonly class Listing
         public ?int $rooms,
         public ?int $floor,
         public ?int $floorsTotal,
+        public ?int $bedrooms,
+        public ?int $bathrooms,
+        public ?float $ceilingHeight,
+        public ?int $balconies,
+        public ?float $areaKitchen,
+        public ?float $yardArea,
+        public ?int $buildYear,
+        public ?string $condition,
+        public ?string $buildingStatus,
         public ?float $priceUsd,
         public ?float $priceGel,
         public bool $negotiable,
@@ -80,6 +89,15 @@ final readonly class Listing
             rooms: isset($d['rooms']) ? (int) $d['rooms'] : null,
             floor: isset($d['floor']) ? (int) $d['floor'] : null,
             floorsTotal: isset($d['floors_total']) ? (int) $d['floors_total'] : null,
+            bedrooms: self::whole($d['bedrooms'] ?? null),
+            bathrooms: self::whole($d['bathrooms'] ?? null),
+            ceilingHeight: self::decimal($d['ceiling_height'] ?? null),
+            balconies: self::whole($d['balconies'] ?? null),
+            areaKitchen: self::decimal($d['area_kitchen'] ?? null),
+            yardArea: self::decimal($d['yard_area'] ?? null),
+            buildYear: self::whole($d['build_year'] ?? null),
+            condition: self::text($d['condition'] ?? null),
+            buildingStatus: self::text($d['building_status'] ?? null),
             priceUsd: isset($d['price']['usd']) ? (float) $d['price']['usd'] : null,
             priceGel: isset($d['price']['gel']) ? (float) $d['price']['gel'] : null,
             negotiable: (bool) ($d['price']['negotiable'] ?? false),
@@ -88,7 +106,14 @@ final readonly class Listing
             images: array_values(array_filter(array_map(fn (array $i): ?array => ($url = self::safeUrl($i['url'] ?? null)) === null ? null : [
                 'url' => $url, 'url_thumb' => self::safeUrl($i['url_thumb'] ?? null), 'is_main' => (bool) ($i['is_main'] ?? false),
             ], $d['images'] ?? []))),
-            amenities: array_values(array_map(fn (array $a): string => (string) ($a['title'] ?? $a['slug'] ?? ''), $d['amenities'] ?? [])),
+            amenities: array_values(array_filter(array_map(function (array $a): ?array {
+                $slug = is_string($a['slug'] ?? null) ? $a['slug'] : '';
+                if ($slug === '') {
+                    return null;
+                }
+
+                return ['slug' => $slug, 'title' => (string) ($a['title'] ?? $slug)];
+            }, $d['amenities'] ?? []))),
             subwayStations: array_values(array_map(
                 fn (array $s): string => trim(($s['title'] ?? '').(isset($s['walk_minutes']) ? " ({$s['walk_minutes']} ".__('gshome.listings.minutes').')' : '')),
                 $d['subway_stations'] ?? [],
@@ -116,6 +141,21 @@ final readonly class Listing
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,
         );
+    }
+
+    private static function whole(mixed $value): ?int
+    {
+        return is_numeric($value) ? (int) $value : null;
+    }
+
+    private static function decimal(mixed $value): ?float
+    {
+        return is_numeric($value) ? (float) $value : null;
+    }
+
+    private static function text(mixed $value): ?string
+    {
+        return is_string($value) && trim($value) !== '' ? trim($value) : null;
     }
 
     /** В href/src пускаем только http(s): javascript: и data: из API отбрасываем. */
