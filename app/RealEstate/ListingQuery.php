@@ -15,7 +15,7 @@ use App\RealEstate\Exceptions\TooManyPhones;
  */
 final class ListingQuery
 {
-    public const PER_PAGE = 25;
+    public const PER_PAGE = 50;
 
     /** Предел API на phones / exclude_phones. */
     public const MAX_PHONES = 500;
@@ -203,9 +203,8 @@ final class ListingQuery
     }
 
     /**
-     * Кнопки над списком. «Агентства» не шлют свой параметр: API его не знает (422),
-     * отбор по типу продавца делает экран. «Наше агентство» и «Мои» — только номера,
-     * и только когда фильтр телефонов включён.
+     * Кнопки над списком. «Агентства» — `is_agency=1` (партнёрский API это принимает).
+     * «Наше агентство» и «Мои» — только номера, и только когда фильтр телефонов включён.
      *
      * @param  array<string, string>  $p
      * @return array<string, string>|null
@@ -220,6 +219,7 @@ final class ListingQuery
 
         if ($scope === ListingScope::Agencies) {
             unset($p['is_owner']);
+            $p['is_agency'] = '1';
 
             return $p;
         }

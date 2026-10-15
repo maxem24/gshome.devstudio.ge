@@ -71,7 +71,7 @@ class ListingQueryTest extends TestCase
         $this->assertSame('2026-10-09', $p['created_until']);
         $this->assertSame('-price_usd', $p['sort']);
         $this->assertSame('Ваке', $p['q']);
-        $this->assertSame('25', $p['per_page']);
+        $this->assertSame('50', $p['per_page']);
     }
 
     public function test_short_search_is_ignored(): void
@@ -304,14 +304,14 @@ class ListingQueryTest extends TestCase
         $this->assertSame('1', $p['is_owner']);
     }
 
-    public function test_scope_agencies_does_not_send_an_unknown_parameter(): void
+    public function test_scope_agencies_sends_is_agency_and_drops_owners_only(): void
     {
         $owner = User::factory()->owner()->create();
 
         $p = ListingQuery::params($owner, ['owners_only' => ['isActive' => true]], null, ListingScope::Agencies);
 
+        $this->assertSame('1', $p['is_agency']);
         $this->assertArrayNotHasKey('is_owner', $p);
-        $this->assertArrayNotHasKey('is_agency', $p);
     }
 
     public function test_scope_our_agency_is_the_viewers_company_not_a_linked_one(): void

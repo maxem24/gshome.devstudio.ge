@@ -56,8 +56,8 @@ class Listings extends Page implements HasTable
     /** Сколько строк держим в состоянии компонента: дальше прокрутка останавливается. */
     private const MAX_LOADED = 200;
 
-    /** Сколько страниц API смотреть за один заход, пока среди них нет агентств. */
-    private const MAX_AGENCY_PAGES = 8;
+    /** Сколько страниц API смотреть за один заход «Мои», пока среди них нет копий этого агента. */
+    private const MAX_MINE_PAGES = 8;
 
     protected string $view = 'filament.pages.listings';
 
@@ -301,9 +301,6 @@ class Listings extends Page implements HasTable
             }
 
             $listings = $result->listings;
-            if ($scope === ListingScope::Agencies) {
-                $listings = array_values(array_filter($listings, fn (Listing $listing): bool => $listing->sellerCategory === SellerCategory::Agency));
-            }
             if ($scope === ListingScope::Mine) {
                 $allowed = array_flip(array_values(array_filter(explode(',', (string) ($params['phones'] ?? '')), fn (string $number): bool => $number !== '')));
                 $listings = array_values(array_filter(
@@ -323,9 +320,9 @@ class Listings extends Page implements HasTable
             $this->noMoreListings = $this->nextCursor === null;
             $cursor = $this->nextCursor;
             $guard++;
-        } while (in_array($scope, [ListingScope::Agencies, ListingScope::Mine], true) && $added === 0 && $cursor !== null && $guard < self::MAX_AGENCY_PAGES);
+        } while ($scope === ListingScope::Mine && $added === 0 && $cursor !== null && $guard < self::MAX_MINE_PAGES);
 
-        if (in_array($scope, [ListingScope::Agencies, ListingScope::Mine], true) && $added === 0 && $guard >= self::MAX_AGENCY_PAGES) {
+        if ($scope === ListingScope::Mine && $added === 0 && $guard >= self::MAX_MINE_PAGES) {
             $this->nextCursor = null;
             $this->noMoreListings = true;
         }

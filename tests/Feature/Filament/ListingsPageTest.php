@@ -231,6 +231,8 @@ class ListingsPageTest extends TestCase
             ->assertSee('Первый')
             ->assertSeeHtml('wire:target="loadMoreListings"')
             ->assertSeeHtml('fi-loading-indicator')
+            ->assertSeeHtml('$wire.$watch(\'noMoreListings\'')
+            ->assertSeeHtml('$wire.$watch(\'scope\'')
             ->call('loadMoreListings')
             ->assertSee('Первый')
             ->assertSee('Второй');
@@ -473,9 +475,10 @@ class ListingsPageTest extends TestCase
 
         Livewire::test(Listings::class)
             ->call('setScope', ListingScope::Agencies->value)
-            ->assertSee('От агентства')
-            ->assertDontSee('От собственника');
-        Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), 'is_agency'));
+            ->assertSee('От агентства');
+        Http::assertSent(fn (Request $r): bool => str_contains($r->url(), '/listings?')
+            && ($this->apiQuery($r)['is_agency'] ?? null) === '1'
+            && ! isset($this->apiQuery($r)['is_owner']));
     }
 
     public function test_my_listings_use_only_the_signed_in_agents_phone(): void

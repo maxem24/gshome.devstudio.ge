@@ -48,7 +48,7 @@ Built on 2026-10-14. The buttons sit above the collapsed filter. They narrow the
 |---|---|
 | All | Every listing of the allowed direction. The ownership badge stays. |
 | Owners | `is_owner=1`. The seller on the source is an owner. |
-| Agencies | The seller on the source is an agency, including agencies that are not ours. The API has no such parameter, so the screen keeps those rows and reads at most eight pages per step. The listing assembler should accept `is_agency` and should send each cluster member's seller fields on the list row. That cuts the extra page reads and the follow-up card reads. See `07_Требования_к_API_Real_Estate.md`, R8 and R9. |
+| Agencies | The seller on the source is an agency, including agencies that are not ours. The request sends `is_agency=1` and shows that page as the API returned it. A row the API marks `is_owner` still displays as Owner. Cluster members on the list still have no seller fields, so a group that contains our phone can still cost up to five card reads. See `07_Требования_к_API_Real_Estate.md`, R8. |
 | Our agency | Phones of the signed-in person's company. Linked companies are not included. The group owner has no company, so this button uses every active company. |
 | My listings | Phones held by the signed-in person, with `only_primary=0`. Rows whose contact phone is not that person's are dropped, so the owner's copy in the same group is not shown. |
 
