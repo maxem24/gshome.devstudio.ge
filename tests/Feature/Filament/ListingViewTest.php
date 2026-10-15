@@ -73,6 +73,9 @@ class ListingViewTest extends TestCase
 
         Livewire::test(ListingView::class, ['listing' => 13])
             ->assertSee('В группе есть наш сотрудник: Нино')
+            ->assertSee('В нашей системе')
+            ->assertSee('На сайте-источнике')
+            ->assertSee('listings/55', escape: false)
             ->assertSee('https://home.ss.ge/55', escape: false)
             ->assertActionVisible('contactGroup');
     }

@@ -101,6 +101,8 @@ class ListingView extends Page
             'agency_in_group' => $copy['agency_in_group'],
             'owner_still_listed' => $copy['owner_still_listed'],
             'cluster' => array_map(fn (array $m): array => [
+                'id' => $m['id'],
+                'url' => $m['id'] > 0 ? self::getUrl(['listing' => $m['id']]) : null,
                 'source' => $m['source'] === 'myhome_ge' ? 'myhome.ge' : 'ss.ge',
                 'source_url' => $m['source_url'],
                 'seller' => $m['seller_category']->getLabel().($m['agency_name'] ? " · {$m['agency_name']}" : ''),

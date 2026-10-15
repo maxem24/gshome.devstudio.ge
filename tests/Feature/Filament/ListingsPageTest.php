@@ -480,22 +480,29 @@ class ListingsPageTest extends TestCase
 
     public function test_my_listings_use_only_the_signed_in_agents_phone(): void
     {
-        RealEstateFake::fake();
         $lead = User::factory()->teamLead()->create();
         $agent = User::factory()->agent($lead)->create();
         $mine = Phone::factory()->heldBy($agent)->create()->number;
         $colleague = Phone::factory()->heldBy($lead)->create()->number;
+        RealEstateFake::fake([RealEstateFake::page([
+            RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'Объявление коллеги'], 'contact' => ['phone_e164' => $colleague]]),
+            RealEstateFake::listing(['id' => 2, 'title' => ['ru' => 'Объявление агента'], 'contact' => ['phone_e164' => $mine]]),
+        ])]);
         $this->actingAs($agent);
 
-        Livewire::test(Listings::class)->call('setScope', ListingScope::Mine->value);
+        Livewire::test(Listings::class)
+            ->call('setScope', ListingScope::Mine->value)
+            ->assertSee('Объявление агента')
+            ->assertDontSee('Объявление коллеги');
 
         Http::assertSent(function (Request $r) use ($mine, $colleague): bool {
             if (! str_contains($r->url(), '/listings?')) {
                 return false;
             }
-            $phones = (string) ($this->apiQuery($r)['phones'] ?? '');
+            $query = $this->apiQuery($r);
+            $phones = (string) ($query['phones'] ?? '');
 
-            return $phones === $mine && ! str_contains($phones, $colleague);
+            return $phones === $mine && ! str_contains($phones, $colleague) && ($query['only_primary'] ?? null) === '0';
         });
     }
 

@@ -56,35 +56,48 @@
                 @endif
                 @if ($card['cluster'])
                     <x-filament::section :heading="__('gshome.listings.duplicates')">
+                        <div class="mb-2 hidden gap-6 text-sm font-medium md:grid md:grid-cols-2">
+                            <div>{{ __('gshome.listings.duplicates_in_system') }}</div>
+                            <div>{{ __('gshome.listings.duplicates_on_source') }}</div>
+                        </div>
                         <ul class="divide-y divide-gray-200 dark:divide-white/10">
                             @foreach ($card['cluster'] as $member)
-                                <li class="flex flex-wrap items-center gap-3 py-2">
-                                    @if ($member['source_url'])
-                                        <a
-                                            href="{{ $member['source_url'] }}"
-                                            target="_blank"
-                                            rel="noopener"
-                                            class="text-primary-600"
-                                            >{{ $member['source'] }}</a
+                                <li class="grid gap-3 py-3 md:grid-cols-2 md:gap-6">
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <span class="w-full text-xs font-medium text-gray-500 md:hidden">{{ __('gshome.listings.duplicates_in_system') }}</span>
+                                        <span>{{ $member['price'] }}</span>
+                                        @if ($member['url'])
+                                            <a href="{{ $member['url'] }}" class="text-primary-600">{{ __('gshome.listings.open_listing') }}</a>
+                                        @endif
+                                        <x-filament::badge
+                                            :color="$member['ownership']['color']"
+                                            >{{ $member['ownership']['label'] }}</x-filament::badge
                                         >
-                                    @else
-                                        <span>{{ $member['source'] }}</span>
-                                    @endif
-                                    <span>{{ $member['seller'] }}</span>
-                                    <span>{{ $member['price'] }}</span>
-                                    <x-filament::badge
-                                        :color="$member['ownership']['color']"
-                                        >{{ $member['ownership']['label'] }}</x-filament::badge
-                                    >
-                                    @if ($member['ownership']['same_owner'])
-                                        <span>{{ __('gshome.ownership.same_owner') }}</span>
-                                    @endif
-                                    @if ($member['ownership']['company'])
-                                        <span>{{ __('gshome.listings.company_line', ['name' => $member['ownership']['company']]) }}</span>
-                                    @endif
-                                    @if ($member['ownership']['name'])
-                                        <span>{{ $member['ownership']['name'] }}</span>
-                                    @endif
+                                        @if ($member['ownership']['same_owner'])
+                                            <span>{{ __('gshome.ownership.same_owner') }}</span>
+                                        @endif
+                                        @if ($member['ownership']['company'])
+                                            <span>{{ __('gshome.listings.company_line', ['name' => $member['ownership']['company']]) }}</span>
+                                        @endif
+                                        @if ($member['ownership']['name'])
+                                            <span>{{ $member['ownership']['name'] }}</span>
+                                        @endif
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-3">
+                                        <span class="w-full text-xs font-medium text-gray-500 md:hidden">{{ __('gshome.listings.duplicates_on_source') }}</span>
+                                        @if ($member['source_url'])
+                                            <a
+                                                href="{{ $member['source_url'] }}"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="text-primary-600"
+                                                >{{ $member['source'] }}</a
+                                            >
+                                        @else
+                                            <span>{{ $member['source'] }}</span>
+                                        @endif
+                                        <span>{{ $member['seller'] }}</span>
+                                    </div>
                                 </li>
                             @endforeach
                         </ul>

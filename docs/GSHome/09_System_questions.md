@@ -50,7 +50,7 @@ Built on 2026-10-14. The buttons sit above the collapsed filter. They narrow the
 | Owners | `is_owner=1`. The seller on the source is an owner. |
 | Agencies | The seller on the source is an agency, including agencies that are not ours. The API has no such parameter, so the screen keeps those rows and reads at most eight pages per step. The listing assembler should accept `is_agency` and should send each cluster member's seller fields on the list row. That cuts the extra page reads and the follow-up card reads. See `07_Требования_к_API_Real_Estate.md`, R8 and R9. |
 | Our agency | Phones of the signed-in person's company. Linked companies are not included. The group owner has no company, so this button uses every active company. |
-| My listings | Phones held by the signed-in person, not the whole agency. |
+| My listings | Phones held by the signed-in person, with `only_primary=0`. Rows whose contact phone is not that person's are dropped, so the owner's copy in the same group is not shown. |
 
 A company administrator sees that company's name in the account menu and above the list. When exchange between two companies is on, an employee of one sees "Same owner" on the other's listing and, on a separate line, the name of the company that listing belongs to. A duplicate group that contains an owner copy and our side says both that this company has the listing and that the owner still has another listing on the site.
 

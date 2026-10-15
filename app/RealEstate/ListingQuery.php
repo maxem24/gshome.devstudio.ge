@@ -244,6 +244,10 @@ final class ListingQuery
 
         unset($p['exclude_phones']);
         $p['phones'] = self::phoneList($numbers);
+        // Главное в группе часто объявление собственника. Для «моих» нужны копии самого агента.
+        if ($scope === ListingScope::Mine) {
+            $p['only_primary'] = '0';
+        }
 
         return $p;
     }

@@ -300,9 +300,17 @@ class Listings extends Page implements HasTable
                 return;
             }
 
-            $listings = $scope === ListingScope::Agencies
-                ? array_values(array_filter($result->listings, fn (Listing $listing): bool => $listing->sellerCategory === SellerCategory::Agency))
-                : $result->listings;
+            $listings = $result->listings;
+            if ($scope === ListingScope::Agencies) {
+                $listings = array_values(array_filter($listings, fn (Listing $listing): bool => $listing->sellerCategory === SellerCategory::Agency));
+            }
+            if ($scope === ListingScope::Mine) {
+                $allowed = array_flip(array_values(array_filter(explode(',', (string) ($params['phones'] ?? '')), fn (string $number): bool => $number !== '')));
+                $listings = array_values(array_filter(
+                    $listings,
+                    fn (Listing $listing): bool => is_string($listing->contactPhoneE164) && isset($allowed[$listing->contactPhoneE164]),
+                ));
+            }
             foreach (ListingRows::build($this->viewer(), $this->enrichClusters($listings)) as $id => $row) {
                 if (count($this->loadedRows) >= self::MAX_LOADED) {
                     break;
@@ -315,9 +323,9 @@ class Listings extends Page implements HasTable
             $this->noMoreListings = $this->nextCursor === null;
             $cursor = $this->nextCursor;
             $guard++;
-        } while ($scope === ListingScope::Agencies && $added === 0 && $cursor !== null && $guard < self::MAX_AGENCY_PAGES);
+        } while (in_array($scope, [ListingScope::Agencies, ListingScope::Mine], true) && $added === 0 && $cursor !== null && $guard < self::MAX_AGENCY_PAGES);
 
-        if ($scope === ListingScope::Agencies && $added === 0 && $guard >= self::MAX_AGENCY_PAGES) {
+        if (in_array($scope, [ListingScope::Agencies, ListingScope::Mine], true) && $added === 0 && $guard >= self::MAX_AGENCY_PAGES) {
             $this->nextCursor = null;
             $this->noMoreListings = true;
         }

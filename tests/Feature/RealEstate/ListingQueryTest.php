@@ -347,8 +347,10 @@ class ListingQueryTest extends TestCase
         $mine = Phone::factory()->heldBy($agent)->create()->number;
         $colleague = Phone::factory()->heldBy($lead)->create()->number;
 
-        $this->assertSame($mine, ListingQuery::params($agent, [], null, ListingScope::Mine)['phones']);
-        $this->assertStringNotContainsString($colleague, ListingQuery::params($agent, [], null, ListingScope::Mine)['phones']);
+        $mineParams = ListingQuery::params($agent, [], null, ListingScope::Mine);
+        $this->assertSame($mine, $mineParams['phones']);
+        $this->assertSame('0', $mineParams['only_primary']);
+        $this->assertStringNotContainsString($colleague, $mineParams['phones']);
         $this->assertNull(ListingQuery::params(User::factory()->agent($lead)->create(), [], null, ListingScope::Mine));
     }
 
