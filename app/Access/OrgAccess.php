@@ -128,4 +128,27 @@ final class OrgAccess
     {
         return Phone::query()->whereIn('company_id', self::identifiableCompanyIds($viewer))->pluck('number')->all();
     }
+
+    /**
+     * Номера «нашего агентства»: компания смотрящего, без связанных по обмену.
+     * У владельца группы компании нет — номера всех действующих компаний группы.
+     *
+     * @return list<string>
+     */
+    public static function agencyPhones(User $viewer): array
+    {
+        $companies = $viewer->company_id !== null
+            ? [(int) $viewer->company_id]
+            : Company::query()->whereNull('archived_at')->pluck('id')->all();
+
+        return $companies === []
+            ? []
+            : Phone::query()->whereIn('company_id', $companies)->pluck('number')->all();
+    }
+
+    /** @return list<string> номера, держатель которых — сам смотрящий */
+    public static function holderPhones(User $viewer): array
+    {
+        return Phone::query()->where('user_id', $viewer->id)->pluck('number')->all();
+    }
 }

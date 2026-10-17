@@ -2,7 +2,9 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\LocaleMenu;
 use App\Filament\Pages\Auth\Login;
+use App\Http\Middleware\SetUserLocale;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -34,6 +36,7 @@ class AdminPanelProvider extends PanelProvider
             ->maxContentWidth(Width::Full)
             // Свои классы Tailwind в видах карточки и сетки: без темы их нет в CSS панели.
             ->viteTheme('resources/css/filament/admin/theme.css')
+            ->userMenuItems(LocaleMenu::items())
             ->colors([
                 'primary' => Color::Amber,
             ])
@@ -51,6 +54,7 @@ class AdminPanelProvider extends PanelProvider
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
+                SetUserLocale::class,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,

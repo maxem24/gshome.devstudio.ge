@@ -25,7 +25,7 @@ final class UserLifecycle
     {
         self::assertNotOwner($user);
         if (! $user->isActive()) {
-            throw new InvalidArgumentException('Заблокировать можно только активного.');
+            throw new InvalidArgumentException(__('gshome.user.block_active_only'));
         }
 
         $user->update(['status' => UserStatus::Blocked]);
@@ -34,7 +34,7 @@ final class UserLifecycle
     public static function unblock(User $user): void
     {
         if ($user->status !== UserStatus::Blocked) {
-            throw new InvalidArgumentException('Человек не заблокирован.');
+            throw new InvalidArgumentException(__('gshome.user.not_blocked'));
         }
 
         $user->update(['status' => UserStatus::Active]);
@@ -49,7 +49,7 @@ final class UserLifecycle
     {
         self::assertNotOwner($user);
         if ($user->isArchived()) {
-            throw new InvalidArgumentException('Человек уже в архиве.');
+            throw new InvalidArgumentException(__('gshome.user.already_archived'));
         }
 
         DB::transaction(function () use ($user, $newPhoneHolderId, $newTeamLeadId): void {
@@ -59,7 +59,7 @@ final class UserLifecycle
 
             if ($workingAgents->exists()) {
                 if ($newTeamLeadId === null || ! array_key_exists($newTeamLeadId, self::teamLeadOptions($user))) {
-                    throw new InvalidArgumentException('Сотрудникам тимлида нужен новый тимлид той же компании и команды.');
+                    throw new InvalidArgumentException(__('gshome.user.agents_need_lead'));
                 }
                 // Мимо модели: сотрудникам меняется только тимлид той же
                 // компании и команды — инварианты UserPlacement не нарушаются.
@@ -67,7 +67,7 @@ final class UserLifecycle
             }
 
             if ($newPhoneHolderId !== null && ! array_key_exists($newPhoneHolderId, self::phoneHolderOptions($user))) {
-                throw new InvalidArgumentException('Номера можно передать только активному сотруднику той же компании.');
+                throw new InvalidArgumentException(__('gshome.user.phone_holder_same_company'));
             }
             Phone::query()->where('user_id', $user->id)->update(['user_id' => $newPhoneHolderId]);
 
@@ -82,12 +82,12 @@ final class UserLifecycle
     public static function restore(User $user, ?int $newTeamLeadId): void
     {
         if (! $user->isArchived()) {
-            throw new InvalidArgumentException('Человек не в архиве.');
+            throw new InvalidArgumentException(__('gshome.user.not_archived'));
         }
 
         if (self::needsNewTeamLeadOnRestore($user)) {
             if ($newTeamLeadId === null || ! array_key_exists($newTeamLeadId, self::teamLeadOptions($user))) {
-                throw new InvalidArgumentException('Тимлид сотрудника не активен — выберите нового тимлида той же компании и команды.');
+                throw new InvalidArgumentException(__('gshome.user.lead_inactive'));
             }
             $user->team_lead_id = $newTeamLeadId;
         }
@@ -109,7 +109,7 @@ final class UserLifecycle
     public static function changePassword(User $user, string $password): void
     {
         if (mb_strlen($password) < self::MIN_PASSWORD) {
-            throw new InvalidArgumentException('Пароль короче '.self::MIN_PASSWORD.' символов.');
+            throw new InvalidArgumentException(__('gshome.user.password_short', ['min' => self::MIN_PASSWORD]));
         }
 
         $user->forceFill([
@@ -153,7 +153,7 @@ final class UserLifecycle
     private static function assertNotOwner(User $user): void
     {
         if ($user->role === Role::Owner) {
-            throw new InvalidArgumentException('Владельца группы нельзя заблокировать или отправить в архив.');
+            throw new InvalidArgumentException(__('gshome.user.owner_protected'));
         }
     }
 }

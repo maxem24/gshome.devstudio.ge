@@ -27,7 +27,7 @@ class UserForm
     public static function configure(Schema $schema): Schema
     {
         return $schema->components([
-            TextInput::make('name')->label('Имя')->required()->maxLength(255),
+            TextInput::make('name')->label(__('gshome.user.name'))->required()->maxLength(255),
             TextInput::make('email')
                 ->label('Email')
                 ->email()
@@ -37,7 +37,7 @@ class UserForm
             // Пароль задаётся только при создании; дальше — действие «Сменить
             // пароль» (UserActions), чтобы правка формы его не задевала.
             TextInput::make('password')
-                ->label('Пароль')
+                ->label(__('gshome.user.password'))
                 ->password()
                 ->revealable()
                 ->minLength(UserLifecycle::MIN_PASSWORD)
@@ -45,7 +45,7 @@ class UserForm
                 ->confirmed()
                 ->visibleOn('create'),
             TextInput::make('password_confirmation')
-                ->label('Повторите пароль')
+                ->label(__('gshome.user.password_confirmation'))
                 ->password()
                 ->revealable()
                 ->required()
@@ -53,31 +53,31 @@ class UserForm
                 ->visibleOn('create'),
             // Только в карточке просмотра: менять статус — действиями (UserActions).
             Select::make('status')
-                ->label('Статус')
+                ->label(__('gshome.user.status'))
                 ->options(UserStatus::class)
                 ->visibleOn('view'),
             Select::make('role')
-                ->label('Роль')
+                ->label(__('gshome.user.role'))
                 ->options(Role::class)
                 ->required()
                 ->live()
                 ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => Role::tryFrom((string) $value) !== Role::TeamLead)),
             Select::make('company_id')
-                ->label('Компания')
+                ->label(__('gshome.user.company'))
                 ->relationship('company', 'name', fn (Builder $query) => $query->whereNull('archived_at'))
                 ->visible(fn (Get $get): bool => self::role($get) !== null && self::role($get) !== Role::Owner)
                 ->required(fn (Get $get): bool => self::role($get) !== null && self::role($get) !== Role::Owner)
                 ->live()
                 ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => (int) $value !== $record?->company_id)),
             Select::make('direction')
-                ->label('Команда')
+                ->label(__('gshome.user.team'))
                 ->options(Direction::class)
                 ->visible(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false)
                 ->required(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false)
                 ->live()
                 ->rule(fn (?User $record): Closure => self::keepsAgents($record, fn (mixed $value): bool => Direction::tryFrom((string) $value) !== $record?->direction)),
             Select::make('team_lead_id')
-                ->label('Тимлид')
+                ->label(__('gshome.user.team_lead'))
                 ->options(fn (Get $get) => User::query()
                     ->where('role', Role::TeamLead)
                     ->where('status', UserStatus::Active)
@@ -88,8 +88,8 @@ class UserForm
                 ->visible(fn (Get $get): bool => self::role($get) === Role::Agent)
                 ->required(fn (Get $get): bool => self::role($get) === Role::Agent),
             Toggle::make('both_directions')
-                ->label('Оба направления')
-                ->helperText('Видит и продажу, и помесячную сдачу. Людей другой команды не открывает.')
+                ->label(__('gshome.user.both'))
+                ->helperText(__('gshome.user.both_help'))
                 ->visible(fn (Get $get): bool => self::role($get)?->hasTeam() ?? false),
         ]);
     }
@@ -105,7 +105,7 @@ class UserForm
     {
         return function (string $attribute, mixed $value, Closure $fail) use ($record, $changes): void {
             if ($record?->role === Role::TeamLead && $changes($value) && $record->agents()->exists()) {
-                $fail('У тимлида есть сотрудники: сначала переведите их к другому тимлиду.');
+                $fail(__('gshome.user.agents_first'));
             }
         };
     }

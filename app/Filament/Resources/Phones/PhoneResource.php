@@ -35,19 +35,28 @@ class PhoneResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedPhone;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Оргструктура';
-
     protected static ?int $navigationSort = 3;
 
-    protected static ?string $modelLabel = 'номер';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('gshome.nav.org');
+    }
 
-    protected static ?string $pluralModelLabel = 'номера';
+    public static function getModelLabel(): string
+    {
+        return __('gshome.phone.model');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('gshome.phone.plural');
+    }
 
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
             PhoneInput::make('number')
-                ->label('Номер')
+                ->label(__('gshome.phone.number'))
                 ->required()
                 // Только Грузия. initialCountry обязателен: без него пакет
                 // спрашивает страну у ipinfo.io запросом С СЕРВЕРА — в BigMed
@@ -62,26 +71,26 @@ class PhoneResource extends Resource
                 ->inputNumberFormat(PhoneInputNumberType::E164)
                 ->rule(fn (?Phone $record) => new UniquePhone($record?->getKey())),
             Select::make('kind')
-                ->label('Вид')
+                ->label(__('gshome.phone.kind'))
                 ->options(PhoneKind::class)
                 ->default(PhoneKind::Personal->value)
                 ->required(),
             Select::make('company_id')
-                ->label('Компания')
+                ->label(__('gshome.phone.company'))
                 ->relationship('company', 'name', fn (Builder $query) => $query->whereNull('archived_at'))
                 ->required()
                 ->live()
                 ->afterStateUpdated(fn (Set $set) => $set('user_id', null)),
             Select::make('user_id')
-                ->label('Держатель')
-                ->helperText('Для номера офиса — ответственный. Пусто — на объявлении будет компания и сам номер.')
+                ->label(__('gshome.phone.holder'))
+                ->helperText(__('gshome.phone.holder_help'))
                 ->options(fn (Get $get) => User::query()
                     ->where('company_id', $get('company_id'))
                     ->where('status', UserStatus::Active)
                     ->where('role', '!=', Role::Owner)
                     ->orderBy('name')
                     ->pluck('name', 'id'))
-                ->placeholder('Без держателя'),
+                ->placeholder(__('gshome.phone.empty_holder')),
         ]);
     }
 
@@ -89,14 +98,14 @@ class PhoneResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('number')->label('Номер')->searchable(),
-                TextColumn::make('kind')->label('Вид')->badge(),
-                TextColumn::make('company.name')->label('Компания')->sortable(),
-                TextColumn::make('holder.name')->label('Держатель')->placeholder('без держателя'),
+                TextColumn::make('number')->label(__('gshome.phone.number'))->searchable(),
+                TextColumn::make('kind')->label(__('gshome.phone.kind'))->badge(),
+                TextColumn::make('company.name')->label(__('gshome.phone.company'))->sortable(),
+                TextColumn::make('holder.name')->label(__('gshome.phone.holder'))->placeholder(__('gshome.phone.no_holder')),
             ])
             ->filters([
-                SelectFilter::make('company_id')->label('Компания')->relationship('company', 'name'),
-                SelectFilter::make('kind')->label('Вид')->options(PhoneKind::class),
+                SelectFilter::make('company_id')->label(__('gshome.phone.company'))->relationship('company', 'name'),
+                SelectFilter::make('kind')->label(__('gshome.phone.kind'))->options(PhoneKind::class),
             ])
             ->recordActions([
                 EditAction::make(),

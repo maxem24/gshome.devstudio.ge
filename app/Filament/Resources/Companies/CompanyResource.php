@@ -33,19 +33,28 @@ class CompanyResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Оргструктура';
-
     protected static ?int $navigationSort = 1;
 
-    protected static ?string $modelLabel = 'компания';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('gshome.nav.org');
+    }
 
-    protected static ?string $pluralModelLabel = 'компании';
+    public static function getModelLabel(): string
+    {
+        return __('gshome.company.model');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('gshome.company.plural');
+    }
 
     public static function form(Schema $schema): Schema
     {
         return $schema->components([
             TextInput::make('name')
-                ->label('Название')
+                ->label(__('gshome.company.name'))
                 ->required()
                 ->maxLength(255)
                 ->rule(fn (?Company $record) => new UniqueCompanyName($record?->getKey())),
@@ -56,26 +65,26 @@ class CompanyResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('name')->label('Название')->searchable()->sortable(),
-                TextColumn::make('users_count')->label('Людей')->counts('users'),
-                TextColumn::make('phones_count')->label('Номеров')->counts('phones'),
-                TextColumn::make('archived_at')->label('В архиве с')->date()->placeholder('—'),
+                TextColumn::make('name')->label(__('gshome.company.name'))->searchable()->sortable(),
+                TextColumn::make('users_count')->label(__('gshome.company.people_count'))->counts('users'),
+                TextColumn::make('phones_count')->label(__('gshome.company.phones_count'))->counts('phones'),
+                TextColumn::make('archived_at')->label(__('gshome.company.archived_since'))->date()->placeholder('—'),
             ])
             ->filters([
-                TernaryFilter::make('archived_at')->label('Архив')->nullable(),
+                TernaryFilter::make('archived_at')->label(__('gshome.company.archive_filter'))->nullable(),
             ])
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
                 Action::make('archive')
-                    ->label('В архив')
+                    ->label(__('gshome.company.to_archive'))
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->modalDescription('Объявления сотрудников компании станут «другой компанией», её люди не смогут войти.')
+                    ->modalDescription(__('gshome.company.archive_description'))
                     ->visible(fn (Company $record): bool => ! $record->isArchived() && (Auth::user()?->can('update', $record) ?? false))
                     ->action(fn (Company $record) => $record->update(['archived_at' => now()])),
                 Action::make('restore')
-                    ->label('Вернуть из архива')
+                    ->label(__('gshome.company.restore'))
                     ->visible(fn (Company $record): bool => $record->isArchived() && (Auth::user()?->can('update', $record) ?? false))
                     ->action(fn (Company $record) => $record->update(['archived_at' => null])),
             ]);

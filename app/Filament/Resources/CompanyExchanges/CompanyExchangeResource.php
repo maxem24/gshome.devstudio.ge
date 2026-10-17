@@ -30,15 +30,27 @@ class CompanyExchangeResource extends Resource
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowsRightLeft;
 
-    protected static string|UnitEnum|null $navigationGroup = 'Оргструктура';
-
     protected static ?int $navigationSort = 4;
 
-    protected static ?string $modelLabel = 'пара обмена';
+    public static function getNavigationGroup(): string|UnitEnum|null
+    {
+        return __('gshome.nav.org');
+    }
 
-    protected static ?string $pluralModelLabel = 'обмен между компаниями';
+    public static function getNavigationLabel(): string
+    {
+        return __('gshome.nav.exchange');
+    }
 
-    protected static ?string $navigationLabel = 'Обмен между компаниями';
+    public static function getModelLabel(): string
+    {
+        return __('gshome.exchange.model');
+    }
+
+    public static function getPluralModelLabel(): string
+    {
+        return __('gshome.exchange.plural');
+    }
 
     public static function form(Schema $schema): Schema
     {
@@ -46,12 +58,12 @@ class CompanyExchangeResource extends Resource
 
         return $schema->components([
             Select::make('company_a_id')
-                ->label('Компания')
+                ->label(__('gshome.exchange.company'))
                 ->relationship('companyA', 'name', $activeCompanies)
                 ->required()
                 ->disabledOn('edit'),
             Select::make('company_b_id')
-                ->label('Вторая компания')
+                ->label(__('gshome.exchange.other_company'))
                 ->relationship('companyB', 'name', $activeCompanies)
                 ->required()
                 ->disabledOn('edit')
@@ -59,10 +71,10 @@ class CompanyExchangeResource extends Resource
                 ->rule(fn (Get $get, ?CompanyExchange $record): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get, $record): void {
                     $a = (int) $get('company_a_id');
                     if ($a !== 0 && CompanyExchange::existsBetween($a, (int) $value, $record?->getKey())) {
-                        $fail('Пара этих компаний уже есть.');
+                        $fail(__('gshome.validation.pair_exists'));
                     }
                 }),
-            Toggle::make('enabled')->label('Обмен включён')->default(true),
+            Toggle::make('enabled')->label(__('gshome.exchange.enabled'))->default(true),
         ]);
     }
 
@@ -70,14 +82,14 @@ class CompanyExchangeResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('companyA.name')->label('Компания'),
-                TextColumn::make('companyB.name')->label('Вторая компания'),
-                IconColumn::make('enabled')->label('Обмен')->boolean(),
-                TextColumn::make('updated_at')->label('Изменено')->dateTime(),
+                TextColumn::make('companyA.name')->label(__('gshome.exchange.company')),
+                TextColumn::make('companyB.name')->label(__('gshome.exchange.other_company')),
+                IconColumn::make('enabled')->label(__('gshome.exchange.column'))->boolean(),
+                TextColumn::make('updated_at')->label(__('gshome.exchange.updated'))->dateTime(),
             ])
             ->recordActions([
                 Action::make('toggle')
-                    ->label(fn (CompanyExchange $record): string => $record->enabled ? 'Выключить' : 'Включить')
+                    ->label(fn (CompanyExchange $record): string => $record->enabled ? __('gshome.exchange.turn_off') : __('gshome.exchange.turn_on'))
                     ->requiresConfirmation()
                     ->action(fn (CompanyExchange $record) => $record->update(['enabled' => ! $record->enabled])),
                 DeleteAction::make(),

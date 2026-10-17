@@ -14,9 +14,9 @@ enum SellerCategory: string implements HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::Owner => 'Собственник',
-            self::Agency => 'Агентство',
-            self::Agent => 'Агент',
+            self::Owner => __('gshome.seller.owner'),
+            self::Agency => __('gshome.seller.agency'),
+            self::Agent => __('gshome.seller.agent'),
         };
     }
 }

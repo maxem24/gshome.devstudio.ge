@@ -5,6 +5,7 @@ namespace Tests\Feature\Filament;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
 use App\Models\Phone;
+use App\Models\SavedListing;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -72,6 +73,9 @@ class ListingViewTest extends TestCase
 
         Livewire::test(ListingView::class, ['listing' => 13])
             ->assertSee('В группе есть наш сотрудник: Нино')
+            ->assertSee('В нашей системе')
+            ->assertSee('На сайте-источнике')
+            ->assertSee('listings/55', escape: false)
             ->assertSee('https://home.ss.ge/55', escape: false)
             ->assertActionVisible('contactGroup');
     }
@@ -139,5 +143,52 @@ class ListingViewTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
+    }
+
+    public function test_detail_splits_characteristics_and_marks_missing_extras(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing([
+            'bedrooms' => 2,
+            'amenities' => [['id' => 1, 'slug' => 'elevator', 'title' => 'Лифт']],
+        ])]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee('Комнаты')
+            ->assertSee('65 м²')
+            ->assertSee('5/9')
+            ->assertSee('Квартира')
+            ->assertSee('Дополнительно')
+            ->assertSee('Спальни: 2')
+            ->assertSee('Санузлы')
+            ->assertSee('Лифт')
+            ->assertSee('Газ')
+            ->assertSeeHtml('text-green-600')
+            ->assertSeeHtml('text-gray-400');
+    }
+
+    public function test_card_saves_for_later_and_removes_only_this_users_row(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $user = User::factory()->owner()->create();
+        $other = User::factory()->owner()->create();
+        SavedListing::query()->create(['user_id' => $other->id, 'listing_id' => 13]);
+        $this->actingAs($user);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionVisible('saveForLater')
+            ->assertSee('Сохранить')
+            ->callAction('saveForLater')
+            ->assertSee('Убрать из сохранённых');
+
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $user->id, 'listing_id' => 13]);
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $other->id, 'listing_id' => 13]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('saveForLater')
+            ->assertSee('Сохранить');
+
+        $this->assertDatabaseMissing('saved_listings', ['user_id' => $user->id, 'listing_id' => 13]);
+        $this->assertDatabaseHas('saved_listings', ['user_id' => $other->id, 'listing_id' => 13]);
     }
 }

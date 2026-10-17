@@ -72,6 +72,10 @@ final class RealEstateFake
 
             return match (true) {
                 $path === '/api/v1/dictionaries/deal-types' => Http::response(['data' => self::dealTypes()]),
+                $path === '/api/v1/dictionaries/amenities' => Http::response(['data' => [
+                    ['id' => 1, 'slug' => 'elevator', 'title_ka' => 'ლიფტი', 'title_en' => 'Elevator', 'title_ru' => 'Лифт'],
+                    ['id' => 2, 'slug' => 'gas', 'title_ka' => 'გაზი', 'title_en' => 'Gas', 'title_ru' => 'Газ'],
+                ]]),
                 str_starts_with($path, '/api/v1/dictionaries/') => Http::response(['data' => [
                     ['id' => 1, 'slug' => 'tbilisi', 'title_ka' => 'თბილისი', 'title_en' => 'Tbilisi', 'title_ru' => 'Тбилиси'],
                 ]]),

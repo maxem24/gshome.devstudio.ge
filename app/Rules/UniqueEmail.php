@@ -26,7 +26,7 @@ final class UniqueEmail implements ValidationRule
             ->exists();
 
         if ($taken) {
-            $fail('Человек с таким email уже есть.');
+            $fail(__('gshome.validation.email_taken'));
         }
     }
 }
