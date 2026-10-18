@@ -6,6 +6,6 @@ final class RealEstateUnavailable extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Real Estate недоступен, попробуйте позже.';
+        return __('gshome.errors.unavailable');
     }
 }

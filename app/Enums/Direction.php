@@ -12,8 +12,8 @@ enum Direction: string implements HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::Sale => 'Продажа',
-            self::Rent => 'Помесячная сдача',
+            self::Sale => __('gshome.direction.sale'),
+            self::Rent => __('gshome.direction.rent'),
         };
     }
 }

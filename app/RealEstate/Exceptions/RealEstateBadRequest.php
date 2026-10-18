@@ -7,6 +7,6 @@ final class RealEstateBadRequest extends RealEstateException
 {
     public function userMessage(): string
     {
-        return 'Не удалось загрузить объявления. Ошибка записана в журнал.';
+        return __('gshome.errors.bad_request');
     }
 }

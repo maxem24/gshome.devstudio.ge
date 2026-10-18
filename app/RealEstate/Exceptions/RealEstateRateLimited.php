@@ -11,6 +11,6 @@ final class RealEstateRateLimited extends RealEstateException
 
     public function userMessage(): string
     {
-        return "Слишком много запросов к Real Estate, повторите через {$this->retryAfter} с.";
+        return __('gshome.errors.rate_limited', ['seconds' => $this->retryAfter]);
     }
 }

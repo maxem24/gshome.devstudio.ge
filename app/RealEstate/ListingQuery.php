@@ -4,6 +4,7 @@ namespace App\RealEstate;
 
 use App\Access\OrgAccess;
 use App\Enums\Direction;
+use App\Enums\ListingScope;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\Exceptions\TooManyPhones;
@@ -14,18 +15,22 @@ use App\RealEstate\Exceptions\TooManyPhones;
  */
 final class ListingQuery
 {
-    public const PER_PAGE = 25;
+    public const PER_PAGE = 50;
 
     /** Предел API на phones / exclude_phones. */
     public const MAX_PHONES = 500;
 
-    public const SORTS = [
-        'new' => 'Сначала новые',
-        'price_asc' => 'Цена: по возрастанию',
-        'price_desc' => 'Цена: по убыванию',
-        'area_asc' => 'Площадь: по возрастанию',
-        'area_desc' => 'Площадь: по убыванию',
-    ];
+    /** @return array<string, string> */
+    public static function sortOptions(): array
+    {
+        return [
+            'new' => __('gshome.listings.sort_new'),
+            'price_asc' => __('gshome.listings.sort_price_asc'),
+            'price_desc' => __('gshome.listings.sort_price_desc'),
+            'area_asc' => __('gshome.listings.sort_area_asc'),
+            'area_desc' => __('gshome.listings.sort_area_desc'),
+        ];
+    }
 
     /** Предел API на длину поиска `q`. */
     private const MAX_SEARCH = 100;
@@ -45,7 +50,7 @@ final class ListingQuery
      * @param  array<string, mixed>  $filters  данные фильтров таблицы Filament
      * @return array<string, string>|null null — результат заведомо пуст, в API не ходить
      */
-    public static function params(User $viewer, array $filters, ?string $search): ?array
+    public static function params(User $viewer, array $filters, ?string $search, ListingScope $scope = ListingScope::All): ?array
     {
         $client = app(RealEstateClient::class);
         $p = ['per_page' => (string) self::PER_PAGE, 'deal_type_id' => self::dealTypes($viewer, $filters, $client)];
@@ -82,7 +87,9 @@ final class ListingQuery
             $p['q'] = $search;
         }
 
-        return $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+        $p = $client->phoneFiltersEnabled() ? self::phoneFilters($viewer, $filters, $p) : $p;
+
+        return $p === null ? null : self::applyScope($viewer, $scope, $p);
     }
 
     /**
@@ -190,6 +197,61 @@ final class ListingQuery
             } elseif ($numbers !== []) {
                 $p['exclude_phones'] = self::phoneList($numbers);
             }
+        }
+
+        return $p;
+    }
+
+    /**
+     * Кнопки над списком. «Агентства» — `is_agency=1` (партнёрский API это принимает).
+     * «Наше агентство» и «Мои» — только номера, и только когда фильтр телефонов включён.
+     *
+     * @param  array<string, string>  $p
+     * @return array<string, string>|null
+     */
+    private static function applyScope(User $viewer, ListingScope $scope, array $p): ?array
+    {
+        if ($scope === ListingScope::Owners) {
+            $p['is_owner'] = '1';
+
+            return $p;
+        }
+
+        if ($scope === ListingScope::Agencies) {
+            unset($p['is_owner']);
+            $p['is_agency'] = '1';
+
+            return $p;
+        }
+
+        if ($scope === ListingScope::All) {
+            return $p;
+        }
+
+        if (! app(RealEstateClient::class)->phoneFiltersEnabled()) {
+            return null;
+        }
+
+        $numbers = $scope === ListingScope::Mine
+            ? OrgAccess::holderPhones($viewer)
+            : OrgAccess::agencyPhones($viewer);
+        if (isset($p['phones'])) {
+            $numbers = array_intersect($numbers, explode(',', $p['phones']));
+        }
+        // «Владелец: другие компании» исключает наши номера — кнопка его сужает, а не отменяет.
+        if (isset($p['exclude_phones'])) {
+            $numbers = array_diff($numbers, explode(',', $p['exclude_phones']));
+        }
+        $numbers = array_values($numbers);
+        if ($numbers === []) {
+            return null;
+        }
+
+        unset($p['exclude_phones']);
+        $p['phones'] = self::phoneList($numbers);
+        // Главное в группе часто объявление собственника. Для «моих» нужны копии самого агента.
+        if ($scope === ListingScope::Mine) {
+            $p['only_primary'] = '0';
         }
 
         return $p;

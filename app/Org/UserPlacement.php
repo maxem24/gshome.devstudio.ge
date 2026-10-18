@@ -26,7 +26,7 @@ final class UserPlacement
         if ($user->exists
             && ($role !== Role::TeamLead || $user->isDirty(['company_id', 'direction']))
             && $user->agents()->exists()) {
-            throw new InvalidArgumentException('У тимлида есть сотрудники: сначала переведите их к другому тимлиду.');
+            throw new InvalidArgumentException(__('gshome.user.agents_first'));
         }
 
         if ($role === Role::Owner) {
@@ -61,7 +61,7 @@ final class UserPlacement
             || $lead->role !== Role::TeamLead
             || $lead->company_id !== $user->company_id
             || $lead->direction !== $user->direction) {
-            throw new InvalidArgumentException('Тимлид сотрудника должен быть тимлидом той же компании и команды.');
+            throw new InvalidArgumentException(__('gshome.user.lead_same_team'));
         }
     }
 }

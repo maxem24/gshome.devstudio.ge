@@ -3,6 +3,7 @@
 namespace Tests\Support;
 
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /** Ответы API Real Estate по формату ~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md. */
@@ -65,6 +66,8 @@ final class RealEstateFake
      */
     public static function fake(array $pages = [], array $cards = []): void
     {
+        // Новые ответы — новое состояние API: короткий кеш клиента от прошлых ответов не должен их заслонять.
+        Cache::flush();
         $pages = $pages ?: [self::page([])];
         $i = 0;
         Http::fake(function (Request $request) use (&$i, $pages, $cards) {
@@ -72,6 +75,10 @@ final class RealEstateFake
 
             return match (true) {
                 $path === '/api/v1/dictionaries/deal-types' => Http::response(['data' => self::dealTypes()]),
+                $path === '/api/v1/dictionaries/amenities' => Http::response(['data' => [
+                    ['id' => 1, 'slug' => 'elevator', 'title_ka' => 'ლიფტი', 'title_en' => 'Elevator', 'title_ru' => 'Лифт'],
+                    ['id' => 2, 'slug' => 'gas', 'title_ka' => 'გაზი', 'title_en' => 'Gas', 'title_ru' => 'Газ'],
+                ]]),
                 str_starts_with($path, '/api/v1/dictionaries/') => Http::response(['data' => [
                     ['id' => 1, 'slug' => 'tbilisi', 'title_ka' => 'თბილისი', 'title_en' => 'Tbilisi', 'title_ru' => 'Тбилиси'],
                 ]]),

@@ -14,10 +14,10 @@ enum Role: string implements HasLabel
     public function getLabel(): string
     {
         return match ($this) {
-            self::Owner => 'Владелец',
-            self::CompanyOwner => 'Владелец компании',
-            self::TeamLead => 'Тимлид',
-            self::Agent => 'Сотрудник',
+            self::Owner => __('gshome.role.owner'),
+            self::CompanyOwner => __('gshome.role.company_owner'),
+            self::TeamLead => __('gshome.role.team_lead'),
+            self::Agent => __('gshome.role.agent'),
         };
     }
 

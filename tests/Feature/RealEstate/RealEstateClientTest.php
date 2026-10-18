@@ -99,17 +99,45 @@ class RealEstateClientTest extends TestCase
         $this->client()->listings([], null);
     }
 
-    public function test_dictionaries_are_cached_listings_are_not(): void
+    public function test_dictionaries_for_a_day_listings_and_cards_briefly(): void
     {
-        RealEstateFake::fake([RealEstateFake::page([])]);
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing()])], [13 => RealEstateFake::listing()]);
 
         $this->client()->dealTypeIds();
         $this->client()->dealTypeIds();
         $this->client()->listings([], null);
         $this->client()->listings([], null);
+        $this->client()->listing(13);
+        $this->client()->listing(13);
+        $this->assertSame(13, $this->client()->listingsByIds([13])[13]?->id);
+        Http::assertSentCount(3); // справочник, страница, карточка — по разу
 
-        Http::assertSentCount(3); // 1 справочник + 2 списка
+        $this->travel(31)->seconds();
+        $this->client()->listings([], null);
+        $this->client()->listing(13);
+        Http::assertSentCount(4); // страница устарела через 30 с, карточка живёт 60 с
+
+        $this->travel(30)->seconds();
+        $this->client()->listing(13);
+        Http::assertSentCount(5);
         $this->assertSame(['sale' => 1, 'rent' => 2, 'daily_rent' => 3, 'pledge' => 4], $this->client()->dealTypeIds());
+    }
+
+    public function test_missing_card_and_broken_page_are_not_cached(): void
+    {
+        RealEstateFake::fake([['oops' => true]]);
+
+        $this->assertNull($this->client()->listing(99));
+        $this->assertNull($this->client()->listing(99));
+        Http::assertSentCount(2);
+
+        foreach ([1, 2] as $ignored) {
+            try {
+                $this->client()->listings([], null);
+            } catch (RealEstateUnavailable) {
+            }
+        }
+        Http::assertSentCount(4);
     }
 
     public function test_key_never_appears_in_exception_message(): void
