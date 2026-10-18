@@ -24,7 +24,8 @@
                     <span>{{ $card['owner_still_listed'] }}</span>
                 @endif
                 @if ($card['group'])
-                    <x-filament::badge :color="$card['group']['color']"
+                    <x-filament::badge
+                        :color="$card['group']['color']"
                         >{{ __('gshome.listings.group_member', ['name' => $card['group']['name'] ?? $card['group']['company']]) }}</x-filament::badge
                     >
                 @endif
@@ -64,10 +65,17 @@
                             @foreach ($card['cluster'] as $member)
                                 <li class="grid gap-3 py-3 md:grid-cols-2 md:gap-6">
                                     <div class="flex flex-wrap items-center gap-3">
-                                        <span class="w-full text-xs font-medium text-gray-500 md:hidden">{{ __('gshome.listings.duplicates_in_system') }}</span>
+                                        <span
+                                            class="w-full text-xs font-medium text-gray-500 md:hidden"
+                                            >{{ __('gshome.listings.duplicates_in_system') }}</span
+                                        >
                                         <span>{{ $member['price'] }}</span>
                                         @if ($member['url'])
-                                            <a href="{{ $member['url'] }}" class="text-primary-600">{{ __('gshome.listings.open_listing') }}</a>
+                                            <a
+                                                href="{{ $member['url'] }}"
+                                                class="text-primary-600"
+                                                >{{ __('gshome.listings.open_listing') }}</a
+                                            >
                                         @endif
                                         <x-filament::badge
                                             :color="$member['ownership']['color']"
@@ -77,14 +85,19 @@
                                             <span>{{ __('gshome.ownership.same_owner') }}</span>
                                         @endif
                                         @if ($member['ownership']['company'])
-                                            <span>{{ __('gshome.listings.company_line', ['name' => $member['ownership']['company']]) }}</span>
+                                            <span
+                                                >{{ __('gshome.listings.company_line', ['name' => $member['ownership']['company']]) }}</span
+                                            >
                                         @endif
                                         @if ($member['ownership']['name'])
                                             <span>{{ $member['ownership']['name'] }}</span>
                                         @endif
                                     </div>
                                     <div class="flex flex-wrap items-center gap-3">
-                                        <span class="w-full text-xs font-medium text-gray-500 md:hidden">{{ __('gshome.listings.duplicates_on_source') }}</span>
+                                        <span
+                                            class="w-full text-xs font-medium text-gray-500 md:hidden"
+                                            >{{ __('gshome.listings.duplicates_on_source') }}</span
+                                        >
                                         @if ($member['source_url'])
                                             <a
                                                 href="{{ $member['source_url'] }}"
@@ -151,11 +164,13 @@
                 <x-filament::section :heading="__('gshome.listings.additional')">
                     <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         @foreach ($card['additional'] as $item)
-                            <li @class([
+                            <li
+                                @class ([
                                 'flex items-center gap-2 text-sm',
                                 'text-green-600' => $item['active'],
                                 'text-gray-400' => ! $item['active'],
-                            ])>
+                            ])
+                            >
                                 <x-filament::icon :icon="$item['icon']" class="h-5 w-5 shrink-0" />
                                 <span>{{ $item['label'] }}</span>
                             </li>

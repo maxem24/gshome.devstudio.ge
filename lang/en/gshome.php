@@ -99,6 +99,7 @@ return [
         'empty_description' => 'Save a listing from the properties list and it will show up here.',
         'remove' => 'Remove from saved',
         'limit' => 'Showing the :count most recently saved listings.',
+        'incomplete' => 'Not all saved listings could be loaded. Refresh the page.',
     ],
     'direction' => [
         'sale' => 'Sale',

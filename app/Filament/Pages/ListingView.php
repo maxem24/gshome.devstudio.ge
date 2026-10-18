@@ -77,7 +77,7 @@ class ListingView extends Page
             'negotiable' => $l->negotiable,
             'facts' => $l->facts(),
             'rooms' => $l->rooms === null ? null : ($l->rooms === 0 ? __('gshome.listings.studio') : (string) $l->rooms),
-            'area' => $l->areaTotal === null ? null : __('gshome.listings.square_meters', ['value' => self::number($l->areaTotal)]),
+            'area' => ListingDetails::squareMeters($l->areaTotal),
             'floor' => self::floor($l->floor, $l->floorsTotal),
             'property_type' => $l->propertyType,
             'address' => $l->address,
@@ -201,11 +201,6 @@ class ListingView extends Page
         }
 
         return (string) ($floor ?? $total);
-    }
-
-    private static function number(float $value): string
-    {
-        return rtrim(rtrim(number_format($value, 1, '.', ''), '0'), '.');
     }
 
     private function viewer(): User

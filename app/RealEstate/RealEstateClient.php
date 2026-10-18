@@ -4,6 +4,7 @@ namespace App\RealEstate;
 
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
+use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
@@ -12,6 +13,7 @@ use Carbon\Exceptions\InvalidFormatException;
 use Illuminate\Container\Attributes\Singleton;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Collection;
@@ -21,12 +23,19 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Тонкий клиент API Real Estate (~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md).
- * Объявления не кешируются (решение «мгновенно»), справочники — сутки.
+ * Справочники кешируются на сутки, объявления — коротко (решение 2026-10-18): страница списка 30 с,
+ * карточка 60 с. В кеше только ответ API; метки владения считаются из нашей базы при каждом показе.
  */
 #[Singleton]
 class RealEstateClient
 {
     private const DICTIONARY_TTL = 86400;
+
+    /** Страница списка: «назад» из карточки и повторный рендер не ходят в API, а свежие объявления видны через полминуты. */
+    private const PAGE_TTL = 30;
+
+    /** Карточка: открыть, вернуться, сохранить — один запрос к API, а не три. */
+    private const CARD_TTL = 60;
 
     /** Сколько секунд после обрыва связи или 502/504 не ходить в API вовсе (общий маркер для всех запросов). */
     private const DOWN_TTL = 30;
@@ -39,8 +48,24 @@ class RealEstateClient
     /** @param  array<string, string>  $params */
     public function listings(array $params, ?string $cursor): ListingPage
     {
-        $query = $params + ['lang' => app()->getLocale()] + ($cursor !== null ? ['cursor' => $cursor] : []);
-        $json = $this->get('/listings', $query)->json();
+        $first = $params + ['lang' => app()->getLocale()];
+        $query = $first + ($cursor !== null ? ['cursor' => $cursor] : []);
+        $key = self::pageKey($query);
+        $json = Cache::get($key);
+        if (! is_array($json)) {
+            try {
+                $json = $this->get('/listings', $query)->json();
+            } catch (RealEstateStaleCursor $e) {
+                // Курсор устарел — экран начнёт с первой страницы, и она должна быть свежей, а не той, что выдала этот курсор.
+                Cache::forget(self::pageKey($first));
+
+                throw $e;
+            }
+            // Кешируем только разобранный ответ: HTML прокси или сменившийся формат на 30 с не закрепляем.
+            if (is_array($json) && is_array($json['data'] ?? null)) {
+                Cache::put($key, $json, self::PAGE_TTL);
+            }
+        }
 
         return $this->parsed('/listings', function () use ($json): ListingPage {
             if (! is_array($json) || ! is_array($json['data'] ?? null)) {
@@ -57,14 +82,99 @@ class RealEstateClient
 
     public function listing(int $id): ?Listing
     {
-        $response = $this->get("/listings/{$id}", ['lang' => app()->getLocale()], allowNotFound: true);
-
-        if ($response === null) {
-            return null;
+        $locale = app()->getLocale();
+        $data = Cache::get(self::cardKey($id, $locale));
+        if (! is_array($data)) {
+            $response = $this->get("/listings/{$id}", ['lang' => $locale], allowNotFound: true);
+            if ($response === null) {
+                return null;
+            }
+            $data = $response->json('data');
+            $this->rememberCard($id, $locale, $data);
         }
-        $data = $response->json('data');
 
-        return $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, app()->getLocale()));
+        return $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, $locale));
+    }
+
+    /** @param  array<string, scalar>  $query */
+    private static function pageKey(array $query): string
+    {
+        ksort($query);
+
+        return 'real-estate:page:'.md5(serialize($query));
+    }
+
+    private static function cardKey(int $id, string $locale): string
+    {
+        return "real-estate:card:{$locale}:{$id}";
+    }
+
+    /** 404 не кешируем: снятое объявление и так не показываем, а вернувшееся должно появиться сразу. */
+    private function rememberCard(int $id, string $locale, mixed $data): void
+    {
+        if (is_array($data) && isset($data['id'])) {
+            Cache::put(self::cardKey($id, $locale), $data, self::CARD_TTL);
+        }
+    }
+
+    /**
+     * Карточки по списку id параллельно: у API нет выборки по нескольким id, а по одной 50 карточек — секунды.
+     * Ошибка одной карточки не роняет остальные: на её месте исключение.
+     *
+     * @param  list<int>  $ids
+     * @return array<int, Listing|RealEstateException|null> id ⇒ карточка, null (нет такой) или причина отказа
+     */
+    public function listingsByIds(array $ids, int $concurrency = 4): array
+    {
+        $locale = app()->getLocale();
+        $out = [];
+        $missing = [];
+        foreach ($ids as $id) {
+            $data = Cache::get(self::cardKey($id, $locale));
+            if (is_array($data)) {
+                try {
+                    $out[$id] = $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, $locale));
+                } catch (RealEstateException $e) {
+                    $out[$id] = $e;
+                }
+            } else {
+                $out[$id] = null;
+                $missing[] = $id;
+            }
+        }
+        if ($missing === []) {
+            return $out;
+        }
+        if ($this->down || Cache::has(self::DOWN_KEY)) {
+            return array_replace($out, array_fill_keys($missing, new RealEstateUnavailable('Real Estate: нет связи (недавний сбой)')));
+        }
+
+        $responses = Http::pool(fn (Pool $pool): array => array_map(
+            fn (int $id): mixed => $this->configured($pool->as((string) $id))->get("/listings/{$id}", ['lang' => $locale]),
+            $missing,
+        ), $concurrency);
+
+        foreach ($missing as $id) {
+            $response = $responses[(string) $id] ?? null;
+            try {
+                if (! $response instanceof Response) {
+                    $this->markDown();
+
+                    throw new RealEstateUnavailable('Real Estate: нет связи');
+                }
+                $checked = $this->checked("/listings/{$id}", $response, allowNotFound: true);
+                if ($checked === null) {
+                    continue;
+                }
+                $data = $checked->json('data');
+                $out[$id] = $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, $locale));
+                $this->rememberCard($id, $locale, $data);
+            } catch (RealEstateException $e) {
+                $out[$id] = $e;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -141,6 +251,12 @@ class RealEstateClient
             throw new RealEstateUnavailable('Real Estate: нет связи');
         }
 
+        return $this->checked($path, $response, $allowNotFound);
+    }
+
+    /** Ответ API → сам ответ, null (404, если разрешён) или исключение с понятной человеку причиной. */
+    private function checked(string $path, Response $response, bool $allowNotFound): ?Response
+    {
         if ($allowNotFound && $response->status() === 404) {
             return null;
         }
@@ -209,9 +325,16 @@ class RealEstateClient
 
     private function http(): PendingRequest
     {
-        return Http::baseUrl((string) config('services.real_estate.url'))
+        return $this->configured(Http::createPendingRequest());
+    }
+
+    private function configured(PendingRequest $request): PendingRequest
+    {
+        return $request->baseUrl((string) config('services.real_estate.url'))
             ->withToken((string) config('services.real_estate.key'))
             ->acceptJson()
+            // Страница на 50 объявлений — ~400 КБ JSON, сжатый — ~70 КБ. Cloudflare и внутренний вход сжимают по запросу.
+            ->withOptions(['decode_content' => 'gzip'])
             ->connectTimeout(3)
             ->timeout(10)
             // 503 = query_timeout: API просит не повторять тот же запрос. Две попытки по 10 с — предел ~20 с на вызов,

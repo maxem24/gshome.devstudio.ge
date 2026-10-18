@@ -4,7 +4,7 @@
     @endif
 
     <div class="mb-4 flex flex-wrap gap-2">
-        @foreach (\App\Enums\ListingScope::cases() as $scope)
+        @foreach ($this->scopes() as $scope)
             <x-filament::button
                 size="sm"
                 :color="$this->scope === $scope->value ? 'primary' : 'gray'"
@@ -36,32 +36,39 @@
         x-data="{
             loading: false,
             start() {
-                const target = this.$el
-                const io = new IntersectionObserver((entries) => {
-                    if (! entries.some((entry) => entry.isIntersecting) || $wire.noMoreListings || this.loading) {
-                        return
-                    }
-                    this.loading = true
-                    io.disconnect()
-                    $wire.loadMoreListings().finally(() => {
-                        this.loading = false
-                        if (! $wire.noMoreListings) {
-                            io.observe(target)
+                const target = this.$el;
+                const io = new IntersectionObserver(
+                    (entries) => {
+                        if (
+                            !entries.some((entry) => entry.isIntersecting) ||
+                            $wire.noMoreListings ||
+                            this.loading
+                        ) {
+                            return;
                         }
-                    })
-                }, { rootMargin: '400px' })
+                        this.loading = true;
+                        io.disconnect();
+                        $wire.loadMoreListings().finally(() => {
+                            this.loading = false;
+                            if (!$wire.noMoreListings) {
+                                io.observe(target);
+                            }
+                        });
+                    },
+                    { rootMargin: '400px' }
+                );
                 const arm = () => {
                     if (this.loading) {
-                        return
+                        return;
                     }
-                    io.disconnect()
-                    if (! $wire.noMoreListings) {
-                        io.observe(target)
+                    io.disconnect();
+                    if (!$wire.noMoreListings) {
+                        io.observe(target);
                     }
-                }
-                arm()
-                $wire.$watch('noMoreListings', () => this.$nextTick(() => arm()))
-                $wire.$watch('scope', () => this.$nextTick(() => arm()))
+                };
+                arm();
+                $wire.$watch('noMoreListings', () => this.$nextTick(() => arm()));
+                $wire.$watch('scope', () => this.$nextTick(() => arm()));
             },
         }"
         x-init="start()"

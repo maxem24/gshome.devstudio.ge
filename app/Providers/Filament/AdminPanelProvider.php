@@ -54,7 +54,11 @@ class AdminPanelProvider extends PanelProvider
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
-                SetUserLocale::class,
+            ])
+            // Livewire-запросы (фильтр, кнопка, догрузка) идут мимо маршрута панели и выполняют
+            // только постоянные middleware: без isPersistent язык после первого клика — APP_LOCALE.
+            ->middleware([SetUserLocale::class], isPersistent: true)
+            ->middleware([
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 PreventRequestForgery::class,

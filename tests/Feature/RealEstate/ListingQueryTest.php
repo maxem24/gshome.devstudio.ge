@@ -363,4 +363,15 @@ class ListingQueryTest extends TestCase
         $this->assertNull(ListingQuery::params($lead, [], null, ListingScope::OurAgency));
         $this->assertNull(ListingQuery::params($lead, [], null, ListingScope::Mine));
     }
+
+    public function test_scope_our_agency_keeps_the_others_ownership_filter(): void
+    {
+        $company = Company::factory()->create();
+        $lead = User::factory()->teamLead($company)->create();
+        Phone::factory()->heldBy($lead)->create();
+
+        // «Другие компании» + «Наше агентство» — пересечение пустое, а не наши объявления.
+        $this->assertNull(ListingQuery::params($lead, ['ownership' => ['value' => 'others']], null, ListingScope::OurAgency));
+        $this->assertNull(ListingQuery::params($lead, ['ownership' => ['value' => 'others']], null, ListingScope::Mine));
+    }
 }

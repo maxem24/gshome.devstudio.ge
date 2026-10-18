@@ -236,8 +236,13 @@ final class ListingQuery
             ? OrgAccess::holderPhones($viewer)
             : OrgAccess::agencyPhones($viewer);
         if (isset($p['phones'])) {
-            $numbers = array_values(array_intersect($numbers, explode(',', $p['phones'])));
+            $numbers = array_intersect($numbers, explode(',', $p['phones']));
         }
+        // «Владелец: другие компании» исключает наши номера — кнопка его сужает, а не отменяет.
+        if (isset($p['exclude_phones'])) {
+            $numbers = array_diff($numbers, explode(',', $p['exclude_phones']));
+        }
+        $numbers = array_values($numbers);
         if ($numbers === []) {
             return null;
         }

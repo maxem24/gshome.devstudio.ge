@@ -10,6 +10,7 @@ use App\Models\User;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Livewire\Livewire;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -153,5 +154,34 @@ class SavedListingsPageTest extends TestCase
 
         $this->get('/admin/saved-listings')->assertOk()->assertSee('Сохранённые');
         $this->get('/admin/listings')->assertOk()->assertSee('Сохранённые');
+    }
+
+    public function test_api_error_midway_says_the_list_is_incomplete(): void
+    {
+        $user = User::factory()->owner()->create();
+        SavedListing::query()->create(['user_id' => $user->id, 'listing_id' => 13]);
+        Http::fake(['*' => Http::response(['error' => ['code' => 'rate_limited']], 429, ['Retry-After' => '30'])]);
+        $this->actingAs($user);
+
+        Livewire::test(SavedListings::class)
+            ->assertSet('incomplete', true)
+            ->assertSee(__('gshome.saved.incomplete'));
+    }
+
+    public function test_one_failed_card_does_not_hide_the_others(): void
+    {
+        $user = User::factory()->owner()->create();
+        SavedListing::query()->create(['user_id' => $user->id, 'listing_id' => 13]);
+        SavedListing::query()->create(['user_id' => $user->id, 'listing_id' => 14]);
+        Http::fake([
+            '*/listings/14*' => Http::response(['error' => ['code' => 'rate_limited']], 429, ['Retry-After' => '30']),
+            '*/listings/13*' => Http::response(['data' => RealEstateFake::listing(['id' => 13, 'title' => ['ru' => 'Квартира в Ваке']])]),
+        ]);
+        $this->actingAs($user);
+
+        Livewire::test(SavedListings::class)
+            ->assertSee('Квартира в Ваке')
+            ->assertSet('incomplete', true);
+        Http::assertSentCount(2);
     }
 }

@@ -137,7 +137,7 @@ class Listings extends Page implements HasTable
      */
     public function mount(): void
     {
-        if (ListingScope::tryFrom($this->scope) === null) {
+        if (! in_array(ListingScope::tryFrom($this->scope), $this->scopes(), true)) {
             $this->scope = ListingScope::All->value;
         }
 
@@ -178,8 +178,23 @@ class Listings extends Page implements HasTable
 
     public function setScope(string $scope): void
     {
-        abort_unless(ListingScope::tryFrom($scope) !== null, 404);
+        abort_unless(in_array(ListingScope::tryFrom($scope), $this->scopes(), true), 404);
         $this->scope = $scope;
+    }
+
+    /**
+     * Кнопки над списком. «Наше агентство» и «Мои» — фильтр по номерам: без него в API они всегда пусты.
+     *
+     * @return list<ListingScope>
+     */
+    public function scopes(): array
+    {
+        $phones = app(RealEstateClient::class)->phoneFiltersEnabled();
+
+        return array_values(array_filter(
+            ListingScope::cases(),
+            fn (ListingScope $scope): bool => $phones || ! in_array($scope, [ListingScope::OurAgency, ListingScope::Mine], true),
+        ));
     }
 
     /** Компания, которую администратор представляет. У остальных ролей строки нет. */
@@ -241,7 +256,20 @@ class Listings extends Page implements HasTable
      */
     private function listingRows(array $filters, ?string $search): array
     {
-        $params = $this->paramsFor($filters, $search);
+        try {
+            $params = $this->paramsFor($filters, $search);
+        } catch (RealEstateException $e) {
+            // Номеров больше предела API, нет типа сделки, Real Estate недоступен — не 500, а пустой список и причина.
+            Notification::make()->danger()->title($e->userMessage())->send();
+            $this->loadedRows = [];
+            $this->nextCursor = null;
+            $this->loadedParams = null;
+            $this->loadedFingerprint = null;
+            $this->listingsLoaded = true;
+            $this->noMoreListings = true;
+
+            return [];
+        }
         if (! $this->listingsLoaded) {
             $this->append($params, null);
         }

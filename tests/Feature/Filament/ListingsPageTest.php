@@ -9,6 +9,7 @@ use App\Models\Company;
 use App\Models\CompanyExchange;
 use App\Models\Phone;
 use App\Models\User;
+use App\RealEstate\ListingQuery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Log\LogManager;
@@ -515,5 +516,34 @@ class ListingsPageTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         Livewire::withQueryParams(['scope' => 'nope'])->test(Listings::class)->assertSet('scope', 'all');
+    }
+
+    public function test_too_many_agency_numbers_gives_notice_not_an_error(): void
+    {
+        RealEstateFake::fake();
+        $company = Company::factory()->create();
+        Phone::factory()->count(ListingQuery::MAX_PHONES + 1)->create(['company_id' => $company->id]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)
+            ->call('setScope', ListingScope::OurAgency->value)
+            ->assertOk()
+            ->assertNotified(__('gshome.errors.too_many_phones'))
+            ->assertSet('noMoreListings', true);
+    }
+
+    public function test_phone_scopes_hidden_when_phone_filters_are_disabled(): void
+    {
+        RealEstateFake::configure(phoneFilters: false);
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::withQueryParams(['scope' => ListingScope::Mine->value])->test(Listings::class)
+            ->assertSet('scope', ListingScope::All->value)
+            ->assertSee(ListingScope::Owners->getLabel())
+            ->assertDontSee(ListingScope::OurAgency->getLabel())
+            ->assertDontSee(ListingScope::Mine->getLabel())
+            ->call('setScope', ListingScope::Mine->value)
+            ->assertNotFound();
     }
 }

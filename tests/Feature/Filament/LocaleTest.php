@@ -3,8 +3,10 @@
 namespace Tests\Feature\Filament;
 
 use App\Enums\Locale;
+use App\Http\Middleware\SetUserLocale;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Mechanisms\PersistentMiddleware\PersistentMiddleware;
 use Tests\TestCase;
 
 class LocaleTest extends TestCase
@@ -47,5 +49,11 @@ class LocaleTest extends TestCase
         $this->actingAs(User::factory()->create())
             ->post(route('locale.switch', ['locale' => 'fr']))
             ->assertNotFound();
+    }
+
+    public function test_locale_survives_livewire_requests(): void
+    {
+        // Фильтр, кнопка и догрузка — запросы /livewire/update, они выполняют только постоянные middleware.
+        $this->assertContains(SetUserLocale::class, app(PersistentMiddleware::class)->getPersistentMiddleware());
     }
 }

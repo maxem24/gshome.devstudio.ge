@@ -49,6 +49,10 @@ class SavedListings extends Page implements HasTable
     #[Locked]
     public ?string $limitNote = null;
 
+    /** Real Estate ответил ошибкой посреди чтения: показаны не все сохранённые. */
+    #[Locked]
+    public bool $incomplete = false;
+
     public static function getNavigationLabel(): string
     {
         return __('gshome.nav.saved');
@@ -130,21 +134,23 @@ class SavedListings extends Page implements HasTable
             ->pluck('listing_id');
 
         $allowed = OrgAccess::directions($viewer);
-        $client = app(RealEstateClient::class);
         $listings = [];
-        foreach ($ids as $id) {
-            try {
-                $listing = $client->listing((int) $id);
-            } catch (RealEstateException $e) {
-                Notification::make()->danger()->title($e->userMessage())->send();
+        $error = null;
+        foreach (app(RealEstateClient::class)->listingsByIds($ids->map(fn (mixed $id): int => (int) $id)->all()) as $listing) {
+            if ($listing instanceof RealEstateException) {
+                $error ??= $listing;
 
-                break;
+                continue;
             }
             $direction = $listing?->direction();
             if (! $listing instanceof Listing || $direction === null || ! in_array($direction, $allowed, true)) {
                 continue;
             }
             $listings[] = $listing;
+        }
+        if ($error !== null) {
+            Notification::make()->danger()->title($error->userMessage())->send();
+            $this->incomplete = true;
         }
 
         return ListingRows::build($viewer, $listings);

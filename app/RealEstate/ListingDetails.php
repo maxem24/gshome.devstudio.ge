@@ -146,7 +146,8 @@ final class ListingDetails
         return $value === null ? null : __('gshome.listings.meters', ['value' => self::number($value)]);
     }
 
-    private static function squareMeters(?float $value): ?string
+    /** Площадь «65 м²» — и в шапке карточки, и в блоке «Дополнительно». */
+    public static function squareMeters(?float $value): ?string
     {
         return $value === null ? null : __('gshome.listings.square_meters', ['value' => self::number($value)]);
     }

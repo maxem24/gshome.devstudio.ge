@@ -46,12 +46,9 @@ final class ListingRows
                 'ownership_label' => $own->label->getLabel(),
                 'ownership_color' => self::color($own->label),
                 'ownership_company' => $own->companyName,
-                'ownership_company_line' => filled($own->companyName) ? __('gshome.listings.company_line', ['name' => $own->companyName]) : null,
                 'ownership_name' => $own->contactName,
-                'same_owner_label' => $own->label === OwnershipLabel::LinkedCompany ? __('gshome.ownership.same_owner') : null,
-                'group_label' => $group === null ? null : __('gshome.listings.group_member', ['name' => $group->contactName ?? $group->companyName]),
-                'agency_in_group' => $copy['agency_in_group'],
-                'owner_still_listed' => $copy['owner_still_listed'],
+                // Компания, «тот же владелец», группа и дубль — только готовыми строками: до 200 строк
+                // едут в снапшоте Livewire при каждом клике, отдельные поля экрану не нужны.
                 'ownership_notes' => self::notes($own, $group, $copy),
             ];
         }

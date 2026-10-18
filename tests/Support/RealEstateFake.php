@@ -3,6 +3,7 @@
 namespace Tests\Support;
 
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 /** Ответы API Real Estate по формату ~/Sites/real-estate.devstudio.ge/docs/RealEstate/16_API.md. */
@@ -65,6 +66,8 @@ final class RealEstateFake
      */
     public static function fake(array $pages = [], array $cards = []): void
     {
+        // Новые ответы — новое состояние API: короткий кеш клиента от прошлых ответов не должен их заслонять.
+        Cache::flush();
         $pages = $pages ?: [self::page([])];
         $i = 0;
         Http::fake(function (Request $request) use (&$i, $pages, $cards) {
