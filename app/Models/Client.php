@@ -10,7 +10,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\Models\Activity;
 
 #[Fillable(['phone_e164', 'first_name', 'last_name', 'tags', 'reliability', 'created_by'])]
 class Client extends Model
@@ -31,6 +34,18 @@ class Client extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /** @return HasMany<Deal, $this> */
+    public function deals(): HasMany
+    {
+        return $this->hasMany(Deal::class);
+    }
+
+    /** @return MorphMany<Activity, $this> записи журнала про клиента */
+    public function activities(): MorphMany
+    {
+        return $this->morphMany(Activity::class, 'subject');
     }
 
     /** @return list<ClientTag> */
