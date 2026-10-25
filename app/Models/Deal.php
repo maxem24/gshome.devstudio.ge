@@ -7,7 +7,9 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\Models\Activity;
 
 /**
  * Сделка: клиент по закреплённому объекту.
@@ -65,6 +67,12 @@ class Deal extends Model
     public function viewings(): HasMany
     {
         return $this->hasMany(Viewing::class);
+    }
+
+    /** @return MorphMany<Activity, $this> записи журнала про сделку */
+    public function activities(): MorphMany
+    {
+        return $this->morphMany(Activity::class, 'subject');
     }
 
     public function isOpen(): bool
