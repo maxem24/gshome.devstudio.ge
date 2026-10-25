@@ -237,6 +237,19 @@ return [
             'seller' => 'Seller',
             'landlord' => 'Landlord',
         ],
+        'deal_status' => [
+            'open' => 'Open',
+            'won' => 'Won',
+            'lost' => 'Lost',
+            'unavailable' => 'Listing unavailable',
+        ],
+        'viewing_outcome' => [
+            'confirmed' => 'Client confirmed interest',
+            'failed' => 'Viewing failed',
+            'follow_up' => 'Follow-up needed',
+            'unreachable' => 'Client unreachable',
+            'negotiating' => 'Negotiating',
+        ],
         'stage' => [
             'call' => 'Call with client',
             'viewing_scheduled' => 'Viewing scheduled',

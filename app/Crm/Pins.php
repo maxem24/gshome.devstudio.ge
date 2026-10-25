@@ -7,6 +7,7 @@ use App\Crm\Events\PinClosed;
 use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
+use App\Enums\DealStatus;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
@@ -90,6 +91,10 @@ class Pins
 
     public function release(ListingPin $pin, User $by): void
     {
+        // Отпустить объект с живой сделкой нельзя: сделку сначала выигрывают или проигрывают.
+        if ($pin->deals()->where('status', DealStatus::Open)->exists()) {
+            throw new CrmForbidden('Pin has open deals.');
+        }
         $this->close($pin, 'released', Journal::PIN_RELEASED, $by);
     }
 
