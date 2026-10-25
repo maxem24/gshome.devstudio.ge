@@ -36,6 +36,8 @@ class AdminPanelProvider extends PanelProvider
             ->maxContentWidth(Width::Full)
             // Свои классы Tailwind в видах карточки и сетки: без темы их нет в CSS панели.
             ->viteTheme('resources/css/filament/admin/theme.css')
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('30s')
             ->userMenuItems(LocaleMenu::items())
             ->colors([
                 'primary' => Color::Amber,

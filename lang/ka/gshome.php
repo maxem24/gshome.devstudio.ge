@@ -287,5 +287,10 @@ return [
             'assigned' => 'ამოცანა დაგინიშნათ: :author',
             'viewing' => 'ჩვენება',
         ],
+        'reminders' => [
+            'before' => 'მალე ჩვენება :time-ზე (ობიექტი №:listing)',
+            'day_of' => 'დღეს ჩვენებაა :time-ზე (ობიექტი №:listing)',
+            'overdue' => ':date, :time ჩვენება დასრულდა, შედეგი არ არის შეყვანილი (ობიექტი №:listing)',
+        ],
     ],
 ];

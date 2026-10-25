@@ -287,5 +287,10 @@ return [
             'assigned' => 'You were assigned a task by :author',
             'viewing' => 'Viewing',
         ],
+        'reminders' => [
+            'before' => 'Viewing soon at :time (property #:listing)',
+            'day_of' => 'Viewing today at :time (property #:listing)',
+            'overdue' => 'Viewing on :date at :time is over, no outcome recorded (property #:listing)',
+        ],
     ],
 ];

@@ -287,5 +287,10 @@ return [
             'assigned' => 'Вам поставил задачу :author',
             'viewing' => 'Показ',
         ],
+        'reminders' => [
+            'before' => 'Скоро показ в :time (объект №:listing)',
+            'day_of' => 'Сегодня показ в :time (объект №:listing)',
+            'overdue' => 'Показ :date в :time прошёл, итог не внесён (объект №:listing)',
+        ],
     ],
 ];
