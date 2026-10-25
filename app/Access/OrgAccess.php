@@ -55,6 +55,15 @@ final class OrgAccess
     }
 
     /**
+     * Может ли человек действовать за другого: ставить задачу, передавать объект, вести его
+     * сделку. Ступени — те же, что у visibleUsers; за архивного и заблокированного — нельзя.
+     */
+    public static function canActFor(User $actor, User $target): bool
+    {
+        return $target->isActive() && self::visibleUsers($actor)->whereKey($target->getKey())->exists();
+    }
+
+    /**
      * Метка принадлежности объявления по телефону с него (ТЗ 5.7).
      * Номер не наш, мусор или компания в архиве — «другая компания».
      */
