@@ -3,6 +3,7 @@
 namespace Tests\Feature\Crm;
 
 use App\Crm\CrmDemo;
+use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Enums\DealStatus;
 use App\Models\Client;
@@ -11,9 +12,11 @@ use App\Models\ListingPin;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\Viewing;
+use App\Notifications\TaskAssigned;
 use Carbon\Carbon;
 use Database\Seeders\OrgDemoSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -109,5 +112,41 @@ class CrmDemoSeederTest extends TestCase
         $this->artisan('gshome:crm-demo')->assertFailed();
         $this->artisan('gshome:crm-demo', ['--fresh' => true])->assertSuccessful();
         $this->assertSame(6, ListingPin::query()->count());
+    }
+
+    public function test_real_reminders_and_notifications_survive_seed_and_wipe(): void
+    {
+        $realLead = User::factory()->teamLead()->create();
+        $realAgent = User::factory()->agent($realLead)->create();
+        $realAgent->notify(new TaskAssigned(
+            Task::query()->create(['body' => 'Настоящая задача', 'assignee_id' => $realAgent->id, 'author_id' => $realLead->id, 'status' => 'open']),
+            $realLead,
+        ));
+
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+        $demo->wipe();
+
+        $this->assertSame(1, $realAgent->notifications()->count());
+        $this->assertSame(1, Task::query()->count());
+        $this->assertSame(0, DB::table('viewing_reminders')->count());
+    }
+
+    public function test_wipe_refuses_when_real_deal_is_attached_to_demo_pin(): void
+    {
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+        $pin = ListingPin::query()->where('pin_key', 'c:9')->sole();
+        $real = Client::query()->create(['phone_e164' => '+995599000002', 'first_name' => 'Реальный', 'tags' => ['buyer'], 'reliability' => 'unverified', 'created_by' => $pin->user_id]);
+        app(Deals::class)->open($pin, $real, $pin->holder);
+
+        try {
+            $demo->wipe();
+            $this->fail('wipe should refuse');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('non-demo', $e->getMessage());
+        }
+        $this->assertTrue($demo->exists());
+        $this->assertSame(1, ListingPin::query()->whereKey($pin->id)->count());
     }
 }

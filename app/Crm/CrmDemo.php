@@ -2,7 +2,6 @@
 
 namespace App\Crm;
 
-use App\Console\Commands\SendViewingReminders;
 use App\Enums\Direction;
 use App\Enums\Role;
 use App\Enums\UserStatus;
@@ -14,12 +13,12 @@ use App\Models\ListingPin;
 use App\Models\Task;
 use App\Models\User;
 use App\Models\Viewing;
+use App\Notifications\ViewingReminder;
 use App\RealEstate\Listing;
 use App\RealEstate\ListingQuery;
 use App\RealEstate\RealEstateClient;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Spatie\Activitylog\Models\Activity;
@@ -67,23 +66,34 @@ class CrmDemo
             throw new RuntimeException('Demo data already exists; run with --fresh to recreate it.');
         }
 
+        $this->created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => []];
         [$lead, $nino, $giorgi, $lead2, $agent3, $agent4] = $this->people();
         $listings = $this->listings($nino);
         $now = Carbon::now();
-        $before = DB::table('notifications')->pluck('id')->all();
 
         try {
-            $notes = DB::transaction(fn (): array => $this->scenarios($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings));
+            // Всё или ничего: записи, уведомления и пометка демо — в одной транзакции.
+            return DB::transaction(function () use ($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings): array {
+                $before = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
+                    ->where('notifiable_id', $nino->id)->pluck('id')->all();
+                $notes = $this->scenarios($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings);
+                // Уведомления запоминаем только демо-агента и только появившиеся за этот прогон:
+                // чужие (настоящих людей) --fresh не тронет.
+                $this->created['notifications'] = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
+                    ->where('notifiable_id', $nino->id)->whereNotIn('id', $before)->pluck('id')->all();
+                CrmSetting::query()->create(['key' => self::SETTING, 'value' => $this->created]);
+
+                return $notes;
+            });
         } finally {
             Carbon::setTestNow();
         }
+    }
 
-        // Показ «вчера без итога» сразу появляется под колокольчиком, не дожидаясь планировщика.
-        Artisan::call(SendViewingReminders::class);
-        $this->created['notifications'] = DB::table('notifications')->whereNotIn('id', $before)->pluck('id')->all();
-        CrmSetting::query()->create(['key' => self::SETTING, 'value' => $this->created]);
-
-        return $notes;
+    /** Проверка до --fresh: нужные люди есть — иначе не стираем прежнее демо впустую. */
+    public function preflight(): void
+    {
+        $this->people();
     }
 
     /** Удаляет только записи, созданные демо (и журнал по ним). Чужие данные не трогает. */
@@ -96,6 +106,9 @@ class CrmDemo
 
         /** @var array<string, list<int|string>> $ids */
         $ids = $setting->value;
+        if (($foreign = $this->foreignChildren($ids)) > 0) {
+            throw new RuntimeException("Demo records have {$foreign} non-demo deals/viewings attached; not wiping. Archive them by hand first.");
+        }
         DB::transaction(function () use ($ids, $setting): void {
             $subjects = [
                 Viewing::class => $ids['viewings'] ?? [],
@@ -117,6 +130,22 @@ class CrmDemo
             Client::withTrashed()->whereIn('id', $ids['clients'] ?? [])->forceDelete();
             $setting->delete();
         });
+    }
+
+    /**
+     * Демо-записи, к которым уже прицепились настоящие: сделки на демо-объектах или с демо-клиентами,
+     * показы в демо-сделках. Удалять такое нельзя — сначала разобраться руками.
+     *
+     * @param  array<string, list<int|string>>  $ids
+     */
+    private function foreignChildren(array $ids): int
+    {
+        $deals = $ids['deals'] ?? [];
+
+        return Deal::withTrashed()->whereNotIn('id', $deals)
+            ->where(fn ($query) => $query->whereIn('listing_pin_id', $ids['pins'] ?? [])->orWhereIn('client_id', $ids['clients'] ?? []))
+            ->count()
+            + Viewing::withTrashed()->whereNotIn('id', $ids['viewings'] ?? [])->whereIn('deal_id', $deals)->count();
     }
 
     /**
@@ -145,7 +174,7 @@ class CrmDemo
 
         // 5. Показ вчера, итог не внесён: висит в «Моих задачах» и под колокольчиком.
         $at('-3 days');
-        $this->viewing($dealGroup, $now->copy()->subDay()->setTime(15, 0), 'Показ с супругой', $nino);
+        $overdue = $this->viewing($dealGroup, $now->copy()->subDay()->setTime(15, 0), 'Показ с супругой', $nino);
 
         // 6. «Приходил ли агент»: задача, показ, перенос, итог — всё в журнале с датами.
         $at('-6 days 10:00');
@@ -193,6 +222,10 @@ class CrmDemo
         $this->task($lead, $nino, 'Подготовь подборку из трёх квартир в Ваке до пятницы', $now->copy()->addDays(3)->setTime(18, 0));
 
         Carbon::setTestNow();
+        // «Итог не внесён» — сразу под колокольчиком, не дожидаясь планировщика. Только по демо-показу,
+        // с той же отметкой, что ставит планировщик, чтобы он не прислал второе такое же.
+        DB::table('viewing_reminders')->insert(['viewing_id' => $overdue->id, 'kind' => 'overdue', 'sent_on' => $now->copy()->timezone(config('crm.timezone'))->toDateString()]);
+        $nino->notify(new ViewingReminder($overdue, 'overdue'));
         $copy = $l[0]->clusterListings[0]['id'] ?? null;
 
         return [

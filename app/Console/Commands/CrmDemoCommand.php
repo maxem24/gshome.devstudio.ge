@@ -19,11 +19,11 @@ class CrmDemoCommand extends Command
             return self::FAILURE;
         }
 
-        if ($this->option('fresh')) {
-            $demo->wipe();
-        }
-
         try {
+            if ($this->option('fresh')) {
+                $demo->preflight();
+                $demo->wipe();
+            }
             foreach ($demo->seed() as $line) {
                 $this->line($line);
             }
