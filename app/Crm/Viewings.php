@@ -2,7 +2,6 @@
 
 namespace App\Crm;
 
-use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\ViewingOutcome;
 use App\Models\Deal;
 use App\Models\User;
@@ -17,9 +16,8 @@ class Viewings
 
     public function schedule(Deal $deal, CarbonInterface $at, ?string $notes, User $by): Viewing
     {
-        $this->assertManage($deal, $by, requireOpen: true);
-
         return DB::transaction(function () use ($deal, $at, $notes, $by): Viewing {
+            $this->deals->lockOpen($deal, $by);
             $viewing = $deal->viewings()->create(['scheduled_at' => $at, 'notes' => $notes]);
             Journal::record(Journal::VIEWING_SCHEDULED, $viewing, $this->props($viewing) + ['new_at' => $at->toIso8601String()], $by);
             $this->pins->touch($deal->pin);
@@ -31,9 +29,8 @@ class Viewings
     public function reschedule(Viewing $viewing, CarbonInterface $at, User $by): void
     {
         $deal = $viewing->deal;
-        $this->assertManage($deal, $by, requireOpen: true);
-
         DB::transaction(function () use ($viewing, $deal, $at, $by): void {
+            $this->deals->lockOpen($deal, $by);
             $old = $viewing->scheduled_at;
             $viewing->update(['scheduled_at' => $at]);
             Journal::record(Journal::VIEWING_RESCHEDULED, $viewing, $this->props($viewing) + [
@@ -47,9 +44,8 @@ class Viewings
     public function recordOutcome(Viewing $viewing, ViewingOutcome $outcome, User $by): void
     {
         $deal = $viewing->deal;
-        $this->assertManage($deal, $by, requireOpen: true);
-
         DB::transaction(function () use ($viewing, $deal, $outcome, $by): void {
+            $this->deals->lockOpen($deal, $by);
             $viewing->update(['outcome' => $outcome, 'outcome_at' => now()]);
             Journal::record(Journal::VIEWING_OUTCOME, $viewing, $this->props($viewing) + [
                 'outcome' => $outcome->value,
@@ -57,13 +53,6 @@ class Viewings
             ], $by);
             $this->pins->touch($deal->pin);
         });
-    }
-
-    private function assertManage(Deal $deal, User $by, bool $requireOpen): void
-    {
-        if (! $this->deals->canManage($deal, $by) || ($requireOpen && ! $deal->isOpen())) {
-            throw new CrmForbidden('Cannot change viewings of this deal.');
-        }
     }
 
     /** @return array<string, int> */

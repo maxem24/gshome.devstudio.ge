@@ -104,4 +104,39 @@ class ViewingsTest extends TestCase
 
         $this->assertTrue($this->deal->pin->fresh()->last_activity_at->format('Y-m-d H:i:s') === now()->format('Y-m-d H:i:s'));
     }
+
+    public function test_stale_deal_after_win_cannot_get_viewing(): void
+    {
+        $stale = Deal::query()->findOrFail($this->deal->id);
+        app(Deals::class)->win($this->deal, '100', 'USD', $this->nino);
+
+        try {
+            app(Viewings::class)->schedule($stale, now()->addDay(), null, $this->nino);
+            $this->fail('Closed deal must be rejected.');
+        } catch (CrmForbidden) {
+            $this->assertSame(0, $this->deal->viewings()->count());
+        }
+    }
+
+    public function test_reschedule_and_outcome_on_closed_deal_rejected(): void
+    {
+        $viewing = app(Viewings::class)->schedule($this->deal, now()->addDay()->startOfHour(), null, $this->nino);
+        $before = $viewing->fresh()->scheduled_at->toIso8601String();
+        app(Deals::class)->lose($this->deal, 'x', $this->nino);
+        $viewing = $viewing->fresh();
+
+        foreach ([
+            fn () => app(Viewings::class)->reschedule($viewing, now()->addDays(5), $this->nino),
+            fn () => app(Viewings::class)->recordOutcome($viewing, ViewingOutcome::Failed, $this->nino),
+        ] as $action) {
+            try {
+                $action();
+                $this->fail('Closed deal must be rejected.');
+            } catch (CrmForbidden) {
+                $fresh = $viewing->fresh();
+                $this->assertSame($before, $fresh->scheduled_at->toIso8601String());
+                $this->assertNull($fresh->outcome);
+            }
+        }
+    }
 }

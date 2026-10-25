@@ -8,6 +8,7 @@ use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
+use App\Enums\UserStatus;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Deal;
@@ -287,5 +288,60 @@ class DealsTest extends TestCase
         $this->assertStringNotContainsString($client->phone_e164, $dump);
         $this->assertStringNotContainsString($client->first_name, $dump);
         $this->assertGreaterThan(0, Deal::query()->count());
+    }
+
+    public function test_stale_pin_after_transfer_cannot_open_deal(): void
+    {
+        $stale = ListingPin::query()->findOrFail($this->pin->id);
+        app(Pins::class)->transfer($this->pin, $this->giorgi, $this->lead);
+
+        try {
+            app(Deals::class)->open($stale, $this->client(), $this->nino);
+            $this->fail('Stale pin must be rejected.');
+        } catch (CrmForbidden) {
+            $this->assertSame(0, Deal::query()->count());
+        }
+    }
+
+    public function test_win_rejects_overflowing_amount(): void
+    {
+        $deal = app(Deals::class)->open($this->pin, $this->client(), $this->nino);
+
+        foreach (['1e20', '1234567890123', '10.123'] as $amount) {
+            try {
+                app(Deals::class)->win($deal, $amount, 'USD', $this->nino);
+                $this->fail("Amount '{$amount}' must be rejected.");
+            } catch (CrmForbidden) {
+                $this->assertSame(DealStatus::Open, $deal->fresh()->status);
+            }
+        }
+    }
+
+    public function test_lead_manages_deal_of_archived_agent(): void
+    {
+        $deal = app(Deals::class)->open($this->pin, $this->client(), $this->nino);
+        $this->nino->forceFill(['status' => UserStatus::Archived])->save();
+
+        app(Deals::class)->moveStage($deal, 'negotiation', $this->lead);
+
+        $this->assertSame('negotiation', $deal->fresh()->stage);
+    }
+
+    public function test_win_and_lose_by_other_agent_rejected(): void
+    {
+        $deal = app(Deals::class)->open($this->pin, $this->client(), $this->nino);
+
+        foreach ([
+            fn () => app(Deals::class)->win($deal, '10', 'USD', $this->giorgi),
+            fn () => app(Deals::class)->lose($deal, 'x', $this->giorgi),
+        ] as $action) {
+            try {
+                $action();
+                $this->fail('Other agent must be rejected.');
+            } catch (CrmForbidden) {
+                $this->assertSame(DealStatus::Open, $deal->fresh()->status);
+                $this->assertTrue($this->pin->fresh()->isActive());
+            }
+        }
     }
 }

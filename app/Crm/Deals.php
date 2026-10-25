@@ -25,7 +25,7 @@ class Deals
 
         try {
             return DB::transaction(function () use ($pin, $client, $by): Deal {
-                $this->lockActivePin($pin);
+                $this->lockActivePin($pin, $by);
                 if ($pin->deals()->where('client_id', $client->id)->exists()) {
                     throw new CrmForbidden('This client already has a deal on this pin.');
                 }
@@ -68,7 +68,7 @@ class Deals
 
     public function win(Deal $deal, string $amount, string $currency, User $by): void
     {
-        if (! is_numeric($amount) || (float) $amount <= 0) {
+        if (! preg_match('/^\d{1,12}(\.\d{1,2})?$/', $amount) || (float) $amount <= 0) {
             throw new CrmForbidden('Amount must be a positive number.');
         }
         if (! in_array($currency, config('crm.currencies'), true)) {
@@ -136,20 +136,21 @@ class Deals
     }
 
     /** Перечитать сделку под блокировкой: за это время её могли закрыть закрытием пина. */
-    private function lockOpen(Deal $deal, User $by): void
+    public function lockOpen(Deal $deal, User $by): void
     {
         $fresh = Deal::query()->whereKey($deal->getKey())->lockForUpdate()->firstOrFail();
-        if (! $fresh->isOpen() || ! $this->canManage($fresh, $by)) {
+        if (! $fresh->isOpen() || ! $this->canManage($fresh, $by) || ! $fresh->pin->isActive()) {
             throw new CrmForbidden('Cannot change this deal.');
         }
         $deal->setRawAttributes($fresh->getAttributes(), true);
     }
 
-    private function lockActivePin(ListingPin $pin): void
+    /** Права проверялись по модели до блокировки: пин мог закрыться или сменить держателя. */
+    private function lockActivePin(ListingPin $pin, User $by): void
     {
         $fresh = ListingPin::query()->whereKey($pin->getKey())->lockForUpdate()->firstOrFail();
-        if (! $fresh->isActive()) {
-            throw new CrmForbidden('Pin is already closed.');
+        if (! $fresh->isActive() || $fresh->user_id !== $pin->user_id || ! $this->pins->canManage($fresh, $by)) {
+            throw new CrmForbidden('Pin changed, reload it.');
         }
         $pin->setRawAttributes($fresh->getAttributes(), true);
     }

@@ -91,10 +91,6 @@ class Pins
 
     public function release(ListingPin $pin, User $by): void
     {
-        // Отпустить объект с живой сделкой нельзя: сделку сначала выигрывают или проигрывают.
-        if ($pin->deals()->where('status', DealStatus::Open)->exists()) {
-            throw new CrmForbidden('Pin has open deals.');
-        }
         $this->close($pin, 'released', Journal::PIN_RELEASED, $by);
     }
 
@@ -128,6 +124,10 @@ class Pins
 
         DB::transaction(function () use ($pin, $reason, $event, $by): void {
             $this->lockActive($pin);
+            // Отпустить объект с живой сделкой нельзя; проверка под блокировкой пина не гонится с Deals::open.
+            if ($reason === 'released' && $pin->deals()->where('status', DealStatus::Open)->exists()) {
+                throw new CrmForbidden('Pin has open deals.');
+            }
             $pin->update(['status' => ListingPin::CLOSED, 'closed_reason' => $reason, 'closed_at' => now()]);
             Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
             PinClosed::dispatch($pin, $reason);
