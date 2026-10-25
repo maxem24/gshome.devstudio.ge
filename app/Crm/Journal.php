@@ -51,6 +51,9 @@ final class Journal
 
     public const LISTING_VIEWED = 'listing.viewed';
 
+    /** Настройка, не событие ленты. */
+    public const DEAL_STAGES_SAVED = 'settings.deal_stages_saved';
+
     /** События ленты: всё про закрепления, сделки и показы. */
     public const FEED_EVENTS = [
         self::PIN_TAKEN,
