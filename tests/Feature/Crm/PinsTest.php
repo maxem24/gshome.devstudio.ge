@@ -276,4 +276,15 @@ class PinsTest extends TestCase
         $this->expectException(CrmForbidden::class);
         $pins->transfer($stale, $this->giorgi, $this->lead);
     }
+
+    public function test_stale_model_cannot_act_after_holder_changed(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+        $stale = ListingPin::query()->findOrFail($pin->id);
+        $pins->transfer($pin, $this->giorgi, $this->lead);
+
+        $this->expectException(CrmForbidden::class);
+        $pins->transfer($stale, $this->nino, $this->lead);
+    }
 }

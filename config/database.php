@@ -96,6 +96,8 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
+            // Сессия базы в том же поясе, что приложение: иначе timestamptz пишется со сдвигом.
+            'timezone' => env('DB_TIMEZONE', env('APP_TIMEZONE', 'UTC')),
             'sslmode' => env('DB_SSLMODE', 'prefer'),
         ],
 

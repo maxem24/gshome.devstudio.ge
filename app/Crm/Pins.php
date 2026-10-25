@@ -134,12 +134,13 @@ class Pins
         });
     }
 
-    /** Перечитать под блокировкой: параллельная передача или закрытие уже могли закрыть пин. */
+    /** Перечитать под блокировкой: параллельная передача или закрытие могли изменить пин. */
     private function lockActive(ListingPin $pin): void
     {
         $fresh = ListingPin::query()->whereKey($pin->getKey())->lockForUpdate()->firstOrFail();
-        if (! $fresh->isActive()) {
-            throw new CrmForbidden('Pin is already closed.');
+        // Права проверялись по модели до блокировки: если держатель сменился, проверка устарела.
+        if (! $fresh->isActive() || $fresh->user_id !== $pin->user_id) {
+            throw new CrmForbidden('Pin changed, reload it.');
         }
     }
 
