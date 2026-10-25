@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Filament;
 
+use App\Crm\ClientMatch;
 use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Crm\Pins;
@@ -18,7 +19,6 @@ use App\Models\User;
 use App\RealEstate\Listing;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
@@ -135,28 +135,45 @@ class ClientResourceTest extends TestCase
 
     public function test_race_on_unique_phone_falls_back_to_same_flow(): void
     {
-        $agent = User::factory()->agent($this->lead)->create();
-        $this->actingAs($agent);
-        $rival = null;
-        // Другой агент успевает занять номер между match и вставкой (отдельным соединением к той же базе не сымитировать — вставляем в момент creating).
-        Client::creating(function (Client $client) use (&$rival): void {
-            if ($rival === null) {
-                $rival = true;
-                DB::table('clients')->insert([
-                    'phone_e164' => $client->phone_e164, 'first_name' => 'Нино', 'last_name' => 'Беридзе',
-                    'tags' => '[]', 'reliability' => 'unverified', 'created_by' => $this->lead->id,
-                    'created_at' => now(), 'updated_at' => now(),
-                ]);
-            }
-        });
+        $existing = Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Нино', 'last_name' => 'Беридзе']);
+        $this->actingAs(User::factory()->agent($this->lead)->create());
+
+        // Первый match «не видит» соперника (отдаёт new), вставка упирается в уникальный индекс, повторный match честный.
+        Livewire::test(RacingCreateClient::class)
+            ->fillForm($this->form())
+            ->call('create')
+            ->assertRedirect(ClientResource::getUrl('view', ['record' => $existing]))
+            ->assertNotified(__('gshome.crm.clients.already_exists'));
+        $this->assertSame(1, Client::query()->count());
+    }
+
+    public function test_race_on_unique_phone_with_other_name_asks_conflict(): void
+    {
+        Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $this->actingAs(User::factory()->agent($this->lead)->create());
+
+        Livewire::test(RacingCreateClient::class)
+            ->fillForm($this->form())
+            ->call('create')
+            ->assertActionMounted('resolveConflict');
+        $this->assertSame(1, Client::query()->count());
+    }
+
+    public function test_conflict_with_archived_client_hidden_from_agent_shows_notice_only(): void
+    {
+        $old = Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $old->delete();
+        $this->actingAs(User::factory()->agent($this->lead)->create());
 
         Livewire::test(CreateClient::class)
             ->fillForm($this->form())
             ->call('create')
-            ->assertHasNoFormErrors();
-
-        // Вставка соперника живёт в той же транзакции и откатывается вместе с savepoint: клиент создан со второй попытки.
-        $this->assertSame(1, Client::query()->where('phone_e164', '+995555123456')->count());
+            ->assertActionNotMounted()
+            ->assertNoRedirect()
+            ->assertNotified(__('gshome.crm.clients.archived_exists'))
+            ->assertDontSee('Гиви');
+        $this->assertSame('+995555123456', Client::withTrashed()->findOrFail($old->id)->phone_e164);
+        $this->assertSame(1, Client::withTrashed()->count());
     }
 
     public function test_no_edit_page(): void
@@ -250,5 +267,22 @@ class ClientResourceTest extends TestCase
             ->callAction('restore');
         $this->assertFalse($client->refresh()->trashed());
         $this->assertSame(1, Activity::query()->where('event', Journal::RESTORED)->count());
+    }
+}
+
+/** Страница, у которой первый match ошибочно говорит «номер свободен» — имитация гонки двух агентов. */
+class RacingCreateClient extends CreateClient
+{
+    private bool $first = true;
+
+    protected function match(array $data): ClientMatch
+    {
+        if ($this->first) {
+            $this->first = false;
+
+            return new ClientMatch('new', null, '+995555123456');
+        }
+
+        return parent::match($data);
     }
 }

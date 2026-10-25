@@ -3,6 +3,7 @@
 namespace Tests\Feature\Crm;
 
 use App\Crm\ClientLookup;
+use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
 use App\Models\Client;
 use App\Models\User;
@@ -152,5 +153,28 @@ class ClientLookupTest extends TestCase
         // Прямая вставка второго с тем же номером упирается в уникальный индекс.
         $this->expectException(QueryException::class);
         Client::factory()->create(['phone_e164' => self::PHONE, 'created_by' => $agent->id]);
+    }
+
+    public function test_reassign_refuses_archived_client_hidden_from_agent_but_owner_with_toggle_may(): void
+    {
+        $agent = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $old = $this->client(['first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $old->delete();
+        $m = ClientLookup::match(self::PHONE, 'Нино', 'Беридзе');
+
+        $this->assertSame('conflict', $m->kind);
+        $this->assertTrue(ClientLookup::hiddenFrom($m, $agent));
+        try {
+            ClientLookup::reassignPhone($m, ['first_name' => 'Нино', 'last_name' => 'Беридзе'], $agent);
+            $this->fail('CrmForbidden expected');
+        } catch (CrmForbidden) {
+            $this->assertSame(self::PHONE, Client::withTrashed()->findOrFail($old->id)->phone_e164);
+            $this->assertSame(1, Client::withTrashed()->count());
+        }
+
+        $owner = User::factory()->owner()->create(['show_archived' => true]);
+        $this->assertFalse(ClientLookup::hiddenFrom($m, $owner));
+        ClientLookup::reassignPhone($m, ['first_name' => 'Нино', 'last_name' => 'Беридзе'], $owner);
+        $this->assertNull(Client::withTrashed()->findOrFail($old->id)->phone_e164);
     }
 }

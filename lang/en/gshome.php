@@ -250,6 +250,7 @@ return [
             'created_at' => 'Created',
             'archived' => 'Archived',
             'phone_invalid' => 'Enter a valid Georgian phone number.',
+            'try_again' => 'The number was just taken. Please try again.',
             'already_exists' => 'Client already exists',
             'archived_exists' => 'A client with this number is archived. Ask your manager.',
             'conflict_title' => 'This number belongs to another client',

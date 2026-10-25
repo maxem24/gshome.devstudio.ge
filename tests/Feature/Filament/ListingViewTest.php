@@ -446,6 +446,24 @@ class ListingViewTest extends TestCase
         $this->assertSame($new->id, $pin2->deals()->sole()->client_id);
     }
 
+    public function test_open_deal_conflict_with_hidden_archived_client_shows_notice_only(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $pin = $this->pinFor($nino);
+        $old = Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $old->delete();
+        $this->actingAs($nino);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('openDeal', ['phone' => '555123456', 'first_name' => 'Нино', 'last_name' => 'Беридзе'])
+            ->assertActionNotMounted('resolveDealConflict')
+            ->assertNotified(__('gshome.crm.clients.archived_exists'))
+            ->assertDontSee('Гиви');
+        $this->assertSame('+995555123456', Client::withTrashed()->findOrFail($old->id)->phone_e164);
+        $this->assertSame(0, $pin->deals()->count());
+    }
+
     public function test_open_deal_with_archived_client_is_refused_for_agent(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);

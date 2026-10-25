@@ -35,7 +35,11 @@ class CreateClient extends CreateRecord
                 $match = $this->match($data);
                 if ($match->kind === 'new') {
                     // Конкурирующая запись откатилась — номер свободен, создаём ещё раз.
-                    return ClientLookup::create($match, $this->attributes($data), $this->viewer());
+                    try {
+                        return ClientLookup::create($match, $this->attributes($data), $this->viewer());
+                    } catch (UniqueConstraintViolationException) {
+                        $this->tryAgain();
+                    }
                 }
             }
         }
@@ -51,7 +55,8 @@ class CreateClient extends CreateRecord
         return Action::make('resolveConflict')
             ->modalHeading(__('gshome.crm.clients.conflict_title'))
             ->modalDescription(function (): string {
-                $existing = $this->match($this->form->getRawState())->existing;
+                $match = $this->match($this->form->getRawState());
+                $existing = ClientLookup::hiddenFrom($match, $this->viewer()) ? null : $match->existing;
 
                 return __('gshome.crm.clients.conflict_body', [
                     'name' => $existing === null ? '' : trim($existing->first_name.' '.$existing->last_name),
@@ -71,14 +76,25 @@ class CreateClient extends CreateRecord
             ->action(function (): void {
                 $data = $this->form->getState();
                 $match = $this->match($data);
-                if ($match->kind === 'conflict') {
-                    $this->redirectTo(ClientLookup::reassignPhone($match, $this->attributes($data), $this->viewer()));
+                if (ClientLookup::hiddenFrom($match, $this->viewer())) {
+                    $this->openExisting($match);
 
                     return;
                 }
-                // Пока читали окно, картина изменилась: new — создаём, same — открываем.
-                if ($match->kind === 'new') {
-                    $this->redirectTo(ClientLookup::create($match, $this->attributes($data), $this->viewer()));
+                try {
+                    if ($match->kind === 'conflict') {
+                        $this->redirectTo(ClientLookup::reassignPhone($match, $this->attributes($data), $this->viewer()));
+
+                        return;
+                    }
+                    // Пока читали окно, картина изменилась: new — создаём, same — открываем.
+                    if ($match->kind === 'new') {
+                        $this->redirectTo(ClientLookup::create($match, $this->attributes($data), $this->viewer()));
+
+                        return;
+                    }
+                } catch (UniqueConstraintViolationException) {
+                    $this->tryAgain();
 
                     return;
                 }
@@ -87,7 +103,7 @@ class CreateClient extends CreateRecord
     }
 
     /** @param array<string, mixed> $data */
-    private function match(array $data): ClientMatch
+    protected function match(array $data): ClientMatch
     {
         return ClientLookup::match((string) $data['phone'], (string) $data['first_name'], $data['last_name'] ?? null);
     }
@@ -106,9 +122,18 @@ class CreateClient extends CreateRecord
         ];
     }
 
+    private function tryAgain(): void
+    {
+        Notification::make()->title(__('gshome.crm.clients.try_again'))->warning()->send();
+        $this->halt();
+    }
+
     private function resolve(ClientMatch $match): void
     {
-        if ($match->kind === 'same') {
+        if (ClientLookup::hiddenFrom($match, $this->viewer())) {
+            // Архивный клиент скрыт от смотрящего: ни имени, ни окна, ни переноса номера.
+            $this->openExisting($match);
+        } elseif ($match->kind === 'same') {
             $this->openExisting($match);
         } else {
             $this->mountAction('resolveConflict');
@@ -123,7 +148,7 @@ class CreateClient extends CreateRecord
         }
 
         // Архивного клиента агент открыть не может: номер занят, но карточка скрыта.
-        if ($existing->trashed() && ! ClientResource::getEloquentQuery()->whereKey($existing->getKey())->exists()) {
+        if (ClientLookup::hiddenFrom($match, $this->viewer())) {
             Notification::make()->title(__('gshome.crm.clients.archived_exists'))->warning()->send();
 
             return;

@@ -56,6 +56,9 @@ trait OpensDealsByPhone
             ])
             ->action(function (array $data): void {
                 $match = $this->matchClient($data);
+                if ($this->hiddenMatch($match)) {
+                    return;
+                }
                 if ($match->kind === 'conflict') {
                     $this->askConflict($data);
 
@@ -71,7 +74,8 @@ trait OpensDealsByPhone
         return Action::make('resolveDealConflict')
             ->modalHeading(__('gshome.crm.clients.conflict_title'))
             ->modalDescription(function (): string {
-                $existing = $this->matchClient($this->dealDraft)->existing;
+                $match = $this->matchClient($this->dealDraft);
+                $existing = ClientLookup::hiddenFrom($match, $this->viewer()) ? null : $match->existing;
 
                 return __('gshome.crm.clients.conflict_body', [
                     'name' => $existing === null ? '' : trim($existing->first_name.' '.$existing->last_name),
@@ -86,6 +90,9 @@ trait OpensDealsByPhone
                     ->action(function (): void {
                         $data = $this->dealDraft;
                         $match = $this->matchClient($data);
+                        if ($this->hiddenMatch($match)) {
+                            return;
+                        }
                         if ($match->existing === null) {
                             $this->openDealFor($match, $data);
 
@@ -97,6 +104,9 @@ trait OpensDealsByPhone
             ->action(function (): void {
                 $data = $this->dealDraft;
                 $match = $this->matchClient($data);
+                if ($this->hiddenMatch($match)) {
+                    return;
+                }
                 if ($match->kind === 'conflict') {
                     $this->dealOn(ClientLookup::reassignPhone($match, $this->clientAttributes($data), $this->viewer()));
 
@@ -104,6 +114,17 @@ trait OpensDealsByPhone
                 }
                 $this->openDealFor($match, $data);
             });
+    }
+
+    /** Архивный клиент, скрытый от смотрящего: только уведомление, без имени, окна и переноса номера. */
+    private function hiddenMatch(ClientMatch $match): bool
+    {
+        if (! ClientLookup::hiddenFrom($match, $this->viewer())) {
+            return false;
+        }
+        Notification::make()->title(__('gshome.crm.clients.archived_exists'))->warning()->send();
+
+        return true;
     }
 
     /** @param array<string, mixed> $data */

@@ -2,6 +2,7 @@
 
 namespace App\Crm;
 
+use App\Crm\Exceptions\CrmForbidden;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\PhoneNumber;
@@ -26,6 +27,16 @@ final class ClientLookup
                 || self::name($existing->last_name) === self::name($lastName));
 
         return new ClientMatch($same ? 'same' : 'conflict', $existing, $phone);
+    }
+
+    /** Найденный клиент в архиве, которого смотрящий не видит: имя показывать и номер трогать нельзя. */
+    public static function hiddenFrom(ClientMatch $m, User $viewer): bool
+    {
+        $existing = $m->existing;
+
+        return $existing !== null
+            && $existing->trashed()
+            && Client::query()->visibleTo($viewer)->whereKey($existing->getKey())->doesntExist();
     }
 
     /** @param array<string, mixed> $attrs */
@@ -53,6 +64,9 @@ final class ClientLookup
         $old = $m->existing;
         if ($m->kind !== 'conflict' || $old === null) {
             throw new InvalidArgumentException('Перенести номер можно только при конфликте.');
+        }
+        if (self::hiddenFrom($m, $by)) {
+            throw new CrmForbidden('Клиент в архиве, которого вы не видите.');
         }
 
         return DB::transaction(function () use ($m, $old, $attrs, $by): Client {
