@@ -265,6 +265,9 @@ return [
             'err_removed' => 'Stages cannot be deleted, hide them instead.',
             'err_won_lost' => 'Exactly one visible won stage and one visible lost stage are required.',
             'err_normal' => 'At least one visible normal stage is required.',
+            'err_key' => 'Invalid stage key: :key.',
+            'err_kind' => 'Invalid stage type: :kind.',
+            'err_label_ru' => 'Stage :key has no Russian label.',
         ],
     ],
 ];

@@ -50,4 +50,25 @@ class DealStagesSettingsTest extends TestCase
             Livewire::test(DealStagesSettings::class)->assertForbidden();
         }
     }
+
+    public function test_page_renders_translated_texts_for_owner(): void
+    {
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(DealStagesSettings::class)
+            ->assertSuccessful()
+            ->assertSee('Этапы сделки')
+            ->assertSee('Подпись (RU)')
+            ->assertDontSee('gshome.crm.stages');
+    }
+
+    public function test_stage_translations_exist_in_all_locales(): void
+    {
+        foreach (['ru', 'en', 'ka'] as $locale) {
+            foreach (['title', 'group', 'save', 'err_key', 'err_kind', 'err_label_ru', 'err_removed'] as $k) {
+                $this->assertNotSame("gshome.crm.stages.{$k}", __("gshome.crm.stages.{$k}", [], $locale), "{$locale}:{$k}");
+            }
+        }
+        $this->assertNotSame(__('gshome.crm.stages.title', [], 'ru'), __('gshome.crm.stages.title', [], 'en'));
+    }
 }

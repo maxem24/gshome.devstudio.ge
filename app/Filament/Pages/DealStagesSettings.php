@@ -49,17 +49,17 @@ class DealStagesSettings extends Page implements HasSchemas
 
     public static function getNavigationLabel(): string
     {
-        return __('gshome.stages.title');
+        return __('gshome.crm.stages.title');
     }
 
     public static function getNavigationGroup(): string|UnitEnum|null
     {
-        return __('gshome.stages.group');
+        return __('gshome.crm.stages.group');
     }
 
     public function getTitle(): string
     {
-        return __('gshome.stages.title');
+        return __('gshome.crm.stages.title');
     }
 
     public function mount(): void
@@ -81,34 +81,34 @@ class DealStagesSettings extends Page implements HasSchemas
                     ->hiddenLabel()
                     ->reorderable()
                     ->deletable(false)
-                    ->addActionLabel(__('gshome.stages.add'))
+                    ->addActionLabel(__('gshome.crm.stages.add'))
                     ->itemLabel(fn (array $state): ?string => $state['labels']['ru'] ?? null)
                     ->columns(4)
                     ->schema([
                         Hidden::make('existing')->default(false)->dehydrated(),
                         TextInput::make('key')
-                            ->label(__('gshome.stages.key'))
-                            ->helperText(__('gshome.stages.key_hint'))
+                            ->label(__('gshome.crm.stages.key'))
+                            ->helperText(__('gshome.crm.stages.key_hint'))
                             ->required()
                             ->regex('/^[a-z][a-z0-9_]*$/')
                             ->disabled(fn ($get): bool => (bool) $get('existing'))
                             ->dehydrated(),
-                        TextInput::make('labels.ru')->label(__('gshome.stages.label_ru'))->required(),
-                        TextInput::make('labels.en')->label(__('gshome.stages.label_en')),
-                        TextInput::make('labels.ka')->label(__('gshome.stages.label_ka')),
+                        TextInput::make('labels.ru')->label(__('gshome.crm.stages.label_ru'))->required(),
+                        TextInput::make('labels.en')->label(__('gshome.crm.stages.label_en')),
+                        TextInput::make('labels.ka')->label(__('gshome.crm.stages.label_ka')),
                         Select::make('kind')
-                            ->label(__('gshome.stages.kind'))
+                            ->label(__('gshome.crm.stages.kind'))
                             ->options([
-                                'normal' => __('gshome.stages.kind_normal'),
-                                'won' => __('gshome.stages.kind_won'),
-                                'lost' => __('gshome.stages.kind_lost'),
+                                'normal' => __('gshome.crm.stages.kind_normal'),
+                                'won' => __('gshome.crm.stages.kind_won'),
+                                'lost' => __('gshome.crm.stages.kind_lost'),
                             ])
                             ->required()
                             ->native(false),
-                        Checkbox::make('hidden')->label(__('gshome.stages.hidden'))->inline(false),
+                        Checkbox::make('hidden')->label(__('gshome.crm.stages.hidden'))->inline(false),
                     ]),
             ])->livewireSubmitHandler('save')->footer([
-                Action::make('save')->label(__('gshome.stages.save'))->submit('save'),
+                Action::make('save')->label(__('gshome.crm.stages.save'))->submit('save'),
             ]),
         ]);
     }
@@ -127,6 +127,6 @@ class DealStagesSettings extends Page implements HasSchemas
             return;
         }
 
-        Notification::make()->success()->title(__('gshome.stages.saved'))->send();
+        Notification::make()->success()->title(__('gshome.crm.stages.saved'))->send();
     }
 }

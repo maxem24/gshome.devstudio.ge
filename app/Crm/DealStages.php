@@ -73,7 +73,7 @@ final class DealStages
             }
         }
 
-        throw new InvalidArgumentException('Нет ни одного видимого обычного этапа.');
+        throw new InvalidArgumentException(__('gshome.crm.stages.err_normal'));
     }
 
     /**
@@ -87,14 +87,14 @@ final class DealStages
         foreach (array_values($stages) as $i => $s) {
             $key = (string) ($s['key'] ?? '');
             if (! preg_match('/^[a-z][a-z0-9_]*$/', $key)) {
-                throw new InvalidArgumentException("Недопустимый ключ этапа: {$key}");
+                throw new InvalidArgumentException(__('gshome.crm.stages.err_key', ['key' => $key]));
             }
             if (isset($rows[$key])) {
-                throw new InvalidArgumentException("Ключ этапа повторяется: {$key}");
+                throw new InvalidArgumentException(__('gshome.crm.stages.err_duplicate')." ({$key})");
             }
             $kind = (string) ($s['kind'] ?? 'normal');
             if (! in_array($kind, self::KINDS, true)) {
-                throw new InvalidArgumentException("Недопустимый тип этапа: {$kind}");
+                throw new InvalidArgumentException(__('gshome.crm.stages.err_kind', ['kind' => $kind]));
             }
             $labels = is_array($s['labels'] ?? null) ? $s['labels'] : [];
             $labels = [
@@ -103,7 +103,7 @@ final class DealStages
                 'ka' => trim((string) ($labels['ka'] ?? '')),
             ];
             if ($labels['ru'] === '') {
-                throw new InvalidArgumentException("У этапа {$key} нет русской подписи.");
+                throw new InvalidArgumentException(__('gshome.crm.stages.err_label_ru', ['key' => $key]));
             }
             $rows[$key] = [
                 'key' => $key,
@@ -116,17 +116,17 @@ final class DealStages
 
         $removed = array_diff(array_map(fn (DealStage $s): string => $s->key, self::all()), array_keys($rows));
         if ($removed !== []) {
-            throw new InvalidArgumentException('Этапы удалять нельзя: '.implode(', ', $removed));
+            throw new InvalidArgumentException(__('gshome.crm.stages.err_removed').' ('.implode(', ', $removed).')');
         }
 
         foreach (['won', 'lost'] as $kind) {
             $count = count(array_filter($rows, fn (array $r): bool => $r['kind'] === $kind && ! $r['hidden']));
             if ($count !== 1) {
-                throw new InvalidArgumentException("Нужен ровно один видимый этап типа {$kind}.");
+                throw new InvalidArgumentException(__('gshome.crm.stages.err_won_lost'));
             }
         }
         if (count(array_filter($rows, fn (array $r): bool => $r['kind'] === 'normal' && ! $r['hidden'])) === 0) {
-            throw new InvalidArgumentException('Нужен хотя бы один видимый обычный этап.');
+            throw new InvalidArgumentException(__('gshome.crm.stages.err_normal'));
         }
 
         DB::transaction(function () use ($rows, $by): void {
