@@ -2,7 +2,7 @@
     @if ($error)
         <x-filament::section><p>{{ $error }}</p></x-filament::section>
     @else
-        @php($banner = $this->banner())
+        @php ($banner = $this->banner())
         @if ($banner)
             <x-filament::section>
                 <p class="font-medium">

@@ -1,9 +1,13 @@
 <x-filament-panels::page>
-    @php($data = $this->rows())
+    @php ($data = $this->rows())
 
     @if ($this->canFilterByAgent())
         <div class="max-w-sm">
-            <label class="mb-1 block text-sm font-medium" for="agent-filter">{{ __('gshome.crm.my_objects.agent') }}</label>
+            <label
+                class="mb-1 block text-sm font-medium"
+                for="agent-filter"
+                >{{ __('gshome.crm.my_objects.agent') }}</label
+            >
             <x-filament::input.wrapper>
                 <x-filament::input.select id="agent-filter" wire:model.live="agent">
                     <option value="">{{ __('gshome.crm.my_objects.all_agents') }}</option>
@@ -28,7 +32,11 @@
                     @if ($row['unavailable'])
                         <p class="font-medium">{{ __('gshome.crm.my_objects.listing_unavailable', ['id' => $row['listing_id']]) }}</p>
                     @else
-                        <a href="{{ $row['url'] }}" class="text-primary-600 font-bold">{{ $row['title'] }}</a>
+                        <a
+                            href="{{ $row['url'] }}"
+                            class="text-primary-600 font-bold"
+                            >{{ $row['title'] }}</a
+                        >
                         <p class="text-lg font-bold">{{ $row['price'] }}</p>
                         <p class="text-sm text-gray-500">{{ $row['address'] }}</p>
                         <p class="text-sm">{{ $row['facts'] }}</p>
