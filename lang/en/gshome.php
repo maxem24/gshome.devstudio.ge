@@ -282,5 +282,10 @@ return [
             'err_kind' => 'Invalid stage type: :kind.',
             'err_label_ru' => 'Stage :key has no Russian label.',
         ],
+        'tasks' => [
+            'title' => 'Tasks',
+            'assigned' => 'You were assigned a task by :author',
+            'viewing' => 'Viewing',
+        ],
     ],
 ];
