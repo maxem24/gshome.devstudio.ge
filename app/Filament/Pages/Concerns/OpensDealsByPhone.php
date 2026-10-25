@@ -19,6 +19,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 
 /**
@@ -72,6 +73,7 @@ trait OpensDealsByPhone
     public function resolveDealConflictAction(): Action
     {
         return Action::make('resolveDealConflict')
+            ->visible(fn (): bool => $this->canManageDealPin() && $this->dealDraft !== [])
             ->modalHeading(__('gshome.crm.clients.conflict_title'))
             ->modalDescription(function (): string {
                 $match = $this->matchClient($this->dealDraft);
@@ -84,6 +86,7 @@ trait OpensDealsByPhone
             ->modalSubmitActionLabel(__('gshome.crm.clients.new_person'))
             ->extraModalFooterActions([
                 Action::make('samePersonDeal')
+                    ->visible(fn (): bool => $this->canManageDealPin() && $this->dealDraft !== [])
                     ->label(__('gshome.crm.clients.same_person'))
                     ->color('gray')
                     ->cancelParentActions()
@@ -102,13 +105,37 @@ trait OpensDealsByPhone
                     }),
             ])
             ->action(function (): void {
+                // Права на объект — до любой записи: перенос номера без сделки недопустим.
+                $pin = $this->manageablePin();
+                if ($pin === null) {
+                    $this->dealForbidden();
+
+                    return;
+                }
                 $data = $this->dealDraft;
                 $match = $this->matchClient($data);
                 if ($this->hiddenMatch($match)) {
                     return;
                 }
                 if ($match->kind === 'conflict') {
-                    $this->dealOn(ClientLookup::reassignPhone($match, $this->clientAttributes($data), $this->viewer()));
+                    try {
+                        // Перенос номера и сделка — одной транзакцией: не открылась сделка, номер на месте.
+                        DB::transaction(function () use ($match, $data, $pin): void {
+                            $new = ClientLookup::reassignPhone($match, $this->clientAttributes($data), $this->viewer());
+                            app(Deals::class)->open($pin, $new, $this->viewer());
+                        });
+                    } catch (CrmForbidden) {
+                        $this->dealForbidden();
+
+                        return;
+                    } catch (UniqueConstraintViolationException) {
+                        // Гонка: номер за это время занял другой агент.
+                        $this->tryAgain();
+
+                        return;
+                    }
+                    Notification::make()->title(__('gshome.crm.pins.deal_opened'))->success()->send();
+                    $this->afterDealChange();
 
                     return;
                 }
@@ -143,6 +170,12 @@ trait OpensDealsByPhone
     /** @param array<string, mixed> $data */
     private function openDealFor(ClientMatch $match, array $data): void
     {
+        if ($this->manageablePin() === null) {
+            $this->dealForbidden();
+
+            return;
+        }
+
         if ($match->kind === 'new') {
             try {
                 $client = ClientLookup::create($match, $this->clientAttributes($data), $this->viewer());
@@ -150,7 +183,13 @@ trait OpensDealsByPhone
                 // Гонка: номер занял другой агент — разбираем заново.
                 $again = $this->matchClient($data);
                 if ($again->kind === 'new') {
-                    $client = ClientLookup::create($again, $this->clientAttributes($data), $this->viewer());
+                    try {
+                        $client = ClientLookup::create($again, $this->clientAttributes($data), $this->viewer());
+                    } catch (UniqueConstraintViolationException) {
+                        $this->tryAgain();
+
+                        return;
+                    }
                 } else {
                     $this->openDealFor($again, $data);
 
@@ -181,15 +220,14 @@ trait OpensDealsByPhone
             return;
         }
 
-        $pin = $this->dealPin();
+        $pin = $this->manageablePin();
         try {
             if ($pin === null) {
                 throw new CrmForbidden('Pin is gone.');
             }
             app(Deals::class)->open($pin, $client, $this->viewer());
         } catch (CrmForbidden) {
-            Notification::make()->title(__('gshome.crm.pins.deal_forbidden'))->danger()->send();
-            $this->afterDealChange();
+            $this->dealForbidden();
 
             return;
         }
@@ -212,11 +250,28 @@ trait OpensDealsByPhone
         ];
     }
 
-    private function canManageDealPin(): bool
+    /** Активное закрепление, которым смотрящий вправе управлять; иначе null. */
+    private function manageablePin(): ?ListingPin
     {
         $pin = $this->dealPin();
 
-        return $pin !== null && app(Pins::class)->canManage($pin, $this->viewer());
+        return $pin !== null && $pin->isActive() && app(Pins::class)->canManage($pin, $this->viewer()) ? $pin : null;
+    }
+
+    private function canManageDealPin(): bool
+    {
+        return $this->manageablePin() !== null;
+    }
+
+    private function tryAgain(): void
+    {
+        Notification::make()->title(__('gshome.crm.clients.try_again'))->warning()->send();
+    }
+
+    private function dealForbidden(): void
+    {
+        Notification::make()->title(__('gshome.crm.pins.deal_forbidden'))->danger()->send();
+        $this->afterDealChange();
     }
 
     abstract protected function viewer(): User;

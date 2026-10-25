@@ -326,7 +326,7 @@ class ListingViewTest extends TestCase
         $lead = User::factory()->teamLead()->create();
         $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
         $giorgi = User::factory()->agent($lead)->create(['name' => 'Гиорги']);
-        $stranger = User::factory()->agent(User::factory()->teamLead()->create())->create(['name' => 'Чужой']);
+        User::factory()->agent(User::factory()->teamLead()->create())->create(['name' => 'Чужой']);
         $this->pinFor($nino);
         $this->actingAs($lead);
 
@@ -337,7 +337,6 @@ class ListingViewTest extends TestCase
         $page->setActionData(['to' => $giorgi->id])->callMountedAction()->assertNotified(__('gshome.crm.pins.transferred'));
 
         $this->assertSame($giorgi->id, ListingPin::query()->sole()->user_id);
-        $this->assertNotNull($stranger->id);
     }
 
     public function test_release_blocked_by_open_deal_then_works(): void
@@ -477,5 +476,52 @@ class ListingViewTest extends TestCase
             ->assertNotified(__('gshome.crm.clients.archived_exists'));
 
         $this->assertSame(0, $pin->deals()->count());
+    }
+
+    public function test_conflict_confirm_after_pin_lost_changes_nothing(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create();
+        $giorgi = User::factory()->agent($lead)->create();
+        $pin = $this->pinFor($nino);
+        $old = Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $this->actingAs($nino);
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('openDeal', ['phone' => '555123456', 'first_name' => 'Нино', 'last_name' => 'Беридзе'])
+            ->assertActionMounted('resolveDealConflict');
+        // Пока окно открыто, объект передали другому.
+        app(Pins::class)->transfer($pin, $giorgi, $nino);
+        $page->callMountedAction();
+
+        $this->assertSame('+995555123456', $old->refresh()->phone_e164);
+        $this->assertSame(1, Client::query()->count());
+        $this->assertSame(0, $pin->deals()->count());
+    }
+
+    public function test_forged_actions_by_non_manager_change_nothing(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $giorgi = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $pin = $this->pinFor($nino);
+        $old = Client::factory()->create(['phone_e164' => '+995555123456', 'first_name' => 'Гиви', 'last_name' => 'Лордкипанидзе']);
+        $this->actingAs($giorgi);
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13]);
+        foreach (['transferPin', 'releasePin', 'markUnavailable', 'openDeal', 'resolveDealConflict'] as $name) {
+            try {
+                $page->call('mountAction', $name)->callMountedAction();
+            } catch (\Throwable) {
+            }
+        }
+
+        $pin->refresh();
+        $this->assertTrue($pin->isActive());
+        $this->assertSame($nino->id, $pin->user_id);
+        $this->assertSame(0, $pin->deals()->count());
+        $this->assertSame('+995555123456', $old->refresh()->phone_e164);
+        $this->assertSame(1, Client::query()->count());
     }
 }
