@@ -230,4 +230,12 @@ return [
         'bad_request' => 'Could not load listings. The error was written to the log.',
         'stale_cursor' => 'Could not open this page of the list, try again.',
     ],
+    'crm' => [
+        'client_tag' => [
+            'buyer' => 'Buyer',
+            'tenant' => 'Tenant',
+            'seller' => 'Seller',
+            'landlord' => 'Landlord',
+        ],
+    ],
 ];
