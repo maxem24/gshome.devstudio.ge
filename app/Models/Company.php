@@ -9,7 +9,9 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Support\Str;
+use Spatie\Activitylog\Models\Activity;
 
 #[Fillable(['name', 'archived_at'])]
 class Company extends Model
@@ -43,6 +45,12 @@ class Company extends Model
     public function phones(): HasMany
     {
         return $this->hasMany(Phone::class);
+    }
+
+    /** @return MorphMany<Activity, $this> записи журнала про компанию */
+    public function activities(): MorphMany
+    {
+        return $this->morphMany(Activity::class, 'subject');
     }
 
     public function isArchived(): bool

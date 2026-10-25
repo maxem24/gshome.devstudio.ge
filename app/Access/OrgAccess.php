@@ -55,6 +55,34 @@ final class OrgAccess
     }
 
     /**
+     * Может ли человек действовать за другого: ставить задачу, передавать объект, вести его
+     * сделку. Ступени — те же, что у visibleUsers; за архивного и заблокированного — нельзя.
+     */
+    public static function canActFor(User $actor, User $target): bool
+    {
+        return $target->isActive() && self::canSee($actor, $target);
+    }
+
+    /**
+     * Видит ли человек другого по ступени — без проверки статуса. Нужна, чтобы руководитель
+     * мог разобрать записи ушедшего в архив или заблокированного сотрудника.
+     */
+    public static function canSee(User $viewer, User $target): bool
+    {
+        return self::visibleUsers($viewer)->whereKey($target->getKey())->exists();
+    }
+
+    /**
+     * Чьей ступенью мерить получателя при передаче записи. Сам агент никого, кроме себя, не
+     * видит, поэтому держатель-агент передаёт в пределах ступени своего тимлида — коллегам
+     * своей группы. Остальные передают тем, за кого действуют сами.
+     */
+    public static function handOverScope(User $by, int $holderId): User
+    {
+        return $by->id === $holderId && $by->teamLead !== null ? $by->teamLead : $by;
+    }
+
+    /**
      * Метка принадлежности объявления по телефону с него (ТЗ 5.7).
      * Номер не наш, мусор или компания в архиве — «другая компания».
      */

@@ -14,6 +14,7 @@ This file is only what the spec does not settle. Each question is something the 
 |---|---|
 | Companies, four roles, teams, phones, exchange pairs (sections 3, 4.7, 5.6, 5.7) | Built. People are created by the group owner only. A phone belongs to a company; an employee is the current holder. |
 | Listings list, grid, card, filters, direction, ownership label (sections 4.1–4.5, 5.7) | Built as a live read from the Real Estate API. No copy of the listings database in GS Home. |
+| Saved listings (decisions of 2026-10-14) | Built as a separate menu item. Only the person and the Real Estate listing id are stored; cards are read again from the API, at most the last 50. |
 | Seller category on the list | Built as three values from the source: owner, agency, agent. The fourth spec value, "other agency", is not a separate switch. |
 | "Contact" on our employee | Built as a dialog with the holder's name and phone (`tel:` link). |
 | Collection, normalization, duplicate clusters (sections 5.1–5.3, 5.5) | Not in GS Home. Real Estate already does this. The spec's "per user" duplicate check is postponed. |

@@ -2,6 +2,20 @@
     @if ($error)
         <x-filament::section><p>{{ $error }}</p></x-filament::section>
     @else
+        @php ($banner = $this->banner())
+        @if ($banner)
+            <x-filament::section>
+                <p class="font-medium">
+                    @if ($banner['mine'])
+                        {{ __('gshome.crm.pins.in_work_mine') }}
+                    @elseif ($banner['name'])
+                        {{ __('gshome.crm.pins.in_work_by', ['name' => $banner['name']]) }}
+                    @else
+                        {{ __('gshome.crm.pins.in_work_other') }}
+                    @endif
+                </p>
+            </x-filament::section>
+        @endif
         <x-filament::section>
             <div class="flex flex-wrap items-center gap-3">
                 <x-filament::badge

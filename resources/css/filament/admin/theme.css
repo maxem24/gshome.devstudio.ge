@@ -2,3 +2,20 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+
+/* Колокольчик: пока есть непрочитанное, бейдж мигает. Бейдж есть только при непрочитанных. */
+.fi-topbar-database-notifications-btn .fi-badge {
+    animation: gshome-bell-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes gshome-bell-pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fi-topbar-database-notifications-btn .fi-badge {
+        animation: none;
+    }
+}

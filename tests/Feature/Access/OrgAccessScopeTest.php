@@ -63,4 +63,27 @@ class OrgAccessScopeTest extends TestCase
         $this->assertSame([$lead->id, $agent->id], OrgAccess::visibleUsers($lead)->orderBy('id')->pluck('id')->all());
         $this->assertNotContains($otherLead->id, OrgAccess::visibleUsers($lead)->pluck('id')->all());
     }
+
+    public function test_can_act_for_follows_the_ladder_and_skips_inactive(): void
+    {
+        $company = Company::factory()->create();
+        $other = Company::factory()->create();
+        $owner = User::factory()->owner()->create();
+        $companyOwner = User::factory()->companyOwner($company)->create();
+        $lead = User::factory()->teamLead($company, Direction::Sale)->create();
+        $agent = User::factory()->agent($lead)->create();
+        $otherLead = User::factory()->teamLead($company, Direction::Sale)->create();
+        $otherAgent = User::factory()->agent($otherLead)->create();
+        $foreignLead = User::factory()->teamLead($other, Direction::Sale)->create();
+        $archived = User::factory()->agent($lead)->archived()->create();
+
+        $this->assertTrue(OrgAccess::canActFor($owner, $foreignLead));
+        $this->assertTrue(OrgAccess::canActFor($companyOwner, $otherAgent));
+        $this->assertFalse(OrgAccess::canActFor($companyOwner, $foreignLead));
+        $this->assertTrue(OrgAccess::canActFor($lead, $agent));
+        $this->assertFalse(OrgAccess::canActFor($lead, $otherAgent));
+        $this->assertTrue(OrgAccess::canActFor($agent, $agent));
+        $this->assertFalse(OrgAccess::canActFor($agent, $lead));
+        $this->assertFalse(OrgAccess::canActFor($lead, $archived));
+    }
 }

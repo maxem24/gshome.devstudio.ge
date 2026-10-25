@@ -57,6 +57,7 @@ final readonly class Listing
         public ?string $contactPhoneE164,
         public bool $hasViber,
         public bool $hasWhatsapp,
+        public ?int $clusterId,
         public int $clusterListingsCount,
         public array $clusterPhonesE164,
         public array $clusterListings,
@@ -127,6 +128,7 @@ final readonly class Listing
                 : PhoneNumber::tryNormalize($phone),
             hasViber: (bool) ($d['contact']['has_viber'] ?? false),
             hasWhatsapp: (bool) ($d['contact']['has_whatsapp'] ?? false),
+            clusterId: isset($cluster['id']) ? (int) $cluster['id'] : null,
             clusterListingsCount: (int) ($cluster['listings_count'] ?? 1),
             clusterPhonesE164: array_values(array_filter(is_array($cluster['phones_e164'] ?? null) ? $cluster['phones_e164'] : [], 'is_string')),
             clusterListings: array_values(array_map(fn (array $m): array => [

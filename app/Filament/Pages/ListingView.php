@@ -4,24 +4,38 @@ namespace App\Filament\Pages;
 
 use App\Access\OrgAccess;
 use App\Access\Ownership;
+use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Exceptions\PinTaken;
+use App\Crm\Journal;
+use App\Crm\Pins;
+use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
+use App\Enums\Role;
+use App\Filament\Pages\Concerns\OpensDealsByPhone;
+use App\Models\ListingPin;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Listing;
 use App\RealEstate\ListingDetails;
 use App\RealEstate\ListingRows;
 use App\RealEstate\RealEstateClient;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
+use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
 /** Карточка объекта (ТЗ 4.4). Чужое направление, посуточно, залог, снятое — 404. */
 class ListingView extends Page
 {
+    use OpensDealsByPhone;
+
     protected string $view = 'filament.pages.listing-view';
 
     protected static bool $shouldRegisterNavigation = false;
@@ -56,6 +70,9 @@ class ListingView extends Page
         $direction = $l?->direction();
         abort_if($l === null || $direction === null || ! in_array($direction, OrgAccess::directions($viewer), true), 404);
 
+        // Просмотр пишем после проверки направления; mount идёт раз на загрузку страницы.
+        Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);
+
         $numbers = [$l->contactPhoneE164, ...$l->clusterPhonesE164, ...array_column($l->clusterListings, 'phone_e164')];
         $resolved = OrgAccess::ownershipMany($viewer, $numbers);
         $own = $l->contactPhoneE164 !== null ? ($resolved[$l->contactPhoneE164] ?? Ownership::other()) : Ownership::other();
@@ -70,6 +87,7 @@ class ListingView extends Page
 
         $this->card = [
             'id' => $l->id,
+            'cluster_id' => $l->clusterId,
             'title' => $l->title ?? '—',
             'direction' => $direction->getLabel(),
             'price' => $l->priceLabel(),
@@ -120,6 +138,7 @@ class ListingView extends Page
     protected function getHeaderActions(): array
     {
         return [
+            ...$this->pinActions(),
             $this->contactAction('contactOwn', 'own'),
             $this->contactAction('contactGroup', 'group', __('gshome.listings.contact_group')),
             Action::make('source')->label(__('gshome.listings.source_listing'))->icon(Heroicon::OutlinedArrowTopRightOnSquare)->color('gray')
@@ -149,6 +168,165 @@ class ListingView extends Page
                     ]);
                 }),
         ];
+    }
+
+    /** Активное закрепление этой квартиры; не в снапшоте — читается на каждый рендер. */
+    #[Computed]
+    public function pin(): ?ListingPin
+    {
+        $listing = $this->currentListing();
+
+        return $listing === null ? null : app(Pins::class)->activeFor($listing);
+    }
+
+    /** @return array{mine: bool, name: ?string, holder_id: int}|null */
+    public function banner(): ?array
+    {
+        $pin = $this->pin();
+        if ($pin === null) {
+            return null;
+        }
+
+        $viewer = $this->viewer();
+        $holder = $pin->holder;
+        // Имя — по тем же правилам, что у объявлений: своих людей и группы смотрящий видит, чужих нет.
+        $named = $holder->id === $viewer->id
+            || $viewer->role === Role::Owner
+            || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
+
+        return ['mine' => $holder->id === $viewer->id, 'name' => $named ? $holder->name : null, 'holder_id' => $holder->id];
+    }
+
+    protected function dealPin(): ?ListingPin
+    {
+        return $this->pin();
+    }
+
+    protected function afterDealChange(): void
+    {
+        unset($this->pin);
+    }
+
+    private function currentListing(): ?Listing
+    {
+        $id = (int) ($this->card['id'] ?? 0);
+        if ($id <= 0) {
+            return null;
+        }
+
+        try {
+            return app(RealEstateClient::class)->listing($id);
+        } catch (RealEstateException) {
+            return null;
+        }
+    }
+
+    /** @return list<Action> */
+    private function pinActions(): array
+    {
+        $manage = fn (): bool => ($pin = $this->pin()) !== null && app(Pins::class)->canManage($pin, $this->viewer());
+
+        return [
+            Action::make('takeInWork')
+                ->label(__('gshome.crm.pins.take'))
+                ->icon(Heroicon::OutlinedHandRaised)
+                ->visible(fn (): bool => $this->card !== [] && $this->pin() === null)
+                ->action(function (): void {
+                    $listing = $this->currentListing();
+                    try {
+                        if ($listing === null) {
+                            throw new CrmForbidden('Listing is gone.');
+                        }
+                        app(Pins::class)->take($listing, $this->viewer());
+                        Notification::make()->title(__('gshome.crm.pins.taken'))->success()->send();
+                    } catch (PinTaken) {
+                        Notification::make()->title(__('gshome.crm.pins.already_taken'))->warning()->send();
+                    } catch (CrmForbidden) {
+                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    }
+                    unset($this->pin);
+                }),
+            $this->openDealAction(),
+            Action::make('transferPin')
+                ->label(__('gshome.crm.pins.transfer'))
+                ->icon(Heroicon::OutlinedArrowsRightLeft)
+                ->color('gray')
+                ->visible($manage)
+                ->schema([
+                    Select::make('to')->label(__('gshome.crm.pins.transfer_to'))->required()->searchable()
+                        ->options(fn (): array => $this->recipients()),
+                ])
+                ->action(function (array $data): void {
+                    $pin = $this->pin();
+                    $to = User::query()->find((int) ($data['to'] ?? 0));
+                    try {
+                        if ($pin === null || $to === null) {
+                            throw new CrmForbidden('Nothing to transfer.');
+                        }
+                        app(Pins::class)->transfer($pin, $to, $this->viewer());
+                        Notification::make()->title(__('gshome.crm.pins.transferred'))->success()->send();
+                    } catch (CrmForbidden) {
+                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    }
+                    unset($this->pin);
+                }),
+            Action::make('markUnavailable')
+                ->label(__('gshome.crm.pins.unavailable'))
+                ->icon(Heroicon::OutlinedNoSymbol)
+                ->color('gray')
+                ->requiresConfirmation()
+                ->visible($manage)
+                ->action(fn () => $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->markUnavailable($pin, $this->viewer()))),
+            Action::make('releasePin')
+                ->label(__('gshome.crm.pins.release'))
+                ->icon(Heroicon::OutlinedXMark)
+                ->color('gray')
+                ->requiresConfirmation()
+                ->visible($manage)
+                ->action(function (): void {
+                    $pin = $this->pin();
+                    if ($pin !== null && $pin->deals()->where('status', DealStatus::Open)->exists()) {
+                        Notification::make()->title(__('gshome.crm.pins.release_open_deals'))->warning()->send();
+
+                        return;
+                    }
+                    $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->release($pin, $this->viewer()));
+                }),
+        ];
+    }
+
+    /** @param  \Closure(Pins, ListingPin): void  $close */
+    private function closePin(\Closure $close): void
+    {
+        $pin = $this->pin();
+        try {
+            if ($pin === null) {
+                throw new CrmForbidden('Nothing to close.');
+            }
+            $close(app(Pins::class), $pin);
+            Notification::make()->title(__('gshome.crm.pins.closed'))->success()->send();
+        } catch (CrmForbidden) {
+            Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+        }
+        unset($this->pin);
+    }
+
+    /** @return array<int, string> кому можно передать: id ⇒ имя */
+    private function recipients(): array
+    {
+        $pin = $this->pin();
+        if ($pin === null) {
+            return [];
+        }
+
+        $viewer = $this->viewer();
+        $pins = app(Pins::class);
+
+        return OrgAccess::visibleUsers(OrgAccess::handOverScope($viewer, $pin->user_id))
+            ->orderBy('name')->get()
+            ->filter(fn (User $u): bool => $pins->canReceive($pin, $u, $viewer))
+            ->mapWithKeys(fn (User $u): array => [$u->id => $u->name])
+            ->all();
     }
 
     private function isSaved(): bool
@@ -203,7 +381,7 @@ class ListingView extends Page
         return (string) ($floor ?? $total);
     }
 
-    private function viewer(): User
+    protected function viewer(): User
     {
         $user = Auth::user();
         abort_unless($user instanceof User, 403);

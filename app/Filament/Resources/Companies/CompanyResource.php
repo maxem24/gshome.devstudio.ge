@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Companies;
 
 use App\Enums\Role;
+use App\Filament\RelationManagers\JournalRelationManager;
 use App\Filament\Resources\Companies\Pages\CreateCompany;
 use App\Filament\Resources\Companies\Pages\EditCompany;
 use App\Filament\Resources\Companies\Pages\ListCompanies;
@@ -106,6 +107,7 @@ class CompanyResource extends Resource
         return [
             UsersRelationManager::class,
             PhonesRelationManager::class,
+            JournalRelationManager::class,
         ];
     }
 
