@@ -60,7 +60,26 @@ final class OrgAccess
      */
     public static function canActFor(User $actor, User $target): bool
     {
-        return $target->isActive() && self::visibleUsers($actor)->whereKey($target->getKey())->exists();
+        return $target->isActive() && self::canSee($actor, $target);
+    }
+
+    /**
+     * Видит ли человек другого по ступени — без проверки статуса. Нужна, чтобы руководитель
+     * мог разобрать записи ушедшего в архив или заблокированного сотрудника.
+     */
+    public static function canSee(User $viewer, User $target): bool
+    {
+        return self::visibleUsers($viewer)->whereKey($target->getKey())->exists();
+    }
+
+    /**
+     * Чьей ступенью мерить получателя при передаче записи. Сам агент никого, кроме себя, не
+     * видит, поэтому держатель-агент передаёт в пределах ступени своего тимлида — коллегам
+     * своей группы. Остальные передают тем, за кого действуют сами.
+     */
+    public static function handOverScope(User $by, int $holderId): User
+    {
+        return $by->id === $holderId && $by->teamLead !== null ? $by->teamLead : $by;
     }
 
     /**

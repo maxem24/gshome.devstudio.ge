@@ -9,6 +9,7 @@ use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\Direction;
+use App\Enums\UserStatus;
 use App\Models\Company;
 use App\Models\ListingPin;
 use App\Models\User;
@@ -223,5 +224,56 @@ class PinsTest extends TestCase
         $this->assertSame([$ninoPin->id], ListingPin::query()->visibleTo($this->nino)->pluck('id')->all());
         $this->assertSame(2, ListingPin::query()->visibleTo($this->lead)->count());
         $this->assertSame(0, ListingPin::query()->visibleTo(User::factory()->companyOwner()->create())->count());
+    }
+
+    public function test_race_between_check_and_insert_ends_in_pin_taken(): void
+    {
+        $winner = app(Pins::class)->take($this->listing(41, 5), $this->nino);
+        // Второй агент проверил «свободно» раньше, чем первый вставил строку.
+        $racing = new class extends Pins
+        {
+            private bool $missedOnce = false;
+
+            public function activeFor(Listing $listing): ?ListingPin
+            {
+                if (! $this->missedOnce) {
+                    $this->missedOnce = true;
+
+                    return null;
+                }
+
+                return parent::activeFor($listing);
+            }
+        };
+
+        try {
+            $racing->take($this->listing(42, 5), $this->giorgi);
+            $this->fail('PinTaken expected');
+        } catch (PinTaken $e) {
+            $this->assertTrue($e->pin?->is($winner));
+        }
+        $this->assertSame(1, ListingPin::query()->where('status', 'active')->count());
+    }
+
+    public function test_lead_manages_pins_of_archived_agent(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+        $this->nino->forceFill(['status' => UserStatus::Archived])->save();
+
+        $pins->transfer($pin->fresh(), $this->giorgi, $this->lead);
+
+        $this->assertSame($this->giorgi->id, $pin->fresh()->user_id);
+    }
+
+    public function test_stale_model_cannot_close_already_closed_pin(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+        $stale = ListingPin::query()->findOrFail($pin->id);
+        $pins->markUnavailable($pin, $this->nino);
+
+        $this->expectException(CrmForbidden::class);
+        $pins->transfer($stale, $this->giorgi, $this->lead);
     }
 }

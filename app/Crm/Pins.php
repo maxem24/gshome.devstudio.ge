@@ -15,7 +15,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /** Объекты в работе: взять, передать, закрыть. Правила «кто за кого» — OrgAccess::canActFor. */
-final class Pins
+class Pins
 {
     public function keyFor(Listing $listing): string
     {
@@ -76,6 +76,7 @@ final class Pins
 
         $from = $pin->holder;
         DB::transaction(function () use ($pin, $to, $by, $from): void {
+            $this->lockActive($pin);
             $pin->update(['user_id' => $to->id, 'last_activity_at' => now()]);
             Journal::record(Journal::PIN_TRANSFERRED, $pin, ['listing_id' => $pin->listing_id, 'from_user_id' => $from->id, 'to_user_id' => $to->id], $by);
             PinTransferred::dispatch($pin, $from, $to);
@@ -99,7 +100,7 @@ final class Pins
 
     public function canManage(ListingPin $pin, User $user): bool
     {
-        return $pin->user_id === $user->id || OrgAccess::canActFor($user, $pin->holder);
+        return $pin->user_id === $user->id || OrgAccess::canSee($user, $pin->holder);
     }
 
     /**
@@ -112,9 +113,7 @@ final class Pins
             return false;
         }
 
-        $scope = $by->id === $pin->user_id && $by->teamLead !== null ? $by->teamLead : $by;
-
-        return OrgAccess::canActFor($scope, $to);
+        return OrgAccess::canActFor(OrgAccess::handOverScope($by, $pin->user_id), $to);
     }
 
     /** @param  'won'|'unavailable'|'released'  $reason */
@@ -123,10 +122,20 @@ final class Pins
         $this->assertCanManage($pin, $by);
 
         DB::transaction(function () use ($pin, $reason, $event, $by): void {
+            $this->lockActive($pin);
             $pin->update(['status' => ListingPin::CLOSED, 'closed_reason' => $reason, 'closed_at' => now()]);
             Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
             PinClosed::dispatch($pin, $reason);
         });
+    }
+
+    /** Перечитать под блокировкой: параллельная передача или закрытие уже могли закрыть пин. */
+    private function lockActive(ListingPin $pin): void
+    {
+        $fresh = ListingPin::query()->whereKey($pin->getKey())->lockForUpdate()->firstOrFail();
+        if (! $fresh->isActive()) {
+            throw new CrmForbidden('Pin is already closed.');
+        }
     }
 
     private function assertCanManage(ListingPin $pin, User $by): void
