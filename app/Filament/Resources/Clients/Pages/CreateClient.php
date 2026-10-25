@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Clients\Pages;
 
 use App\Crm\ClientLookup;
 use App\Crm\ClientMatch;
+use App\Crm\Journal;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
 use App\Models\User;
@@ -70,6 +71,9 @@ class CreateClient extends CreateRecord
                     ->cancelParentActions()
                     ->action(function (): void {
                         $match = $this->match($this->form->getState());
+                        if ($match->existing !== null && ! ClientLookup::hiddenFrom($match, $this->viewer())) {
+                            Journal::record(Journal::CLIENT_SAME_PERSON_CONFIRMED, $match->existing, ['client_id' => $match->existing->id]);
+                        }
                         $this->openExisting($match);
                     }),
             ])

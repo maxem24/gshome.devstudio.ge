@@ -24,8 +24,28 @@ final class DealStages
         'lost' => 'lost',
     ];
 
+    /** Кэш на запрос — scoped-привязка контейнера: сама сбрасывается между запросами, заданиями и тестами. */
+    private const CACHE = 'crm.deal_stages';
+
+    /** Сбросить кэш: после смены настройки в обход save(). */
+    public static function flush(): void
+    {
+        app()->forgetInstance(self::CACHE);
+    }
+
     /** @return list<DealStage> по порядку, включая скрытые */
     public static function all(): array
+    {
+        if (! app()->bound(self::CACHE)) {
+            app()->scoped(self::CACHE, fn (): array => self::load());
+        }
+
+        /** @var list<DealStage> */
+        return app(self::CACHE);
+    }
+
+    /** @return list<DealStage> */
+    private static function load(): array
     {
         $rows = CrmSetting::query()->find(self::SETTING_KEY)?->value;
         $rows = is_array($rows) && $rows !== [] ? $rows : self::defaults();
@@ -136,6 +156,7 @@ final class DealStages
             );
             Journal::record(Journal::DEAL_STAGES_SAVED, null, ['keys' => array_keys($rows)], $by);
         });
+        self::flush();
     }
 
     /** @return list<array<string, mixed>> */

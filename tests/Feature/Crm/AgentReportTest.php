@@ -158,4 +158,23 @@ class AgentReportTest extends TestCase
             ->call('showStale', $stranger->id)
             ->assertForbidden();
     }
+
+    public function test_closed_deal_last_stage_does_not_keep_growing_and_won_lost_are_excluded(): void
+    {
+        $d = $this->deal($this->nino, ['stage' => 'won', 'status' => DealStatus::Won, 'closed_at' => now()->subDays(10)]);
+        $change = fn (?string $from, string $to, string $ago) => DealStageChange::query()->create([
+            'deal_id' => $d->id, 'from_stage' => $from, 'to_stage' => $to, 'changed_by' => $this->nino->id, 'changed_at' => now()->sub($ago),
+        ]);
+        $change(null, 'call', '12 days');
+        $change('call', 'negotiation', '11 days');
+        $change('negotiation', 'won', '10 days');
+        $d->forceFill(['closed_at' => now()->subDays(10)])->saveQuietly();
+
+        $avg = $this->row($this->lead, $this->nino)->avgStageSeconds;
+
+        $this->assertSame(86400, $avg['call']);
+        // «Переговоры» кончились закрытием сделки (за день), а не растут до «сейчас».
+        $this->assertSame(86400, $avg['negotiation']);
+        $this->assertArrayNotHasKey('won', $avg);
+    }
 }

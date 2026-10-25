@@ -19,6 +19,9 @@ final class Journal
 
     public const CLIENT_PHONE_REASSIGNED = 'client.phone_reassigned';
 
+    /** Выбор «Это тот же человек» в окне конфликта номера; не событие ленты. */
+    public const CLIENT_SAME_PERSON_CONFIRMED = 'client.same_person_confirmed';
+
     public const PIN_TAKEN = 'pin.taken';
 
     public const PIN_TRANSFERRED = 'pin.transferred';

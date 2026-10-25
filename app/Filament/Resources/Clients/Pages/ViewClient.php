@@ -3,9 +3,11 @@
 namespace App\Filament\Resources\Clients\Pages;
 
 use App\Crm\Journal;
+use App\Enums\DealStatus;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
 use Filament\Actions\Action;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -29,8 +31,14 @@ class ViewClient extends ViewRecord
                 ->color('danger')
                 ->requiresConfirmation()
                 ->modalDescription(__('gshome.crm.clients.archive_description'))
-                ->visible(fn (Client $record): bool => ! $record->trashed() && (Auth::user()?->can('archive', $record) ?? false))
+                ->visible(fn (Client $record): bool => ! $record->trashed() && (Auth::user()?->can('offerArchive', $record) ?? false))
                 ->action(function (Client $record): void {
+                    // Кнопка видна и при открытых сделках: отказываем здесь, с пояснением.
+                    if ($record->deals()->where('status', DealStatus::Open)->exists()) {
+                        Notification::make()->title(__('gshome.crm.clients.has_open_deals'))->danger()->send();
+
+                        return;
+                    }
                     abort_unless(Auth::user()?->can('archive', $record) ?? false, 403);
                     DB::transaction(function () use ($record): void {
                         $record->delete();

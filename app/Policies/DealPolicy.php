@@ -5,7 +5,6 @@ namespace App\Policies;
 use App\Access\OrgAccess;
 use App\Crm\Deals;
 use App\Enums\DealStatus;
-use App\Enums\Role;
 use App\Models\Deal;
 use App\Models\User;
 
@@ -51,9 +50,9 @@ class DealPolicy
         return ! $deal->trashed() && $this->view($user, $deal) && app(Deals::class)->canManage($deal, $user);
     }
 
-    /** В архив: управляющий, и только закрытую сделку — открытую может убрать лишь владелец группы. */
+    /** В архив: управляющий, и только закрытую сделку — для всех, включая владельца. */
     public function archive(User $user, Deal $deal): bool
     {
-        return $this->manage($user, $deal) && ($deal->status !== DealStatus::Open || $user->role === Role::Owner);
+        return $this->manage($user, $deal) && $deal->status !== DealStatus::Open;
     }
 }

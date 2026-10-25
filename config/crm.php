@@ -2,7 +2,7 @@
 
 return [
     // Время ввода и напоминаний; в базе всё хранится как timestamptz.
-    'timezone' => 'Asia/Tbilisi',
+    'timezone' => env('APP_TIMEZONE', 'Asia/Tbilisi'),
 
     'currencies' => ['USD', 'GEL'],
 

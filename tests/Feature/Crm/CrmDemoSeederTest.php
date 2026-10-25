@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\Crm;
 
+use App\Crm\ClientLookup;
 use App\Crm\CrmDemo;
 use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Enums\DealStatus;
 use App\Models\Client;
+use App\Models\CrmSetting;
 use App\Models\Deal;
 use App\Models\ListingPin;
 use App\Models\Task;
@@ -148,5 +150,75 @@ class CrmDemoSeederTest extends TestCase
         }
         $this->assertTrue($demo->exists());
         $this->assertSame(1, ListingPin::query()->whereKey($pin->id)->count());
+    }
+
+    public function test_fresh_refuses_before_wiping_when_demo_phone_was_taken_by_a_new_person(): void
+    {
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+        $by = User::query()->where('role', 'agent')->firstOrFail();
+        // Ход показа: «новый человек на этом номере» — номер уходит к другому имени.
+        $match = ClientLookup::match(CrmDemo::CONFLICT_PHONE, 'Леван', 'Капанадзе');
+        ClientLookup::reassignPhone($match, ['first_name' => 'Леван', 'last_name' => 'Капанадзе', 'tags' => ['buyer'], 'reliability' => 'unverified'], $by);
+        $before = [Client::withTrashed()->count(), ListingPin::withTrashed()->count(), Deal::withTrashed()->count(), Activity::query()->count()];
+
+        $this->artisan('gshome:crm-demo', ['--fresh' => true])
+            ->expectsOutputToContain('nothing was changed')
+            ->assertFailed();
+
+        $this->assertTrue($demo->exists());
+        $this->assertSame($before, [Client::withTrashed()->count(), ListingPin::withTrashed()->count(), Deal::withTrashed()->count(), Activity::query()->count()]);
+    }
+
+    public function test_fresh_recreates_demo_in_one_transaction_and_failure_keeps_the_old_one(): void
+    {
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+        $oldClients = Client::query()->pluck('id')->all();
+
+        $demo->refresh();
+        $this->assertSame(6, ListingPin::query()->count());
+        $this->assertNotSame($oldClients, Client::query()->pluck('id')->all());
+        $this->assertSame(6, Client::query()->count());
+
+        // Сбой в середине (сеть объявлений недоступна) — прежнее демо цело.
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 201])])]);
+        $keep = [Client::query()->count(), Deal::query()->count()];
+        try {
+            app(CrmDemo::class)->refresh();
+            $this->fail('refresh should fail');
+        } catch (\RuntimeException) {
+        }
+        $this->assertSame($keep, [Client::query()->count(), Deal::query()->count()]);
+        $this->assertTrue($demo->exists());
+    }
+
+    public function test_forget_drops_only_the_marker(): void
+    {
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+
+        $this->artisan('gshome:crm-demo', ['--forget' => true])->assertSuccessful();
+
+        $this->assertFalse($demo->exists());
+        $this->assertSame(0, CrmSetting::query()->whereKey(CrmDemo::SETTING)->count());
+        $this->assertSame(6, Client::query()->count());
+        $this->assertSame(6, ListingPin::query()->count());
+    }
+
+    public function test_wipe_keeps_journal_rows_caused_by_real_people_on_demo_subjects(): void
+    {
+        $demo = app(CrmDemo::class);
+        $demo->seed();
+        $real = User::factory()->owner()->create();
+        $client = Client::query()->where('phone_e164', CrmDemo::CONFLICT_PHONE)->sole();
+        $note = Journal::record(Journal::ARCHIVED, $client, [], $real);
+        $demoRows = Activity::query()->where('subject_type', $client->getMorphClass())->where('subject_id', $client->id)->where('id', '!=', $note->id)->count();
+        $this->assertGreaterThan(0, $demoRows);
+
+        $demo->wipe();
+
+        $this->assertSame(1, Activity::query()->where('subject_type', $client->getMorphClass())->where('subject_id', $client->id)->count());
+        $this->assertTrue(Activity::query()->whereKey($note->id)->exists());
     }
 }

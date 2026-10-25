@@ -6,6 +6,7 @@ use App\Crm\DealStages;
 use App\Crm\Journal;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Spatie\Activitylog\Models\Activity;
 use Tests\TestCase;
@@ -132,5 +133,22 @@ class DealStagesTest extends TestCase
                 $this->addToAssertionCount(1);
             }
         }
+    }
+
+    public function test_all_is_memoized_and_save_flushes_it(): void
+    {
+        $this->assertSame('call', DealStages::all()[0]->key);
+        $queries = 0;
+        DB::listen(function () use (&$queries): void {
+            $queries++;
+        });
+        DealStages::all();
+        DealStages::find('won');
+        $this->assertSame(0, $queries);
+
+        $rows = $this->rows();
+        $rows[0]['labels']['ru'] = 'Новый звонок';
+        DealStages::save($rows, User::factory()->owner()->create());
+        $this->assertSame('Новый звонок', DealStages::find('call')->label('ru'));
     }
 }

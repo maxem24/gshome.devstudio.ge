@@ -424,6 +424,11 @@ class ListingViewTest extends TestCase
         $this->assertSame($old->id, $pin->deals()->sole()->client_id);
         $this->assertSame(1, Client::query()->count());
 
+        // Выбор «тот же человек» записан в журнал: субъект — клиент, в свойствах только id.
+        $entry = Activity::query()->where('event', Journal::CLIENT_SAME_PERSON_CONFIRMED)->sole();
+        $this->assertSame($old->id, (int) $entry->subject_id);
+        $this->assertSame($nino->id, (int) $entry->causer_id);
+        $this->assertSame(['client_id' => $old->id], $entry->properties->toArray());
     }
 
     public function test_open_deal_conflict_new_person_reassigns_number(): void

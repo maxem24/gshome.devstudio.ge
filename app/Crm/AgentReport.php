@@ -49,14 +49,22 @@ final class AgentReport
             ->selectRaw('user_id, status, currency, count(*) as n, sum(amount) as total')
             ->groupBy('user_id', 'status', 'currency')->get()->groupBy('user_id');
 
+        $normalKeys = array_values(array_map(
+            fn (DealStage $s): string => $s->key,
+            array_filter(DealStages::all(), fn (DealStage $s): bool => $s->kind === 'normal'),
+        ));
+
         $stages = DB::table(DB::raw('(select c.deal_id, c.to_stage, c.changed_at,
                 lead(c.changed_at) over (partition by c.deal_id order by c.changed_at, c.id) as next_at
                 from deal_stage_changes c) s'))
             ->join('deals', 'deals.id', '=', 's.deal_id')
             ->whereNull('deals.deleted_at')->whereIn('deals.user_id', $ids)
             ->whereBetween('s.changed_at', [$from, $to])
+            // Итоговые этапы (won/lost) в среднее не входят.
+            ->whereIn('s.to_stage', $normalKeys)
+            // Последний этап закрытой сделки кончается её закрытием, а не «сейчас».
             ->selectRaw('deals.user_id as user_id, s.to_stage as stage,
-                avg(extract(epoch from (coalesce(s.next_at, ?::timestamptz) - s.changed_at))) as secs', [$now])
+                avg(extract(epoch from (coalesce(s.next_at, deals.closed_at, ?::timestamptz) - s.changed_at))) as secs', [$now])
             ->groupBy('deals.user_id', 's.to_stage')->get()->groupBy('user_id');
 
         return $users->map(function (User $u) use ($pinsActive, $stale, $opened, $viewings, $closed, $stages): AgentReportRow {

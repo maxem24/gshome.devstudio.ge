@@ -38,8 +38,11 @@ class CrmDemo
     /** Номер клиента для сценария «конфликт номера»: на показе вводим его с другим именем. */
     public const CONFLICT_PHONE = '+995555100101';
 
-    /** @var array{clients: list<int>, pins: list<int>, deals: list<int>, viewings: list<int>, tasks: list<int>, notifications: list<string>} */
-    private array $created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => []];
+    /** Номера демо-клиентов: +995555100101 … +995555100106. */
+    private const PHONES = ['+995555100101', '+995555100102', '+995555100103', '+995555100104', '+995555100105', '+995555100106'];
+
+    /** @var array{clients: list<int>, pins: list<int>, deals: list<int>, viewings: list<int>, tasks: list<int>, notifications: list<string>, activities: list<int>} */
+    private array $created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => [], 'activities' => []];
 
     public function __construct(
         private readonly RealEstateClient $api,
@@ -66,21 +69,61 @@ class CrmDemo
             throw new RuntimeException('Demo data already exists; run with --fresh to recreate it.');
         }
 
-        $this->created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => []];
+        return $this->run(false);
+    }
+
+    /**
+     * Пересоздаёт демо: люди и объявления берутся до транзакции, а стирание и заливка идут одной —
+     * любой сбой оставляет прежнее демо на месте.
+     *
+     * @return list<string>
+     */
+    public function refresh(): array
+    {
+        return $this->run(true);
+    }
+
+    /** Снимает пометку демо, ничего не удаляя: записи остаются обычными. */
+    public function forget(): bool
+    {
+        return CrmSetting::query()->whereKey(self::SETTING)->delete() > 0;
+    }
+
+    /** Удаляет только записи, созданные демо (и журнал по ним). Чужие данные не трогает. */
+    public function wipe(): void
+    {
+        DB::transaction(fn () => $this->wipeRows());
+    }
+
+    /** @return list<string> */
+    private function run(bool $wipeFirst): array
+    {
+        $this->created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => [], 'activities' => []];
+        // Сеть и выборка — вне транзакции: упасть тут можно, ничего не стерев.
         [$lead, $nino, $giorgi, $lead2, $agent3, $agent4] = $this->people();
-        $listings = $this->listings($nino);
+        // Закрепления прежнего демо считаем свободными: их сотрёт эта же транзакция.
+        $old = $wipeFirst ? array_map('intval', CrmSetting::query()->find(self::SETTING)?->value['pins'] ?? []) : [];
+        $listings = $this->listings($nino, $old);
         $now = Carbon::now();
 
         try {
-            // Всё или ничего: записи, уведомления и пометка демо — в одной транзакции.
-            return DB::transaction(function () use ($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings): array {
+            // Всё или ничего: стирание прежнего, записи, уведомления и пометка демо — в одной транзакции.
+            return DB::transaction(function () use ($wipeFirst, $now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings): array {
+                $setting = $wipeFirst ? CrmSetting::query()->find(self::SETTING) : null;
+                $this->assertPhonesFree($setting === null ? [] : ($setting->value['clients'] ?? []));
+                if ($setting !== null) {
+                    $this->wipeRows();
+                }
+
                 $before = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
                     ->where('notifiable_id', $nino->id)->pluck('id')->all();
+                $lastActivity = (int) Activity::query()->max('id');
                 $notes = $this->scenarios($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings);
                 // Уведомления запоминаем только демо-агента и только появившиеся за этот прогон:
                 // чужие (настоящих людей) --fresh не тронет.
                 $this->created['notifications'] = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
                     ->where('notifiable_id', $nino->id)->whereNotIn('id', $before)->pluck('id')->all();
+                $this->created['activities'] = $this->demoActivityIds($lastActivity);
                 CrmSetting::query()->create(['key' => self::SETTING, 'value' => $this->created]);
 
                 return $notes;
@@ -90,14 +133,57 @@ class CrmDemo
         }
     }
 
-    /** Проверка до --fresh: нужные люди есть — иначе не стираем прежнее демо впустую. */
-    public function preflight(): void
+    /**
+     * Демо-номера свободны или заняты только демо-клиентами, которых сейчас сотрут:
+     * иначе заливка упала бы на уникальном номере уже после стирания.
+     *
+     * @param  list<int>  $wiping
+     */
+    private function assertPhonesFree(array $wiping): void
     {
-        $this->people();
+        $taken = Client::withTrashed()->whereIn('phone_e164', self::PHONES)->whereNotIn('id', $wiping)->pluck('phone_e164')->all();
+        if ($taken !== []) {
+            throw new RuntimeException('Demo phones are held by non-demo clients ('.implode(', ', $taken).'); nothing was changed. Free the numbers or run --forget.');
+        }
     }
 
-    /** Удаляет только записи, созданные демо (и журнал по ним). Чужие данные не трогает. */
-    public function wipe(): void
+    /**
+     * Записи журнала, появившиеся за заливку и относящиеся к демо-записям; чужие не входят.
+     *
+     * @return list<int>
+     */
+    private function demoActivityIds(int $after): array
+    {
+        $subjects = $this->subjects($this->created);
+        $ids = [];
+        foreach (Activity::query()->where('id', '>', $after)->whereNotNull('subject_id')->get(['id', 'subject_type', 'subject_id']) as $a) {
+            foreach ($subjects as $class => $list) {
+                if ($a->subject_type === (new $class)->getMorphClass() && in_array((int) $a->subject_id, $list, true)) {
+                    $ids[] = (int) $a->id;
+                }
+            }
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param  array<string, list<int|string>>  $ids
+     * @return array<class-string, list<int>>
+     */
+    private function subjects(array $ids): array
+    {
+        return [
+            Viewing::class => array_map('intval', $ids['viewings'] ?? []),
+            Deal::class => array_map('intval', $ids['deals'] ?? []),
+            ListingPin::class => array_map('intval', $ids['pins'] ?? []),
+            Task::class => array_map('intval', $ids['tasks'] ?? []),
+            Client::class => array_map('intval', $ids['clients'] ?? []),
+        ];
+    }
+
+    /** Само стирание; вызывать внутри транзакции. */
+    private function wipeRows(): void
     {
         $setting = CrmSetting::query()->find(self::SETTING);
         if ($setting === null) {
@@ -107,29 +193,26 @@ class CrmDemo
         /** @var array<string, list<int|string>> $ids */
         $ids = $setting->value;
         if (($foreign = $this->foreignChildren($ids)) > 0) {
-            throw new RuntimeException("Demo records have {$foreign} non-demo deals/viewings attached; not wiping. Archive them by hand first.");
+            throw new RuntimeException("Demo records have {$foreign} non-demo deals/viewings attached (real work on demo data); not wiping. An admin must detach or close them first, or run --forget to drop the demo marker without deleting anything.");
         }
-        DB::transaction(function () use ($ids, $setting): void {
-            $subjects = [
-                Viewing::class => $ids['viewings'] ?? [],
-                Deal::class => $ids['deals'] ?? [],
-                ListingPin::class => $ids['pins'] ?? [],
-                Task::class => $ids['tasks'] ?? [],
-                Client::class => $ids['clients'] ?? [],
-            ];
-            foreach ($subjects as $class => $list) {
+        if (isset($ids['activities'])) {
+            // Только то, что записала заливка: журнал настоящих людей по демо-записям остаётся.
+            Activity::query()->whereIn('id', $ids['activities'])->delete();
+        } else {
+            // Демо, залитое до появления списка записей журнала: по субъектам, как раньше.
+            foreach ($this->subjects($ids) as $class => $list) {
                 Activity::query()->where('subject_type', (new $class)->getMorphClass())->whereIn('subject_id', $list)->delete();
             }
-            DB::table('viewing_reminders')->whereIn('viewing_id', $ids['viewings'] ?? [])->delete();
-            DB::table('notifications')->whereIn('id', $ids['notifications'] ?? [])->delete();
-            Viewing::withTrashed()->whereIn('id', $ids['viewings'] ?? [])->forceDelete();
-            DB::table('deal_stage_changes')->whereIn('deal_id', $ids['deals'] ?? [])->delete();
-            Deal::withTrashed()->whereIn('id', $ids['deals'] ?? [])->forceDelete();
-            ListingPin::withTrashed()->whereIn('id', $ids['pins'] ?? [])->forceDelete();
-            Task::withTrashed()->whereIn('id', $ids['tasks'] ?? [])->forceDelete();
-            Client::withTrashed()->whereIn('id', $ids['clients'] ?? [])->forceDelete();
-            $setting->delete();
-        });
+        }
+        DB::table('viewing_reminders')->whereIn('viewing_id', $ids['viewings'] ?? [])->delete();
+        DB::table('notifications')->whereIn('id', $ids['notifications'] ?? [])->delete();
+        Viewing::withTrashed()->whereIn('id', $ids['viewings'] ?? [])->forceDelete();
+        DB::table('deal_stage_changes')->whereIn('deal_id', $ids['deals'] ?? [])->delete();
+        Deal::withTrashed()->whereIn('id', $ids['deals'] ?? [])->forceDelete();
+        ListingPin::withTrashed()->whereIn('id', $ids['pins'] ?? [])->forceDelete();
+        Task::withTrashed()->whereIn('id', $ids['tasks'] ?? [])->forceDelete();
+        Client::withTrashed()->whereIn('id', $ids['clients'] ?? [])->forceDelete();
+        $setting->delete();
     }
 
     /**
@@ -261,9 +344,10 @@ class CrmDemo
     /**
      * Шесть объявлений продажи из разных групп дублей; первое — с копиями.
      *
+     * @param  list<int>  $ignorePins  закрепления, которые считаются свободными
      * @return list<Listing>
      */
-    private function listings(User $viewer): array
+    private function listings(User $viewer, array $ignorePins = []): array
     {
         $params = ListingQuery::params($viewer, [], null) ?? throw new RuntimeException('Real Estate query is empty for the demo agent.');
         $found = [];
@@ -273,7 +357,7 @@ class CrmDemo
             $result = $this->api->listings($params, $cursor);
             foreach ($result->listings as $listing) {
                 $key = $this->pins->keyFor($listing);
-                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && $this->pins->activeFor($listing) === null) {
+                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
                     $keys[$key] = true;
                     $found[] = $listing;
                 }

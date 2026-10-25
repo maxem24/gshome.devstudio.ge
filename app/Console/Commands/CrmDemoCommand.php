@@ -4,12 +4,13 @@ namespace App\Console\Commands;
 
 use App\Crm\CrmDemo;
 use Illuminate\Console\Command;
-use RuntimeException;
+use Throwable;
 
 /** Заливает демо-сценарии CRM-альфы; --fresh сначала убирает прежние демо-записи (и только их). */
 class CrmDemoCommand extends Command
 {
-    protected $signature = 'gshome:crm-demo {--fresh : удалить прежние демо-записи и создать заново}';
+    protected $signature = 'gshome:crm-demo {--fresh : удалить прежние демо-записи и создать заново}
+        {--forget : снять пометку демо, ничего не удаляя}';
 
     protected $description = 'Demo data for the CRM alpha walkthrough';
 
@@ -20,14 +21,16 @@ class CrmDemoCommand extends Command
         }
 
         try {
-            if ($this->option('fresh')) {
-                $demo->preflight();
-                $demo->wipe();
+            if ($this->option('forget')) {
+                $this->line($demo->forget() ? 'Demo marker removed; records are kept.' : 'No demo marker.');
+
+                return self::SUCCESS;
             }
-            foreach ($demo->seed() as $line) {
+            $lines = $this->option('fresh') ? $demo->refresh() : $demo->seed();
+            foreach ($lines as $line) {
                 $this->line($line);
             }
-        } catch (RuntimeException $e) {
+        } catch (Throwable $e) {
             $this->error($e->getMessage());
 
             return self::FAILURE;

@@ -232,6 +232,7 @@ return [
     ],
     'crm' => [
         'nav_group' => 'CRM',
+        'archive_toggle' => ['show' => 'არქივის ჩვენება', 'hide' => 'არქივის დამალვა'],
         'clients' => [
             'model' => 'კლიენტი',
             'plural' => 'კლიენტები',
@@ -260,6 +261,7 @@ return [
             'to_archive' => 'არქივში',
             'archive_description' => 'კლიენტი სიიდან გაქრება. ნომერი მასთან დარჩება.',
             'restore' => 'დაბრუნება',
+            'has_open_deals' => 'კლიენტს ღია გარიგებები აქვს: ჯერ დახურეთ ისინი.',
             'history' => [
                 'title' => 'ისტორია',
                 'listing' => 'ობიექტი',

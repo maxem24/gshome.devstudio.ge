@@ -6,6 +6,7 @@ use App\Crm\ClientLookup;
 use App\Crm\ClientMatch;
 use App\Crm\Deals;
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
@@ -101,6 +102,7 @@ trait OpensDealsByPhone
 
                             return;
                         }
+                        Journal::record(Journal::CLIENT_SAME_PERSON_CONFIRMED, $match->existing, ['client_id' => $match->existing->id]);
                         $this->dealOn($match->existing);
                     }),
             ])

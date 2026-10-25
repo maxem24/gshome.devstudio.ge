@@ -232,6 +232,7 @@ return [
     ],
     'crm' => [
         'nav_group' => 'CRM',
+        'archive_toggle' => ['show' => 'Show archived', 'hide' => 'Hide archived'],
         'clients' => [
             'model' => 'Client',
             'plural' => 'Clients',
@@ -260,6 +261,7 @@ return [
             'to_archive' => 'Archive',
             'archive_description' => 'The client will disappear from the list. The number stays with them.',
             'restore' => 'Restore',
+            'has_open_deals' => 'The client has open deals: close them first.',
             'history' => [
                 'title' => 'History',
                 'listing' => 'Listing',

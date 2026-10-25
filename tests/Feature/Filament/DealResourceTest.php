@@ -9,6 +9,7 @@ use App\Crm\Viewings;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\ViewingOutcome;
+use App\Filament\RelationManagers\JournalRelationManager;
 use App\Filament\Resources\Deals\DealResource;
 use App\Filament\Resources\Deals\Pages\ListDeals;
 use App\Filament\Resources\Deals\Pages\ViewDeal;
@@ -235,5 +236,42 @@ class DealResourceTest extends TestCase
             ->callAction('lose', ['reason' => 'нет ответа'])
             ->assertHasNoActionErrors();
         $this->assertSame(DealStatus::Lost, $deal->refresh()->status);
+    }
+
+    public function test_nobody_archives_an_open_deal_not_even_the_owner(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 41);
+        $owner = User::factory()->owner()->create();
+        $this->actingAs($owner);
+
+        $this->assertFalse($owner->can('archive', $deal));
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])->assertActionHidden('archive');
+
+        app(Deals::class)->lose($deal, 'нет', $nino);
+        $this->assertTrue($owner->can('archive', $deal->refresh()));
+    }
+
+    public function test_deal_journal_tab_includes_viewing_events(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 41);
+        $other = $this->deal(User::factory()->agent($this->lead)->create(), 42);
+        $viewings = app(Viewings::class);
+        $viewing = $viewings->schedule($deal, now()->addDay(), null, $nino);
+        $viewings->reschedule($viewing, now()->addDays(2), $nino);
+        $viewings->recordOutcome($viewing, ViewingOutcome::Confirmed, $nino);
+        $otherViewing = $viewings->schedule($other, now()->addDay(), null, $other->agent);
+        $this->actingAs($this->lead);
+
+        $rows = Activity::query()->whereIn('event', [Journal::DEAL_OPENED, Journal::VIEWING_SCHEDULED, Journal::VIEWING_RESCHEDULED, Journal::VIEWING_OUTCOME]);
+        $mine = (clone $rows)->where(fn ($q) => $q->where('subject_type', $deal->getMorphClass())->where('subject_id', $deal->id)
+            ->orWhere('properties->deal_id', (string) $deal->id))->pluck('id')->all();
+        $this->assertCount(4, $mine);
+
+        $test = Livewire::test(JournalRelationManager::class, ['ownerRecord' => $deal, 'pageClass' => ViewDeal::class])
+            ->assertCanSeeTableRecords($mine);
+        $foreign = Activity::query()->where('subject_type', $otherViewing->getMorphClass())->where('subject_id', $otherViewing->id)->pluck('id')->all();
+        $test->assertCanNotSeeTableRecords($foreign);
     }
 }

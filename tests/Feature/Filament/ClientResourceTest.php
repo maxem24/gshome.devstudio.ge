@@ -117,6 +117,11 @@ class ClientResourceTest extends TestCase
             ->assertRedirect(ClientResource::getUrl('view', ['record' => $old]));
         $this->assertSame(1, Client::query()->count());
         $this->assertSame('+995555123456', $old->refresh()->phone_e164);
+
+        $entry = Activity::query()->where('event', Journal::CLIENT_SAME_PERSON_CONFIRMED)->sole();
+        $this->assertSame($old->id, (int) $entry->subject_id);
+        $this->assertSame(['client_id' => $old->id], $entry->properties->toArray());
+        $this->assertNotContains(Journal::CLIENT_SAME_PERSON_CONFIRMED, Journal::FEED_EVENTS);
     }
 
     public function test_agent_on_archived_number_gets_no_redirect_to_hidden_card(): void
@@ -267,6 +272,31 @@ class ClientResourceTest extends TestCase
             ->callAction('restore');
         $this->assertFalse($client->refresh()->trashed());
         $this->assertSame(1, Activity::query()->where('event', Journal::RESTORED)->count());
+    }
+
+    public function test_client_with_open_deal_cannot_be_archived(): void
+    {
+        RealEstateFake::configure();
+        $agent = User::factory()->agent($this->lead)->create();
+        $client = Client::factory()->create(['created_by' => $agent->id]);
+        $listing = Listing::fromApi(RealEstateFake::listing(['id' => 41, 'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'sale']]), 'ru');
+        $this->actingAs($agent);
+
+        $deal = app(Deals::class)->open(app(Pins::class)->take($listing, $agent), $client, $agent);
+        Livewire::test(ViewClient::class, ['record' => $client->id])
+            ->assertActionVisible('archive')
+            ->callAction('archive')
+            ->assertNotified(__('gshome.crm.clients.has_open_deals'));
+        $this->assertFalse($client->refresh()->trashed());
+        $this->assertSame(0, Activity::query()->where('event', Journal::ARCHIVED)->count());
+
+        // Политика то же: ни создатель, ни владелец не архивируют.
+        $this->assertFalse($agent->can('archive', $client));
+        $this->assertFalse(User::factory()->owner()->create()->can('archive', $client));
+
+        // Сделка закрыта — архив снова доступен.
+        app(Deals::class)->lose($deal, 'нет', $agent);
+        $this->assertTrue($agent->can('archive', $client));
     }
 }
 
