@@ -22,7 +22,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
 
-#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status', 'locale'])]
+#[Fillable(['name', 'email', 'password', 'role', 'company_id', 'direction', 'team_lead_id', 'both_directions', 'status', 'locale', 'show_archived'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, HasName
 {
@@ -66,6 +66,7 @@ class User extends Authenticatable implements FilamentUser, HasName
             'both_directions' => 'boolean',
             'status' => UserStatus::class,
             'locale' => Locale::class,
+            'show_archived' => 'boolean',
         ];
     }
 

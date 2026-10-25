@@ -25,6 +25,7 @@
         "laravel/horizon": "^5.50",
         "laravel/tinker": "^3.0",
         "predis/predis": "^3.7",
+        "spatie/laravel-activitylog": "^4.12",
         "ysfkaya/filament-phone-input": "^4.2"
     },
     "require-dev": {

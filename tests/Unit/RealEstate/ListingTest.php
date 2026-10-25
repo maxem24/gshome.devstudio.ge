@@ -77,6 +77,12 @@ class ListingTest extends TestCase
         $this->assertSame('+995555614795', $l->clusterListings[0]['phone_e164']);
     }
 
+    public function test_cluster_id_is_read(): void
+    {
+        $this->assertNull(Listing::fromApi(RealEstateFake::listing(['cluster' => null]), 'ru')->clusterId);
+        $this->assertSame(5, Listing::fromApi(RealEstateFake::listing(['cluster' => ['id' => 5, 'listings_count' => 1]]), 'ru')->clusterId);
+    }
+
     public function test_price_label_by_direction(): void
     {
         $this->assertSame('$90 000', Listing::fromApi(RealEstateFake::listing(), 'ru')->priceLabel());
