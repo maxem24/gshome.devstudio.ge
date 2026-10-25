@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Access\OrgAccess;
 use App\Access\Ownership;
+use App\Crm\Journal;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
 use App\Models\SavedListing;
@@ -55,6 +56,9 @@ class ListingView extends Page
 
         $direction = $l?->direction();
         abort_if($l === null || $direction === null || ! in_array($direction, OrgAccess::directions($viewer), true), 404);
+
+        // Просмотр пишем после проверки направления; mount идёт раз на загрузку страницы.
+        Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);
 
         $numbers = [$l->contactPhoneE164, ...$l->clusterPhonesE164, ...array_column($l->clusterListings, 'phone_e164')];
         $resolved = OrgAccess::ownershipMany($viewer, $numbers);

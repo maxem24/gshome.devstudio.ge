@@ -292,5 +292,73 @@ return [
             'day_of' => 'Сегодня показ в :time (объект №:listing)',
             'overdue' => 'Показ :date в :time прошёл, итог не внесён (объект №:listing)',
         ],
+        'journal' => [
+            'title' => 'Журнал',
+            'at' => 'Дата',
+            'person' => 'Сотрудник',
+            'event' => 'Событие',
+            'listing' => 'Объект',
+            'period' => 'Период',
+            'from' => 'С',
+            'until' => 'По',
+            'events' => [
+                'client' => [
+                    'created' => 'Клиент создан',
+                    'phone_reassigned' => 'Телефон клиента переназначен',
+                ],
+                'pin' => [
+                    'taken' => 'Объект закреплён',
+                    'transferred' => 'Закрепление передано',
+                    'unavailable' => 'Объект недоступен',
+                    'released' => 'Закрепление снято',
+                    'won' => 'Закрепление: сделка состоялась',
+                ],
+                'deal' => [
+                    'opened' => 'Сделка открыта',
+                    'stage_changed' => 'Этап сделки изменён',
+                    'won' => 'Сделка состоялась',
+                    'lost' => 'Сделка не состоялась',
+                ],
+                'viewing' => [
+                    'scheduled' => 'Показ назначен',
+                    'rescheduled' => 'Показ перенесён',
+                    'outcome' => 'Итог показа внесён',
+                ],
+                'task' => [
+                    'created' => 'Задача создана',
+                    'status_changed' => 'Статус задачи изменён',
+                ],
+                'archived' => 'Отправлено в архив',
+                'restored' => 'Восстановлено',
+                'listing' => [
+                    'viewed' => 'Просмотр объекта',
+                ],
+                'settings' => [
+                    'deal_stages_saved' => 'Этапы сделки сохранены',
+                ],
+            ],
+        ],
+        'feed' => [
+            'title' => 'Что происходит',
+            'empty' => 'Пока ничего',
+            'pin' => [
+                'taken' => ':name закрепил(а) объект №:listing',
+                'transferred' => ':name передал(а) объект №:listing',
+                'unavailable' => ':name отметил(а) объект №:listing недоступным',
+                'released' => ':name снял(а) закрепление объекта №:listing',
+                'won' => ':name закрыл(а) объект №:listing сделкой',
+            ],
+            'deal' => [
+                'opened' => ':name открыл(а) сделку по объекту №:listing',
+                'stage_changed' => ':name сдвинул(а) этап сделки по объекту №:listing',
+                'won' => ':name завершил(а) сделку по объекту №:listing',
+                'lost' => ':name потерял(а) сделку по объекту №:listing',
+            ],
+            'viewing' => [
+                'scheduled' => ':name назначил(а) показ объекта №:listing',
+                'rescheduled' => ':name перенёс(ла) показ объекта №:listing',
+                'outcome' => ':name внёс(ла) итог показа объекта №:listing',
+            ],
+        ],
     ],
 ];

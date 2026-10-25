@@ -292,5 +292,73 @@ return [
             'day_of' => 'დღეს ჩვენებაა :time-ზე (ობიექტი №:listing)',
             'overdue' => ':date, :time ჩვენება დასრულდა, შედეგი არ არის შეყვანილი (ობიექტი №:listing)',
         ],
+        'journal' => [
+            'title' => 'ჟურნალი',
+            'at' => 'თარიღი',
+            'person' => 'თანამშრომელი',
+            'event' => 'მოვლენა',
+            'listing' => 'ობიექტი',
+            'period' => 'პერიოდი',
+            'from' => 'დან',
+            'until' => 'მდე',
+            'events' => [
+                'client' => [
+                    'created' => 'კლიენტი შეიქმნა',
+                    'phone_reassigned' => 'კლიენტის ტელეფონი გადანაწილდა',
+                ],
+                'pin' => [
+                    'taken' => 'ობიექტი დაიმაგრა',
+                    'transferred' => 'მიმაგრება გადაეცა',
+                    'unavailable' => 'ობიექტი მიუწვდომელია',
+                    'released' => 'მიმაგრება მოიხსნა',
+                    'won' => 'მიმაგრება: გარიგება შედგა',
+                ],
+                'deal' => [
+                    'opened' => 'გარიგება გაიხსნა',
+                    'stage_changed' => 'გარიგების ეტაპი შეიცვალა',
+                    'won' => 'გარიგება შედგა',
+                    'lost' => 'გარიგება ჩაიშალა',
+                ],
+                'viewing' => [
+                    'scheduled' => 'ჩვენება დაინიშნა',
+                    'rescheduled' => 'ჩვენება გადაიდო',
+                    'outcome' => 'ჩვენების შედეგი შეყვანილია',
+                ],
+                'task' => [
+                    'created' => 'ამოცანა შეიქმნა',
+                    'status_changed' => 'ამოცანის სტატუსი შეიცვალა',
+                ],
+                'archived' => 'დაარქივდა',
+                'restored' => 'აღდგა',
+                'listing' => [
+                    'viewed' => 'ობიექტის ნახვა',
+                ],
+                'settings' => [
+                    'deal_stages_saved' => 'გარიგების ეტაპები შენახულია',
+                ],
+            ],
+        ],
+        'feed' => [
+            'title' => 'რა ხდება',
+            'empty' => 'ჯერ არაფერია',
+            'pin' => [
+                'taken' => ':name დაიმაგრა ობიექტი №:listing',
+                'transferred' => ':name გადასცა ობიექტი №:listing',
+                'unavailable' => ':name ობიექტი №:listing მიუწვდომლად მონიშნა',
+                'released' => ':name მოხსნა ობიექტის №:listing მიმაგრება',
+                'won' => ':name ობიექტი №:listing გარიგებით დახურა',
+            ],
+            'deal' => [
+                'opened' => ':name გახსნა გარიგება ობიექტზე №:listing',
+                'stage_changed' => ':name გარიგების ეტაპი შეცვალა ობიექტზე №:listing',
+                'won' => ':name გარიგება შედგა ობიექტზე №:listing',
+                'lost' => ':name გარიგება ჩაიშალა ობიექტზე №:listing',
+            ],
+            'viewing' => [
+                'scheduled' => ':name დანიშნა ობიექტის №:listing ჩვენება',
+                'rescheduled' => ':name გადადო ობიექტის №:listing ჩვენება',
+                'outcome' => ':name შეიყვანა ობიექტის №:listing ჩვენების შედეგი',
+            ],
+        ],
     ],
 ];

@@ -292,5 +292,73 @@ return [
             'day_of' => 'Viewing today at :time (property #:listing)',
             'overdue' => 'Viewing on :date at :time is over, no outcome recorded (property #:listing)',
         ],
+        'journal' => [
+            'title' => 'Journal',
+            'at' => 'Date',
+            'person' => 'Person',
+            'event' => 'Event',
+            'listing' => 'Property',
+            'period' => 'Period',
+            'from' => 'From',
+            'until' => 'To',
+            'events' => [
+                'client' => [
+                    'created' => 'Client created',
+                    'phone_reassigned' => 'Client phone reassigned',
+                ],
+                'pin' => [
+                    'taken' => 'Property pinned',
+                    'transferred' => 'Pin transferred',
+                    'unavailable' => 'Property unavailable',
+                    'released' => 'Pin released',
+                    'won' => 'Pin: deal won',
+                ],
+                'deal' => [
+                    'opened' => 'Deal opened',
+                    'stage_changed' => 'Deal stage changed',
+                    'won' => 'Deal won',
+                    'lost' => 'Deal lost',
+                ],
+                'viewing' => [
+                    'scheduled' => 'Viewing scheduled',
+                    'rescheduled' => 'Viewing rescheduled',
+                    'outcome' => 'Viewing outcome recorded',
+                ],
+                'task' => [
+                    'created' => 'Task created',
+                    'status_changed' => 'Task status changed',
+                ],
+                'archived' => 'Archived',
+                'restored' => 'Restored',
+                'listing' => [
+                    'viewed' => 'Listing viewed',
+                ],
+                'settings' => [
+                    'deal_stages_saved' => 'Deal stages saved',
+                ],
+            ],
+        ],
+        'feed' => [
+            'title' => 'What is happening',
+            'empty' => 'Nothing yet',
+            'pin' => [
+                'taken' => ':name pinned property #:listing',
+                'transferred' => ':name transferred property #:listing',
+                'unavailable' => ':name marked property #:listing unavailable',
+                'released' => ':name released property #:listing',
+                'won' => ':name closed property #:listing with a deal',
+            ],
+            'deal' => [
+                'opened' => ':name opened a deal on property #:listing',
+                'stage_changed' => ':name moved the deal stage on property #:listing',
+                'won' => ':name won the deal on property #:listing',
+                'lost' => ':name lost the deal on property #:listing',
+            ],
+            'viewing' => [
+                'scheduled' => ':name scheduled a viewing of property #:listing',
+                'rescheduled' => ':name rescheduled the viewing of property #:listing',
+                'outcome' => ':name recorded the viewing outcome of property #:listing',
+            ],
+        ],
     ],
 ];

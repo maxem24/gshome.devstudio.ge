@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Filament;
 
+use App\Crm\Journal;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
 use App\Models\Phone;
@@ -11,6 +12,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
+use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
 
@@ -45,6 +47,33 @@ class ListingViewTest extends TestCase
             ->assertSee('https://home.ss.ge/13', escape: false)
             ->assertActionVisible('contactOwn')
             ->assertActionHidden('contactGroup');
+    }
+
+    public function test_listing_view_is_recorded(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $this->actingAs($lead);
+
+        Livewire::test(ListingView::class, ['listing' => 13]);
+
+        $a = Activity::query()->where('event', Journal::LISTING_VIEWED)->sole();
+        $this->assertSame(13, $a->properties['listing_id']);
+        $this->assertSame($lead->id, $a->causer_id);
+        $this->assertNull($a->subject_id);
+    }
+
+    public function test_listing_view_not_recorded_for_foreign_direction(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $this->actingAs(User::factory()->teamLead(null, Direction::Rent)->create());
+
+        try {
+            Livewire::test(ListingView::class, ['listing' => 13]);
+        } catch (\Throwable) {
+        }
+
+        $this->assertSame(0, Activity::query()->where('event', Journal::LISTING_VIEWED)->count());
     }
 
     public function test_other_company_has_no_contact_action(): void
