@@ -62,6 +62,7 @@ final readonly class Listing
         public array $clusterPhonesE164,
         public array $clusterListings,
         public ?Carbon $sourceCreatedAt,
+        public bool $partial = false,
     ) {}
 
     /** @param  array<string, mixed>  $d */
@@ -142,6 +143,7 @@ final readonly class Listing
                 'price_usd' => isset($m['price']['usd']) ? (float) $m['price']['usd'] : null,
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,
+            partial: (bool) ($d['partial'] ?? false),
         );
     }
 

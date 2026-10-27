@@ -12,8 +12,8 @@ use Illuminate\Support\Facades\Route;
 /** Поиск по сайтам закончился. Формат — база Filament, чтобы лежало в колокольчике. */
 class SiteSearchFinished extends BaseNotification
 {
-    /** Страница результата появится в Task 4; пока маршрута нет — уведомление без кнопки. */
-    public const RESULT_ROUTE = 'site-search.show';
+    /** Страница результата (SearchResult): имя маршрута задаёт Filament по слагу страницы. */
+    public const RESULT_ROUTE = 'filament.admin.pages.site-search';
 
     public function __construct(public readonly ListingSearch $search) {}
 

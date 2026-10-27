@@ -43,6 +43,7 @@ final class ListingRows
                 'created_at' => $l->sourceCreatedAt?->format('d.m.Y'),
                 'category' => $l->sellerCategory->getLabel(),
                 'image' => $l->mainThumb(),
+                'partial' => $l->partial,
                 'ownership_label' => $own->label->getLabel(),
                 'ownership_color' => self::color($own->label),
                 'ownership_company' => $own->companyName,
