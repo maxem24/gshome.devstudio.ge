@@ -168,6 +168,18 @@ class FindListingTest extends TestCase
         Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentHidden('other_direction', 'mountedActionSchema0');
     }
 
+    public function test_toggle_switches_the_deal_field_to_the_other_direction_and_back(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)->mountAction('find')
+            ->fillForm(['other_direction' => true])
+            ->assertSchemaStateSet(['deal' => 'rent'], 'mountedActionSchema0')
+            ->fillForm(['other_direction' => false])
+            ->assertSchemaStateSet(['deal' => 'sale'], 'mountedActionSchema0');
+    }
+
     public function test_sale_agent_searches_rent_through_the_hidden_option(): void
     {
         RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);

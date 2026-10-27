@@ -177,7 +177,7 @@ class FindListing extends Component implements HasActions, HasSchemas
 
         return [
             Select::make('deal')->label(__('gshome.search.deal'))
-                ->options(collect($directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all())
+                ->options(fn (Get $get): array => collect($get('other_direction') ? Direction::cases() : $directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all())
                 ->default(count($directions) === 1 ? $directions[0]->value : null)
                 ->placeholder(__('gshome.listings.all'))
                 ->selectablePlaceholder(count($directions) > 1)
@@ -218,6 +218,7 @@ class FindListing extends Component implements HasActions, HasSchemas
             Section::make(__('gshome.search.extra_filters'))->collapsed()->compact()->schema([
                 Toggle::make('other_direction')->label(__('gshome.search.other_direction', ['direction' => self::otherDirection($directions)?->getLabel()]))
                     ->live()
+                    ->afterStateUpdated(fn (Set $set, bool $state) => $set('deal', ($state ? self::otherDirection($directions) : $directions[0])?->value))
                     ->visible(self::otherDirection($directions) !== null),
             ])->visible(self::otherDirection($directions) !== null),
             Text::make(__('gshome.search.base_own_only'))->key('base_hint')->color('warning')

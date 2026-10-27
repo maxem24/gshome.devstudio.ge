@@ -243,7 +243,7 @@ return [
         'rejected_district' => 'This district is not supported by the sites',
         'ss_hint' => 'ss.ge needs a city or district and exactly one property type, otherwise we will search myhome.ge only. ss.ge takes one deal type: if you have both directions and leave Deal empty, ss.ge is skipped',
         'extra_filters' => 'Extra filters',
-        'other_direction' => 'Search the other direction too (:direction)',
+        'other_direction' => 'Search the other direction: :direction',
         'base_own_only' => 'In the database you only see your own direction; search on the sites',
         'low_sale_price' => 'Sale price up to $:price, please check the amount (enter it in full, in dollars)',
         'zero_but_found' => 'Found :found on the sites, but none passed your filters: :filters',
