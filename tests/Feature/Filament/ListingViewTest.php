@@ -9,7 +9,9 @@ use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
 use App\Models\Client;
+use App\Models\Company;
 use App\Models\ListingPin;
+use App\Models\ListingSearch;
 use App\Models\Phone;
 use App\Models\SavedListing;
 use App\Models\User;
@@ -17,6 +19,7 @@ use App\RealEstate\Listing;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -122,6 +125,59 @@ class ListingViewTest extends TestCase
         $this->actingAs(User::factory()->teamLead(direction: Direction::Rent)->create());
 
         $this->get('/admin/listings/13')->assertNotFound();
+    }
+
+    /** @return array{0: User, 1: ListingSearch} продавец и его поиск по сайтам, нашедший аренду (13) */
+    private function sellerWithRentSearch(array $ids = [13]): array
+    {
+        $agent = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Sale)->create())->create();
+        $search = ListingSearch::query()->create([
+            'user_id' => $agent->id, 'filters' => ['deal' => 'rent'], 'body_hash' => sha1((string) microtime()),
+            'remote_id' => (string) Str::uuid(), 'status' => 'done', 'sites' => [], 'found' => count($ids),
+            'listing_ids' => $ids, 'started_at' => now(), 'finished_at' => now(),
+        ]);
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['deal_type' => ['id' => 2, 'slug' => 'rent']])]);
+
+        return [$agent, $search];
+    }
+
+    public function test_other_direction_opens_from_own_search_containing_it(): void
+    {
+        [$agent, $search] = $this->sellerWithRentSearch();
+
+        $this->actingAs($agent)->get('/admin/listings/13?search='.$search->id)->assertOk();
+        $this->assertSame(1, Activity::query()->where('event', Journal::LISTING_VIEWED)->count());
+    }
+
+    public function test_other_direction_without_search_is_404(): void
+    {
+        [$agent] = $this->sellerWithRentSearch();
+
+        $this->actingAs($agent)->get('/admin/listings/13')->assertNotFound();
+        $this->actingAs($agent)->get('/admin/listings/13?search=abc')->assertNotFound();
+    }
+
+    public function test_other_direction_with_foreign_search_is_404(): void
+    {
+        [$agent] = $this->sellerWithRentSearch();
+        [, $foreign] = $this->sellerWithRentSearch();
+
+        $this->actingAs($agent)->get('/admin/listings/13?search='.$foreign->id)->assertNotFound();
+    }
+
+    public function test_other_direction_with_search_not_containing_listing_is_404(): void
+    {
+        [$agent, $search] = $this->sellerWithRentSearch([14]);
+
+        $this->actingAs($agent)->get('/admin/listings/13?search='.$search->id)->assertNotFound();
+    }
+
+    public function test_search_does_not_open_a_direction_the_search_did_not_use(): void
+    {
+        [$agent, $search] = $this->sellerWithRentSearch();
+        $search->update(['filters' => ['deal' => 'sale']]);
+
+        $this->actingAs($agent)->get('/admin/listings/13?search='.$search->id)->assertNotFound();
     }
 
     public function test_daily_rent_and_pledge_are_404_even_for_owner(): void

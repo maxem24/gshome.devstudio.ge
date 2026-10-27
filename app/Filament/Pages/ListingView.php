@@ -14,6 +14,7 @@ use App\Enums\OwnershipLabel;
 use App\Enums\Role;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
 use App\Models\ListingPin;
+use App\Models\ListingSearch;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
@@ -54,6 +55,19 @@ class ListingView extends Page
         return '/listings/{listing}';
     }
 
+    private function foundBySearch(User $viewer, Listing $listing, Direction $direction): bool
+    {
+        $id = request()->query('search');
+        if (! is_string($id) || ! ctype_digit($id) || (int) $id <= 0) {
+            return false;
+        }
+        $search = ListingSearch::query()->visibleTo($viewer)->with('user')->find((int) $id);
+
+        return $search !== null
+            && in_array($listing->id, array_map('intval', $search->listing_ids ?? []), true)
+            && in_array($direction, $search->directions(), true);
+    }
+
     public function mount(int|string $listing): void
     {
         $viewer = $this->viewer();
@@ -68,7 +82,9 @@ class ListingView extends Page
         }
 
         $direction = $l?->direction();
-        abort_if($l === null || $direction === null || ! in_array($direction, OrgAccess::directions($viewer), true), 404);
+        abort_if($l === null || $direction === null, 404);
+        // Чужое направление открывается только из собственного поиска по сайтам, в выдачу которого объявление входит.
+        abort_unless(in_array($direction, OrgAccess::directions($viewer), true) || $this->foundBySearch($viewer, $l, $direction), 404);
 
         // Просмотр пишем после проверки направления; mount идёт раз на загрузку страницы.
         Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);

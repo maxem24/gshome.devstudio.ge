@@ -8,6 +8,7 @@ use App\Enums\Direction;
 use App\Filament\Pages\Listings;
 use App\Filament\Pages\MySearches;
 use App\Models\User;
+use App\RealEstate\DictionaryOptions;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\RealEstateClient;
@@ -168,11 +169,7 @@ class FindListing extends Component implements HasActions, HasSchemas
     {
         $client = app(RealEstateClient::class);
         $directions = OrgAccess::directions($this->viewer());
-        $dictionary = fn (string $name, array $params = []): array => rescue(
-            fn (): array => $client->dictionary($name, $params)->mapWithKeys(fn (array $r): array => [$r['id'] => RealEstateClient::title($r)])->all(),
-            [],
-            report: false,
-        );
+        $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
         $ids = fn (mixed $value): array => array_values(array_filter((array) $value, fn (mixed $v): bool => is_scalar($v) && ctype_digit((string) $v) && (int) $v > 0));
 
         return [
@@ -186,16 +183,27 @@ class FindListing extends Component implements HasActions, HasSchemas
             Grid::make(['default' => 1, 'sm' => 2])->schema([
                 Select::make('city_id')->label(__('gshome.listings.city'))
                     ->options(fn (): array => $dictionary('cities'))->searchable()->live()
+                    ->getSearchResultsUsing(fn (string $search): array => DictionaryOptions::search('cities', [], $search))
                     ->afterStateUpdated(function (Set $set): void {
                         $set('district_id', []);
                         $set('subdistrict_id', []);
                     }),
                 Select::make('property_type_id')->label(__('gshome.listings.property_type'))
-                    ->options(fn (): array => $dictionary('property-types'))->searchable(),
+                    ->options(fn (): array => $dictionary('property-types'))->searchable()
+                    ->getSearchResultsUsing(fn (string $search): array => DictionaryOptions::search('property-types', [], $search)),
                 Select::make('district_id')->label(__('gshome.listings.district'))->multiple()->searchable()->live()
                     ->options(fn (Get $get): array => ($city = $ids([$get('city_id')])) !== [] ? $dictionary('districts', ['city_id' => (int) $city[0]]) : [])
+                    ->getSearchResultsUsing(fn (string $search, Get $get): array => ($city = $ids([$get('city_id')])) !== [] ? DictionaryOptions::search('districts', ['city_id' => (int) $city[0]], $search) : [])
                     ->afterStateUpdated(fn (Set $set) => $set('subdistrict_id', [])),
                 Select::make('subdistrict_id')->label(__('gshome.search.subdistrict'))->multiple()->searchable()
+                    ->getSearchResultsUsing(function (string $search, Get $get) use ($ids): array {
+                        $out = [];
+                        foreach (array_slice($ids($get('district_id')), 0, 5) as $district) {
+                            $out += DictionaryOptions::search('subdistricts', ['district_id' => (int) $district], $search);
+                        }
+
+                        return $out;
+                    })
                     ->options(function (Get $get) use ($ids, $dictionary): array {
                         $out = [];
                         // Подрайоны каждого выбранного района; пять районов — предел, чтобы не плодить запросы.

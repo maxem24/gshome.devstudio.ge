@@ -32,6 +32,7 @@ class BrandingTest extends TestCase
             ->assertOk()
             ->assertSee('images/brand/icon-32.png', false)
             ->assertSee('rel="apple-touch-icon"', false)
+            ->assertSee('window.history.back()', false)
             ->assertSee('manifest.webmanifest', false)
             ->assertSee('href="tel:+995577608626"', false)
             ->assertSee('href="tel:+995511288500"', false);

@@ -2,6 +2,7 @@
 
 return [
     'nav' => [
+        'back' => 'Back',
         'listings' => 'Properties',
         'saved' => 'Saved for later',
         'org' => 'Organization',
