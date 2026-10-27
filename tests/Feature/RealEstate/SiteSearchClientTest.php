@@ -74,17 +74,21 @@ class SiteSearchClientTest extends TestCase
         $this->assertSame([1], SiteSearchRequest::build($lead, ['deal' => 'sale'])['deal_type_id']);
     }
 
-    public function test_forged_rent_throws_forbidden_and_sends_nothing(): void
+    public function test_sale_agent_can_search_rent_via_the_hidden_option(): void
     {
         RealEstateFake::fake();
         $lead = User::factory()->teamLead(direction: Direction::Sale)->create();
 
-        try {
-            SiteSearchRequest::build($lead, ['deal' => 'rent']);
-            $this->fail('нет исключения');
-        } catch (CrmForbidden) {
-        }
-        Http::assertNothingSent();
+        $this->assertSame([2], SiteSearchRequest::build($lead, ['deal' => 'rent'])['deal_type_id']);
+    }
+
+    public function test_unknown_deal_throws_forbidden(): void
+    {
+        RealEstateFake::fake();
+        $lead = User::factory()->teamLead(direction: Direction::Sale)->create();
+
+        $this->expectException(CrmForbidden::class);
+        SiteSearchRequest::build($lead, ['deal' => 'lease']);
     }
 
     #[RunInSeparateProcess]

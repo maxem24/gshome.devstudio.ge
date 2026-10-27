@@ -2,7 +2,6 @@
 
 namespace App\Filament\Pages;
 
-use App\Access\OrgAccess;
 use App\Models\ListingSearch;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
@@ -128,7 +127,8 @@ class SearchResult extends Page implements HasTable
             return [];
         }
 
-        $allowed = OrgAccess::directions($viewer);
+        // Направление берём у самого поиска: агент продаж мог искать аренду (02_Решения, 27.10). Доступ к поиску решает visibleTo.
+        $allowed = $search->directions();
         $listings = [];
         $error = null;
         foreach (app(RealEstateClient::class)->listingsByIds($ids) as $listing) {

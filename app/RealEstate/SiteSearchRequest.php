@@ -73,8 +73,9 @@ final class SiteSearchRequest
         $chosen = null;
         if (filled($deal)) {
             $chosen = is_string($deal) ? Direction::tryFrom($deal) : null;
-            if ($chosen === null || ! in_array($chosen, $allowed, true)) {
-                throw new CrmForbidden('Поиск по сделке, которой у человека нет');
+            // Осознанное отступление (02_Решения, 27.10): на сайтах можно искать и в другом направлении. Неизвестная сделка — подделка.
+            if ($chosen === null) {
+                throw new CrmForbidden('Неизвестная сделка');
             }
         }
         $ids = app(RealEstateClient::class)->dealTypeIds();

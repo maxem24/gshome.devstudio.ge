@@ -260,4 +260,21 @@ class MySearchesTest extends TestCase
         $found = $this->search($this->nino, ['found' => 0, 'listing_ids' => []]);
         $this->assertFalse($found->zeroButFound());
     }
+
+    public function test_result_shows_rent_cards_for_the_sale_agents_own_rent_search(): void
+    {
+        $search = $this->search($this->nino, ['filters' => ['deal' => 'rent', 'city_id' => 1], 'listing_ids' => [14], 'found' => 1]);
+        RealEstateFake::fake([], [
+            14 => RealEstateFake::listing([
+                'id' => 14,
+                'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'],
+                'title' => ['ru' => 'Аренда в Сабуртало'],
+            ]),
+        ]);
+        $this->actingAs($this->nino);
+
+        Livewire::test(SearchResult::class, ['search' => $search->id])
+            ->assertSee('Аренда в Сабуртало')
+            ->assertSet('hidden', 0);
+    }
 }

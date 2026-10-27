@@ -140,26 +140,58 @@ class FindListingTest extends TestCase
             ->assertActionMounted('find');
     }
 
-    public function test_single_direction_agent_has_no_deal_field(): void
-    {
-        RealEstateFake::fake();
-        $this->actingAs($this->seller());
-        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentHidden('deal', 'mountedActionSchema0');
-
-        $this->actingAs(User::factory()->owner()->create());
-        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentVisible('deal', 'mountedActionSchema0');
-    }
-
-    public function test_single_direction_agent_sees_read_only_direction_line(): void
+    public function test_deal_select_is_always_there_and_defaults_to_the_team_direction(): void
     {
         RealEstateFake::fake();
         $this->actingAs($this->seller());
         Livewire::test(FindListing::class)->mountAction('find')
-            ->assertSchemaComponentVisible('direction_line', 'mountedActionSchema0');
-        $this->assertSame('Ищем: Продажа — направление вашей команды', __('gshome.search.direction_line', ['direction' => Direction::Sale->getLabel()]));
+            ->assertSchemaComponentVisible('deal', 'mountedActionSchema0')
+            ->assertSchemaStateSet(['deal' => 'sale'], 'mountedActionSchema0');
+
+        $lead = User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create();
+        $this->actingAs($lead);
+        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaStateSet(['deal' => 'rent'], 'mountedActionSchema0');
 
         $this->actingAs(User::factory()->owner()->create());
-        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentHidden('direction_line', 'mountedActionSchema0');
+        Livewire::test(FindListing::class)->mountAction('find')
+            ->assertSchemaComponentVisible('deal', 'mountedActionSchema0')
+            ->assertSchemaStateSet(['deal' => null], 'mountedActionSchema0');
+    }
+
+    public function test_other_direction_toggle_only_for_one_direction_users(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentVisible('other_direction', 'mountedActionSchema0');
+
+        $this->actingAs(User::factory()->owner()->create());
+        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentHidden('other_direction', 'mountedActionSchema0');
+    }
+
+    public function test_sale_agent_searches_rent_through_the_hidden_option(): void
+    {
+        RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1, 'property_type_id' => 1, 'deal' => 'sale', 'other_direction' => true, 'price_usd_max' => 500])
+            ->assertNotified(__('gshome.search.started'));
+
+        $search = ListingSearch::query()->firstOrFail();
+        $this->assertSame('rent', $search->filters['deal']);
+        $this->assertArrayNotHasKey('other_direction', $search->filters);
+        Http::assertSent(fn (Request $r): bool => str_contains($r->url(), 'search-jobs') && ($r->data()['deal_type_id'] ?? null) === [2]);
+    }
+
+    public function test_show_in_base_is_refused_for_the_other_direction(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1, 'other_direction' => true], ['base' => true])
+            ->assertNotified(__('gshome.search.base_own_only'))
+            ->assertNoRedirect();
     }
 
     public function test_low_sale_price_warns_but_rent_does_not_and_submit_(): void
@@ -170,7 +202,9 @@ class FindListingTest extends TestCase
             ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0')
             ->fillForm(['price_usd_max' => 500])
             ->assertSchemaComponentVisible('low_price_warning', 'mountedActionSchema0')
-            ->fillForm(['price_usd_max' => 90000])
+            ->fillForm(['other_direction' => true])
+            ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0')
+            ->fillForm(['other_direction' => false, 'price_usd_max' => 90000])
             ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0');
 
         $this->actingAs(User::factory()->owner()->create());
