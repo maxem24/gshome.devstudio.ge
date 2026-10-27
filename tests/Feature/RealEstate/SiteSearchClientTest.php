@@ -128,7 +128,7 @@ class SiteSearchClientTest extends TestCase
     {
         RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
 
-        $status = app(RealEstateClient::class)->startSearch(['city_id' => 1, 'district_id' => [3]]);
+        $status = app(RealEstateClient::class)->startSearch(['city_id' => [1], 'district_id' => [3]]);
 
         $this->assertSame('queued', $status->status);
         $this->assertSame('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11', $status->id);
@@ -137,7 +137,7 @@ class SiteSearchClientTest extends TestCase
         Http::assertSent(fn (Request $r): bool => $r->method() === 'POST'
             && str_ends_with($r->url(), '/search-jobs')
             && $r->hasHeader('Content-Type', 'application/json')
-            && $r->data() === ['city_id' => 1, 'district_id' => [3]]);
+            && $r->data() === ['city_id' => [1], 'district_id' => [3]]);
     }
 
     public function test_start_search_may_return_done_from_cache_with_listing_ids(): void
