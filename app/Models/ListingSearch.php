@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Access\OrgAccess;
+use App\Search\FiltersSummary;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -65,6 +66,20 @@ class ListingSearch extends Model
         return $this->truncated
             ? __('gshome.search.found_on_sites_truncated', ['found' => $this->found, 'shown' => $this->shown()], $locale)
             : __('gshome.search.found_on_sites', ['found' => $this->found], $locale);
+    }
+
+    /** Сайты что-то нашли, но ни одно объявление не прошло наши фильтры. */
+    public function zeroButFound(): bool
+    {
+        return $this->status === 'done' && $this->shown() === 0 && $this->found > 0;
+    }
+
+    public function zeroButFoundNote(?string $locale = null): string
+    {
+        return __('gshome.search.zero_but_found', [
+            'found' => $this->found,
+            'filters' => FiltersSummary::make($this->filters, $this->user, $locale),
+        ], $locale);
     }
 
     public function isRunning(): bool

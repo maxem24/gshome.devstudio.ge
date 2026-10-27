@@ -144,6 +144,9 @@ class FindListing extends Component implements HasActions, HasSchemas
         $ids = fn (mixed $value): array => array_values(array_filter((array) $value, fn (mixed $v): bool => is_scalar($v) && ctype_digit((string) $v) && (int) $v > 0));
 
         return [
+            Text::make(fn (): string => __('gshome.search.direction_line', ['direction' => $directions[0]->getLabel()]))
+                ->key('direction_line')->color('gray')
+                ->visible(count($directions) === 1),
             Select::make('deal')->label(__('gshome.search.deal'))
                 ->options(collect($directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all())
                 ->placeholder(__('gshome.listings.all'))
@@ -170,8 +173,11 @@ class FindListing extends Component implements HasActions, HasSchemas
 
                         return $out;
                     }),
-                TextInput::make('price_usd_min')->label(__('gshome.listings.price_min'))->numeric()->minValue(0),
-                TextInput::make('price_usd_max')->label(__('gshome.listings.price_max'))->numeric()->minValue(0),
+                TextInput::make('price_usd_min')->label(__('gshome.listings.price_min'))->numeric()->minValue(0)->live(onBlur: true),
+                TextInput::make('price_usd_max')->label(__('gshome.listings.price_max'))->numeric()->minValue(0)->live(onBlur: true),
+                Text::make(fn (Get $get): string => __('gshome.search.low_sale_price', ['price' => number_format(self::lowSalePrice($get, $directions) ?? 0)]))
+                    ->key('low_price_warning')->color('warning')->columnSpanFull()
+                    ->visible(fn (Get $get): bool => self::lowSalePrice($get, $directions) !== null),
                 TextInput::make('area_min')->label(__('gshome.listings.area_min'))->numeric()->minValue(0),
                 TextInput::make('area_max')->label(__('gshome.listings.area_max'))->numeric()->minValue(0),
             ]),
@@ -179,6 +185,28 @@ class FindListing extends Component implements HasActions, HasSchemas
                 ->options([1 => '1', 2 => '2', 3 => '3', 4 => '4', 5 => '5+']),
             Text::make(__('gshome.search.ss_hint'))->color('gray')->size('sm'),
         ];
+    }
+
+    /**
+     * Продажа дешевле $10 000 почти всегда ошибка (цену ввели в тысячах или это аренда).
+     * Возвращает подозрительную сумму или null, если предупреждать не о чем.
+     *
+     * @param  list<Direction>  $directions
+     */
+    private static function lowSalePrice(Get $get, array $directions): ?float
+    {
+        $deal = count($directions) === 1 ? $directions[0] : Direction::tryFrom((string) $get('deal'));
+        if ($deal !== Direction::Sale) {
+            return null;
+        }
+        foreach (['price_usd_max', 'price_usd_min'] as $key) {
+            $value = $get($key);
+            if (is_numeric($value) && (float) $value > 0 && (float) $value < 10000) {
+                return (float) $value;
+            }
+        }
+
+        return null;
     }
 
     private function viewer(): User

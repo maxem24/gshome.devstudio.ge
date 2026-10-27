@@ -149,4 +149,45 @@ class FindListingTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
         Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentVisible('deal', 'mountedActionSchema0');
     }
+
+    public function test_single_direction_agent_sees_read_only_direction_line(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+        Livewire::test(FindListing::class)->mountAction('find')
+            ->assertSchemaComponentVisible('direction_line', 'mountedActionSchema0');
+        $this->assertSame('Ищем: Продажа — направление вашей команды', __('gshome.search.direction_line', ['direction' => Direction::Sale->getLabel()]));
+
+        $this->actingAs(User::factory()->owner()->create());
+        Livewire::test(FindListing::class)->mountAction('find')->assertSchemaComponentHidden('direction_line', 'mountedActionSchema0');
+    }
+
+    public function test_low_sale_price_warns_but_rent_does_not_and_submit_(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+        Livewire::test(FindListing::class)->mountAction('find')
+            ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0')
+            ->fillForm(['price_usd_max' => 500])
+            ->assertSchemaComponentVisible('low_price_warning', 'mountedActionSchema0')
+            ->fillForm(['price_usd_max' => 90000])
+            ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0');
+
+        $this->actingAs(User::factory()->owner()->create());
+        Livewire::test(FindListing::class)->mountAction('find')
+            ->fillForm(['deal' => 'rent', 'price_usd_max' => 500])
+            ->assertSchemaComponentHidden('low_price_warning', 'mountedActionSchema0')
+            ->fillForm(['deal' => 'sale'])
+            ->assertSchemaComponentVisible('low_price_warning', 'mountedActionSchema0');
+    }
+
+    public function test_low_sale_price_does_not_block_submit(): void
+    {
+        RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $this->actingAs($this->seller());
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1, 'property_type_id' => 1, 'price_usd_max' => 500])
+            ->assertNotified(__('gshome.search.started'));
+        $this->assertSame(1, ListingSearch::query()->count());
+    }
 }

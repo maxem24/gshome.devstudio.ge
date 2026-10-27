@@ -16,7 +16,11 @@
             >
         </div>
         @if ($search->status === 'done')
-            <p class="text-sm text-gray-500">{{ $search->foundOnSitesNote() }}</p>
+            @if ($search->zeroButFound())
+                <p class="text-warning-600 dark:text-warning-400 text-sm" role="status">{{ $search->zeroButFoundNote() }}</p>
+            @else
+                <p class="text-sm text-gray-500">{{ $search->foundOnSitesNote() }}</p>
+            @endif
         @endif
         @if ($search->message)
             <p class="text-sm">{{ $search->message }}</p>

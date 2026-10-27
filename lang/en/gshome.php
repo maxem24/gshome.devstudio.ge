@@ -223,8 +223,8 @@ return [
         'pair_exists' => 'This pair of companies already exists.',
     ],
     'search' => [
-        'done' => 'Search is ready: :count listings',
-        'done_partial' => 'Search is partly ready: :count listings',
+        'done' => 'Search is ready: :count listing|Search is ready: :count listings',
+        'done_partial' => 'Search is partly ready: :count listing|Search is partly ready: :count listings',
         'failed' => 'Search failed',
         'timed_out' => 'The collectors did not finish in time',
         'lost' => 'The search was lost on the Real Estate side',
@@ -242,6 +242,9 @@ return [
         'rejected' => 'The sites did not accept these filters, change the search',
         'rejected_district' => 'This district is not supported by the sites',
         'ss_hint' => 'ss.ge needs a city or district and exactly one property type, otherwise we will search myhome.ge only. ss.ge takes one deal type: if you have both directions and leave Deal empty, ss.ge is skipped',
+        'direction_line' => 'Searching: :direction, your team\'s direction',
+        'low_sale_price' => 'Sale price up to $:price, please check the amount (enter it in full, in dollars)',
+        'zero_but_found' => 'Found :found on the sites, but none passed your filters: :filters',
         'deal' => 'Deal',
         'subdistrict' => 'Subdistrict',
         'mine' => [

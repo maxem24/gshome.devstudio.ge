@@ -114,7 +114,7 @@ class SiteSearchesTest extends TestCase
         $this->assertNotNull($search->notified_at);
         $this->assertSame(1, $this->nino->notifications()->count());
         $notification = $this->nino->notifications()->first()->data;
-        $this->assertSame('Поиск готов: 1 объявлений', $notification['title']);
+        $this->assertSame('Поиск готов: 1 объявление', $notification['title']);
         $this->assertSame('Найдено на сайтах: 3', $notification['body']);
         $this->assertSame(1, Activity::query()->where('event', 'search.finished')->count());
     }
@@ -129,7 +129,7 @@ class SiteSearchesTest extends TestCase
 
         app(SiteSearches::class)->start($this->nino, $this->form);
 
-        $this->assertSame('Поиск готов частично: 2 объявлений', $this->nino->notifications()->first()->data['title']);
+        $this->assertSame('Поиск готов частично: 2 объявления', $this->nino->notifications()->first()->data['title']);
     }
 
     public function test_timeout_marks_timed_out_and_notifies(): void
@@ -217,7 +217,7 @@ class SiteSearchesTest extends TestCase
 
         app(SiteSearches::class)->start($this->nino, $this->form);
 
-        $this->assertSame('Поиск готов: 4 объявлений', $this->nino->notifications()->first()->data['title']);
+        $this->assertSame('Поиск готов: 4 объявления', $this->nino->notifications()->first()->data['title']);
     }
 
     public function test_job_failure_closes_running_search_as_failed_and_notifies(): void
