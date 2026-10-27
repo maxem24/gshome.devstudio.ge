@@ -222,6 +222,9 @@ return [
         'phone_taken' => 'This number is already in use.',
         'pair_exists' => 'This pair of companies already exists.',
     ],
+    'search' => [
+        'filters_required' => 'Specify at least a city or district and a property type — otherwise the search is too broad.',
+    ],
     'errors' => [
         'unavailable' => 'Real Estate is unavailable, try again later.',
         'access_denied' => 'Access to Real Estate is closed — the key expired or was revoked. Tell an administrator.',
