@@ -49,6 +49,7 @@ class AdminPanelProvider extends PanelProvider
             ->darkModeBrandLogo(asset('images/brand/logo-white.png'))
             ->brandLogoHeight('3.25rem')
             ->favicon(asset('images/brand/icon-32.png'))
+            ->renderHook(PanelsRenderHook::TOPBAR_LOGO_AFTER, fn (): string => Auth::check() ? view('filament.brand.back')->render() : '')
             ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('filament.brand.head'))
             ->renderHook(PanelsRenderHook::FOOTER, fn () => view('filament.brand.contacts'))
             ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('filament.brand.contacts'))
