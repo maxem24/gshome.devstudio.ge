@@ -27,7 +27,7 @@ class SiteSearchFinished extends BaseNotification
     public function toDatabase(User $notifiable): array
     {
         $locale = $notifiable->locale->value;
-        $count = $this->search->found;
+        $count = $this->search->shown();
 
         $title = match (true) {
             $this->search->status === 'done' && $this->search->isPartial() => __('gshome.search.done_partial', ['count' => $count], $locale),
@@ -37,7 +37,9 @@ class SiteSearchFinished extends BaseNotification
         };
 
         $notification = Notification::make()->title($title);
-        if ($this->search->status !== 'done' && $this->search->message && $this->search->message !== $title) {
+        if ($this->search->status === 'done') {
+            $notification->body($this->search->foundOnSitesNote($locale));
+        } elseif ($this->search->message && $this->search->message !== $title) {
             $notification->body($this->search->message);
         }
         if (Route::has(self::RESULT_ROUTE)) {

@@ -6,6 +6,7 @@ use App\Access\OrgAccess;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\Direction;
 use App\Filament\Pages\Listings;
+use App\Filament\Pages\MySearches;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
@@ -69,16 +70,20 @@ class FindListing extends Component implements HasActions, HasSchemas
         $user = $this->viewer();
         // Права проверяем на сервере: форма могла быть подделана.
         try {
-            app(SiteSearches::class)->start($user, $data);
+            $start = app(SiteSearches::class)->start($user, $data);
         } catch (CrmForbidden) {
             abort(403);
         } catch (RealEstateRateLimited) {
             $this->fail(__('gshome.search.rate_limited'), $action);
+
+            return;
         } catch (RealEstateException $e) {
             $this->fail($e->userMessage(), $action);
+
+            return;
         }
 
-        Notification::make()->success()->title(__('gshome.search.started'))->send();
+        MySearches::notifyStart($start);
     }
 
     /** Окно не закрываем: человек поправит поиск и повторит. */

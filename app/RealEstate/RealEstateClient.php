@@ -8,6 +8,7 @@ use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateSearchNotFound;
+use App\RealEstate\Exceptions\RealEstateSearchRejected;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use Carbon\Carbon;
@@ -110,15 +111,23 @@ class RealEstateClient
         if ($response->status() === 422 && $response->json('error.code') === 'filters_required') {
             throw new RealEstateFiltersRequired((string) $response->json('error.message'));
         }
+        if ($response->status() === 422 && $response->json('error.code') === 'validation_failed') {
+            $fields = $response->json('error.fields');
+            $names = is_array($fields) ? array_map('strval', array_keys($fields)) : [];
+            // Не наш баг, а отказ сайтов по фильтрам: предупреждение, не ошибка.
+            Log::warning('Real Estate отклонил фильтры поиска по сайтам', ['fields' => $fields]);
+
+            throw new RealEstateSearchRejected('Real Estate: HTTP 422 validation_failed', $names);
+        }
 
         return $this->searchStatusFrom('/search-jobs', $this->checked('/search-jobs', $response, false));
     }
 
     /** Состояние поиска; чужой или несуществующий id (404) — RealEstateBadRequest. */
-    public function searchStatus(string $id): SiteSearchStatus
+    public function searchStatus(string $id, ?string $lang = null): SiteSearchStatus
     {
         $path = '/search-jobs/'.rawurlencode($id);
-        $response = $this->send(fn () => $this->http()->get($path, ['lang' => app()->getLocale()]));
+        $response = $this->send(fn () => $this->http()->get($path, ['lang' => $lang ?? app()->getLocale()]));
 
         // 404 — ожидаемый случай (чужой или протухший id): без Log::error из badRequest().
         $checked = $this->checked($path, $response, allowNotFound: true)

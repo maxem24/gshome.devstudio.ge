@@ -7,11 +7,13 @@ use App\Jobs\PollListingSearch;
 use App\Models\ListingSearch;
 use App\Models\User;
 use App\Notifications\SiteSearchFinished;
+use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateSearchNotFound;
 use App\RealEstate\RealEstateClient;
 use App\RealEstate\SiteSearchRequest;
 use App\RealEstate\SiteSearchStatus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /** Поиск по сайтам: старт, обновление состояния, завершение с уведомлением в колокольчик. */
 class SiteSearches
@@ -23,20 +25,20 @@ class SiteSearches
      *
      * @param  array<string, mixed>  $form
      */
-    public function start(User $by, array $form): ListingSearch
+    public function start(User $by, array $form): SearchStart
     {
         $body = SiteSearchRequest::build($by, $form);
         $hash = sha1((string) json_encode($body));
 
         // Проверка и создание под advisory-замком: два одновременных старта с теми же фильтрами шлют один POST.
-        $search = DB::transaction(function () use ($by, $form, $body, $hash): ListingSearch {
+        $start = DB::transaction(function () use ($by, $form, $body, $hash): SearchStart {
             DB::select('select pg_advisory_xact_lock(?)', [crc32($by->getKey().':'.$hash)]);
 
             $same = ListingSearch::query()->where('user_id', $by->getKey())->where('body_hash', $hash);
 
             $running = (clone $same)->whereIn('status', ListingSearch::RUNNING)->latest('id')->first();
             if ($running !== null && $running->started_at->gt(now()->subMinutes((int) config('search.timeout_minutes', 30)))) {
-                return $running;
+                return new SearchStart($running, SearchStart::RUNNING);
             }
             if ($running !== null) {
                 // Опрос давно умер: поиск «в работе» навсегда заблокировал бы повтор.
@@ -47,7 +49,7 @@ class SiteSearches
                 ->where('finished_at', '>=', now()->subMinutes((int) config('search.reuse_minutes', 30)))
                 ->latest('id')->first();
             if ($fresh !== null) {
-                return $fresh;
+                return new SearchStart($fresh, SearchStart::REUSED);
             }
 
             $status = $this->client->startSearch($body);
@@ -64,18 +66,25 @@ class SiteSearches
 
             Journal::record(Journal::SEARCH_STARTED, $search, [], $by);
 
-            return $search;
+            return new SearchStart($search, SearchStart::NEW);
         });
 
-        if ($search->wasRecentlyCreated) {
+        $search = $start->search;
+        if ($start->kind === SearchStart::NEW) {
             if ($search->isRunning()) {
-                PollListingSearch::dispatch($search->id)->delay((int) config('search.poll_seconds', 10));
+                try {
+                    PollListingSearch::dispatch($search->id)->delay((int) config('search.poll_seconds', 10));
+                } catch (\Throwable $e) {
+                    // Очередь недоступна: без опроса поиск осиротел бы — закрываем и уведомляем, а не отдаём 500.
+                    Log::error('Не удалось поставить опрос поиска по сайтам', ['search' => $search->id, 'error' => $e->getMessage()]);
+                    $this->close($search, 'failed', __('gshome.search.failed', [], $by->locale->value));
+                }
             } else {
                 $this->finish($search);
             }
         }
 
-        return $search;
+        return $start;
     }
 
     /** Спрашивает Real Estate о состоянии; закончен — завершает. Потерянный на их стороне поиск (404) — failed. */
@@ -86,9 +95,14 @@ class SiteSearches
         }
 
         try {
-            $status = $this->client->searchStatus($search->remote_id);
+            $status = $this->client->searchStatus($search->remote_id, $search->user->locale->value);
         } catch (RealEstateSearchNotFound) {
             $this->close($search, 'failed', __('gshome.search.lost', [], $search->user->locale->value));
+
+            return;
+        } catch (RealEstateAccessDenied) {
+            // Ключ отозван: ждать 30 минут бессмысленно, пока ключ не вернут, поиск не продвинется.
+            $this->close($search, 'failed', __('gshome.errors.access_denied', [], $search->user->locale->value));
 
             return;
         }
@@ -98,6 +112,20 @@ class SiteSearches
         if (! $search->isRunning()) {
             $this->finish($search);
         }
+    }
+
+    /** Поиски, у которых давно нет опроса (очередь потеряла задание): закрывает как timed_out. Возвращает, сколько закрыто. */
+    public function sweep(): int
+    {
+        $stale = ListingSearch::query()->with('user')->whereIn('status', ListingSearch::RUNNING)
+            ->where('started_at', '<=', now()->subMinutes((int) config('search.timeout_minutes', 30)))
+            ->get();
+
+        foreach ($stale as $search) {
+            $this->close($search, 'timed_out', __('gshome.search.timed_out', [], $search->user->locale->value));
+        }
+
+        return $stale->count();
     }
 
     /** Закрывает идущий поиск своим статусом (failed, timed_out) и завершает; уже закрытый не трогает. */

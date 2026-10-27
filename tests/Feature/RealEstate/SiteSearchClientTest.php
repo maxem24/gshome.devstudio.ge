@@ -9,6 +9,7 @@ use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateSearchRejected;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\RealEstateClient;
 use App\RealEstate\SiteSearchRequest;
@@ -48,6 +49,20 @@ class SiteSearchClientTest extends TestCase
             'deal_type_id' => [1], 'city_id' => 1, 'property_type_id' => 2, 'district_id' => [3, 5],
             'rooms' => [2, 3], 'price_usd_max' => 90000, 'area_min' => 40.5,
         ], $body);
+    }
+
+    public function test_five_plus_rooms_use_rooms_min_or_expanded_list(): void
+    {
+        RealEstateFake::fake();
+        $owner = User::factory()->owner()->create();
+
+        $only = SiteSearchRequest::build($owner, ['deal' => 'sale', 'rooms' => [5]]);
+        $this->assertSame(5, $only['rooms_min']);
+        $this->assertArrayNotHasKey('rooms', $only);
+
+        $mixed = SiteSearchRequest::build($owner, ['deal' => 'sale', 'rooms' => [2, 5]]);
+        $this->assertSame([2, 5, 6, 7, 8, 9, 10], $mixed['rooms']);
+        $this->assertArrayNotHasKey('rooms_min', $mixed);
     }
 
     public function test_sale_agent_is_limited_to_sale(): void
@@ -190,6 +205,22 @@ class SiteSearchClientTest extends TestCase
 
         $this->assertSame('searching', $client->searchStatus('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11')->status);
         Http::assertSent(fn (Request $r): bool => $r->method() === 'GET' && str_contains($r->url(), 'lang='));
+    }
+
+    public function test_validation_failed_on_start_is_search_rejected_and_only_a_warning(): void
+    {
+        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['district_id' => 'Район 999999 не найден']]], 422)]);
+        $log = Log::spy();
+
+        try {
+            app(RealEstateClient::class)->startSearch(['district_id' => [999999]]);
+            $this->fail('нет исключения');
+        } catch (RealEstateSearchRejected $e) {
+            $this->assertSame(__('gshome.search.rejected_district'), $e->userMessage());
+        }
+        $log->shouldHaveReceived('warning')->once();
+        $log->shouldNotHaveReceived('error');
+        $this->assertFalse(Cache::has('real-estate:down'));
     }
 
     public function test_search_status_404_is_bad_request(): void

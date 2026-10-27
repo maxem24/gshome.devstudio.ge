@@ -9,6 +9,7 @@ use App\Models\ListingSearch;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\Search\SearchStart;
 use App\Search\SiteSearches;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -74,7 +75,9 @@ class MySearches extends Page implements HasTable
                     ->description(fn (ListingSearch $record): ?string => $record->message)->wrap(),
                 TextColumn::make('sites')->label(__('gshome.search.mine.sites'))
                     ->state(fn (ListingSearch $record): array => self::siteLines($record))->listWithLineBreaks()->wrap(),
-                TextColumn::make('found')->label(__('gshome.search.mine.found'))->numeric(),
+                TextColumn::make('found')->label(__('gshome.search.mine.found'))
+                    ->state(fn (ListingSearch $record): int => $record->shown())->numeric()
+                    ->description(fn (ListingSearch $record): ?string => $record->status === 'done' ? $record->foundOnSitesNote() : null),
                 TextColumn::make('started_at')->label(__('gshome.search.mine.started'))
                     ->dateTime('d.m.Y H:i', (string) config('crm.timezone')),
             ])
@@ -99,7 +102,7 @@ class MySearches extends Page implements HasTable
         abort_unless($search->user_id === $viewer->getKey(), 403);
 
         try {
-            app(SiteSearches::class)->start($viewer, $search->filters);
+            $start = app(SiteSearches::class)->start($viewer, $search->filters);
         } catch (CrmForbidden) {
             abort(403);
         } catch (RealEstateRateLimited) {
@@ -112,7 +115,21 @@ class MySearches extends Page implements HasTable
             return;
         }
 
-        Notification::make()->success()->title(__('gshome.search.started'))->send();
+        $this->notifyStart($start);
+    }
+
+    /** Что сказать после старта: новый поиск, такой же уже идёт или есть свежий готовый. */
+    public static function notifyStart(SearchStart $start): void
+    {
+        $notification = Notification::make()->success();
+        match ($start->kind) {
+            SearchStart::RUNNING => $notification->title(__('gshome.search.started_running')),
+            SearchStart::REUSED => $notification->title(__('gshome.search.reused'))->actions([
+                Action::make('open')->label(__('gshome.search.open'))->url(SearchResult::getUrl(['search' => $start->search->getKey()])),
+            ]),
+            default => $notification->title(__('gshome.search.started')),
+        };
+        $notification->send();
     }
 
     /**

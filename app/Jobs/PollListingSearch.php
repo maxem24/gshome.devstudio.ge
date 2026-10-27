@@ -49,9 +49,9 @@ class PollListingSearch implements ShouldQueue
     {
         Log::error('Опрос поиска по сайтам упал', ['search' => $this->searchId, 'error' => $e->getMessage()]);
 
-        $search = ListingSearch::query()->find($this->searchId);
+        $search = ListingSearch::query()->with('user')->find($this->searchId);
         if ($search !== null && $search->isRunning()) {
-            app(SiteSearches::class)->close($search, 'failed', __('gshome.search.failed'));
+            app(SiteSearches::class)->close($search, 'failed', __('gshome.search.failed', [], $search->user->locale->value));
         }
     }
 }

@@ -53,6 +53,20 @@ class ListingSearch extends Model
         return $this->belongsTo(User::class);
     }
 
+    /** Сколько объявлений прошло наши фильтры (≤100) — это число видно на странице результата. `found` — до фильтров, на сайтах. */
+    public function shown(): int
+    {
+        return count($this->listing_ids ?? []);
+    }
+
+    /** Подпись «найдено на сайтах: N» (+ «показаны M самых свежих», если выдача обрезана). */
+    public function foundOnSitesNote(?string $locale = null): string
+    {
+        return $this->truncated
+            ? __('gshome.search.found_on_sites_truncated', ['found' => $this->found, 'shown' => $this->shown()], $locale)
+            : __('gshome.search.found_on_sites', ['found' => $this->found], $locale);
+    }
+
     public function isRunning(): bool
     {
         return in_array($this->status, self::RUNNING, true);

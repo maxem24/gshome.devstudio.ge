@@ -8,6 +8,7 @@ use App\Livewire\FindListing;
 use App\Models\Company;
 use App\Models\ListingSearch;
 use App\Models\User;
+use App\Search\SiteSearches;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -100,6 +101,32 @@ class FindListingTest extends TestCase
 
         $this->assertStringContainsString('Сузьте поиск', __('gshome.search.filters_required'));
         $this->assertSame(0, ListingSearch::query()->count());
+    }
+
+    public function test_rejected_district_shows_search_specific_message(): void
+    {
+        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['district_id' => 'Район 9 не найден']]], 422)]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1])
+            ->assertNotified(__('gshome.search.rejected_district'))
+            ->assertActionMounted('find');
+    }
+
+    public function test_repeat_start_says_already_running_then_offers_fresh_result(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $user = $this->seller();
+        $this->actingAs($user);
+
+        Livewire::test(FindListing::class)->callAction('find', ['city_id' => 1])->assertNotified(__('gshome.search.started'));
+        Livewire::test(FindListing::class)->callAction('find', ['city_id' => 1])->assertNotified(__('gshome.search.started_running'));
+
+        app(SiteSearches::class)->close(ListingSearch::query()->firstOrFail(), 'done');
+        Livewire::test(FindListing::class)->callAction('find', ['city_id' => 1])->assertNotified(__('gshome.search.reused'));
+        $this->assertSame(1, ListingSearch::query()->count());
     }
 
     public function test_rate_limit_shows_quota_message(): void

@@ -59,6 +59,22 @@ class MySearchesTest extends TestCase
         ]);
     }
 
+    public function test_list_and_result_show_shown_count_with_found_on_sites_secondary(): void
+    {
+        $search = $this->search($this->nino, [
+            'found' => 250, 'truncated' => true, 'listing_ids' => range(1, 100),
+            'sites' => ['myhome_ge' => ['status' => 'paused', 'found' => 250], 'ss_ge' => ['status' => 'importing', 'found' => 0]],
+        ]);
+        $this->actingAs($this->nino);
+
+        Livewire::test(MySearches::class)
+            ->assertSee('Найдено на сайтах: 250, показаны 100 самых свежих')
+            ->assertSee('myhome.ge: на паузе (250)')
+            ->assertSee('ss.ge: сохраняем (0)');
+        Livewire::test(SearchResult::class, ['search' => $search->id])
+            ->assertSee('Найдено на сайтах: 250, показаны 100 самых свежих');
+    }
+
     public function test_agent_sees_only_own_searches(): void
     {
         $mine = $this->search($this->nino, ['message' => 'мой поиск готов']);

@@ -36,7 +36,7 @@ final class SiteSearchRequest
             $body += $ids !== [] ? [$key => $ids] : [];
         }
         $rooms = self::list($form['rooms'] ?? null, fn (mixed $v): ?int => ($n = self::id($v)) !== null && $n <= 20 ? $n : null);
-        $body += $rooms !== [] ? ['rooms' => $rooms] : [];
+        $body += self::rooms($rooms);
 
         foreach (['price_usd_min', 'price_usd_max', 'area_min', 'area_max'] as $key) {
             $n = self::number($form[$key] ?? null);
@@ -44,6 +44,23 @@ final class SiteSearchRequest
         }
 
         return $body;
+    }
+
+    /**
+     * В форме «5» значит «5+». API «5+» не принимает: одна «5+» — `rooms_min: 5`,
+     * вместе с другими — точные значения, а хвост 5…10 перечислен.
+     *
+     * @param  list<int>  $rooms
+     * @return array<string, mixed>
+     */
+    private static function rooms(array $rooms): array
+    {
+        $exact = array_values(array_filter($rooms, fn (int $n): bool => $n < 5));
+        if (count($exact) === count($rooms)) {
+            return $rooms !== [] ? ['rooms' => $rooms] : [];
+        }
+
+        return $exact === [] ? ['rooms_min' => 5] : ['rooms' => [...$exact, 5, 6, 7, 8, 9, 10]];
     }
 
     /** @return list<int> */
