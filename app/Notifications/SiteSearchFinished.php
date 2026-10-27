@@ -28,17 +28,18 @@ class SiteSearchFinished extends BaseNotification
     {
         $locale = $notifiable->locale->value;
         $count = $this->search->shown();
+        $this->search->loadMissing('user');
 
         $title = match (true) {
-            $this->search->status === 'done' && $this->search->isPartial() => __('gshome.search.done_partial', ['count' => $count], $locale),
-            $this->search->status === 'done' => __('gshome.search.done', ['count' => $count], $locale),
+            $this->search->status === 'done' && $this->search->isPartial() => trans_choice('gshome.search.done_partial', $count, ['count' => $count], $locale),
+            $this->search->status === 'done' => trans_choice('gshome.search.done', $count, ['count' => $count], $locale),
             $this->search->status === 'timed_out' => __('gshome.search.timed_out', [], $locale),
             default => __('gshome.search.failed', [], $locale),
         };
 
         $notification = Notification::make()->title($title);
         if ($this->search->status === 'done') {
-            $notification->body($this->search->foundOnSitesNote($locale));
+            $notification->body($this->search->zeroButFound() ? $this->search->zeroButFoundNote($locale) : $this->search->foundOnSitesNote($locale));
         } elseif ($this->search->message && $this->search->message !== $title) {
             $notification->body($this->search->message);
         }

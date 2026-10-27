@@ -3,12 +3,12 @@
 namespace App\Filament\Pages;
 
 use App\Crm\Exceptions\CrmForbidden;
-use App\Enums\Direction;
 use App\Enums\Role;
 use App\Models\ListingSearch;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\Search\FiltersSummary;
 use App\Search\SearchStart;
 use App\Search\SiteSearches;
 use BackedEnum;
@@ -63,7 +63,7 @@ class MySearches extends Page implements HasTable
                 TextColumn::make('user.name')->label(__('gshome.search.mine.person'))
                     ->visible($viewer->role !== Role::Agent),
                 TextColumn::make('filters')->label(__('gshome.search.mine.filters'))
-                    ->state(fn (ListingSearch $record): string => self::summary($record->filters))->wrap(),
+                    ->state(fn (ListingSearch $record): string => FiltersSummary::make($record->filters, $record->user))->wrap(),
                 TextColumn::make('status')->label(__('gshome.search.mine.status'))->badge()
                     ->state(fn (ListingSearch $record): string => __("gshome.search.status.{$record->status}"))
                     ->color(fn (ListingSearch $record): string => match (true) {
@@ -130,36 +130,6 @@ class MySearches extends Page implements HasTable
             default => $notification->title(__('gshome.search.started')),
         };
         $notification->send();
-    }
-
-    /**
-     * Фильтры коротко: сделка, цена, комнаты, площадь, число районов.
-     *
-     * @param  array<string, mixed>  $filters
-     */
-    public static function summary(array $filters): string
-    {
-        $parts = [];
-        if (filled($filters['deal'] ?? null) && ($d = Direction::tryFrom((string) $filters['deal'])) !== null) {
-            $parts[] = $d->getLabel();
-        }
-        $range = fn (string $key, string $unit): ?string => match (true) {
-            filled($filters["{$key}_min"] ?? null) && filled($filters["{$key}_max"] ?? null) => "{$filters["{$key}_min"]}–{$filters["{$key}_max"]} {$unit}",
-            filled($filters["{$key}_min"] ?? null) => "{$filters["{$key}_min"]}+ {$unit}",
-            filled($filters["{$key}_max"] ?? null) => "≤ {$filters["{$key}_max"]} {$unit}",
-            default => null,
-        };
-        $parts[] = $range('price_usd', '$');
-        $parts[] = $range('area', 'm²');
-        if (filled($filters['rooms'] ?? null)) {
-            $parts[] = implode(', ', (array) $filters['rooms']).' '.__('gshome.search.rooms');
-        }
-        if (filled($filters['district_id'] ?? null)) {
-            $parts[] = count((array) $filters['district_id']).' '.__('gshome.search.districts');
-        }
-        $parts = array_values(array_filter($parts));
-
-        return $parts === [] ? __('gshome.search.mine.any') : implode(' · ', $parts);
     }
 
     /** @return list<string> */

@@ -242,4 +242,39 @@ class MySearchesTest extends TestCase
 
         $this->get('/admin/my-searches')->assertOk()->assertSee('Мои поиски');
     }
+
+    public function test_zero_shown_with_found_explains_filters_on_page_and_in_notification(): void
+    {
+        $search = $this->search($this->nino, [
+            'filters' => ['city_id' => 1, 'price_usd_max' => 500, 'rooms' => [2]],
+            'found' => 80, 'listing_ids' => [],
+        ]);
+        $this->actingAs($this->nino);
+        $text = 'На сайтах найдено 80, но ни одно не прошло ваши фильтры: Продажа · ≤ 500 $ · 2 комн.';
+
+        Livewire::test(SearchResult::class, ['search' => $search->id])->assertSee($text);
+        Livewire::test(MySearches::class)->assertSee('Продажа · ≤ 500 $ · 2 комн.');
+        $data = (new SiteSearchFinished($search))->toDatabase($this->nino);
+        $this->assertSame($text, $data['body']);
+
+        $found = $this->search($this->nino, ['found' => 0, 'listing_ids' => []]);
+        $this->assertFalse($found->zeroButFound());
+    }
+
+    public function test_result_shows_rent_cards_for_the_sale_agents_own_rent_search(): void
+    {
+        $search = $this->search($this->nino, ['filters' => ['deal' => 'rent', 'city_id' => 1], 'listing_ids' => [14], 'found' => 1]);
+        RealEstateFake::fake([], [
+            14 => RealEstateFake::listing([
+                'id' => 14,
+                'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'],
+                'title' => ['ru' => 'Аренда в Сабуртало'],
+            ]),
+        ]);
+        $this->actingAs($this->nino);
+
+        Livewire::test(SearchResult::class, ['search' => $search->id])
+            ->assertSee('Аренда в Сабуртало')
+            ->assertSet('hidden', 0);
+    }
 }

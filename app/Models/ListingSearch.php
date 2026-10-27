@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Access\OrgAccess;
+use App\Enums\Direction;
+use App\Search\FiltersSummary;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -65,6 +67,35 @@ class ListingSearch extends Model
         return $this->truncated
             ? __('gshome.search.found_on_sites_truncated', ['found' => $this->found, 'shown' => $this->shown()], $locale)
             : __('gshome.search.found_on_sites', ['found' => $this->found], $locale);
+    }
+
+    /**
+     * Направления этого поиска: выбранная сделка, а если её нет в фильтрах — направления того, кто искал.
+     *
+     * @return list<Direction>
+     */
+    public function directions(): array
+    {
+        $deal = filled($this->filters['deal'] ?? null) ? Direction::tryFrom((string) $this->filters['deal']) : null;
+        if ($deal !== null) {
+            return [$deal];
+        }
+
+        return $this->user !== null ? OrgAccess::directions($this->user) : [];
+    }
+
+    /** Сайты что-то нашли, но ни одно объявление не прошло наши фильтры. */
+    public function zeroButFound(): bool
+    {
+        return $this->status === 'done' && $this->shown() === 0 && $this->found > 0;
+    }
+
+    public function zeroButFoundNote(?string $locale = null): string
+    {
+        return __('gshome.search.zero_but_found', [
+            'found' => $this->found,
+            'filters' => FiltersSummary::make($this->filters, $this->user, $locale),
+        ], $locale);
     }
 
     public function isRunning(): bool
