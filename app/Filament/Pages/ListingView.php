@@ -18,8 +18,13 @@ use App\Models\ListingSearch;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateRefreshNotFound;
+use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\Listing;
 use App\RealEstate\ListingDetails;
+use App\RealEstate\ListingRefresh;
+use App\RealEstate\ListingRefreshItem;
 use App\RealEstate\ListingRows;
 use App\RealEstate\RealEstateClient;
 use Filament\Actions\Action;
@@ -28,7 +33,9 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 
@@ -49,6 +56,22 @@ class ListingView extends Page
 
     #[Locked]
     public ?string $error = null;
+
+    /** Id идущей актуализации в Real Estate; Locked — подменить из браузера нельзя (чужие Real Estate всё равно не отдаст). */
+    #[Locked]
+    public ?string $refreshId = null;
+
+    /**
+     * Готовое к показу состояние актуализации (пусто — её не запускали).
+     *
+     * @var array<string, mixed>
+     */
+    #[Locked]
+    public array $refresh = [];
+
+    /** Не показывать кнопку актуализации до этого времени (ISO): API ответил 429 на запуск. */
+    #[Locked]
+    public ?string $retryUntil = null;
 
     public static function getRoutePath(Panel $panel): string
     {
@@ -89,6 +112,12 @@ class ListingView extends Page
         // Просмотр пишем после проверки направления; mount идёт раз на загрузку страницы.
         Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);
 
+        $this->buildCard($l, $direction, $viewer);
+    }
+
+    /** Собирает $card из объявления; зовётся из mount() и после актуализации. */
+    private function buildCard(Listing $l, Direction $direction, User $viewer): void
+    {
         $numbers = [$l->contactPhoneE164, ...$l->clusterPhonesE164, ...array_column($l->clusterListings, 'phone_e164')];
         $resolved = OrgAccess::ownershipMany($viewer, $numbers);
         $own = $l->contactPhoneE164 !== null ? ($resolved[$l->contactPhoneE164] ?? Ownership::other()) : Ownership::other();
@@ -103,6 +132,9 @@ class ListingView extends Page
 
         $this->card = [
             'id' => $l->id,
+            'direction_key' => $direction->value,
+            'refreshable' => $l->refreshable,
+            'partial' => $l->partial,
             'cluster_id' => $l->clusterId,
             'title' => $l->title ?? '—',
             'direction' => $direction->getLabel(),
@@ -146,6 +178,228 @@ class ListingView extends Page
         ];
     }
 
+    private function refreshAction(): Action
+    {
+        return Action::make('collectFullInfo')
+            ->label(__('gshome.listings.refresh.button'))
+            ->icon(Heroicon::OutlinedArrowPath)
+            ->color('primary')
+            ->visible(fn (): bool => (bool) ($this->card['refreshable'] ?? false) && $this->refreshId === null
+                && ($this->retryUntil === null || now()->greaterThanOrEqualTo(Carbon::parse($this->retryUntil))))
+            ->action(function (): void {
+                $id = (int) ($this->card['id'] ?? 0);
+                abort_unless($id > 0 && ($this->card['refreshable'] ?? false), 404);
+                try {
+                    $state = app(RealEstateClient::class)->startRefresh($id);
+                } catch (RealEstateException $e) {
+                    if ($e instanceof RealEstateRateLimited) {
+                        $this->retryUntil = now()->addSeconds($e->retryAfter)->toIso8601String();
+                    }
+                    Notification::make()->title($e->userMessage())->danger()->send();
+
+                    return;
+                }
+                if ($state === null) {
+                    Notification::make()->title(__('gshome.listings.refresh.not_found'))->danger()->send();
+
+                    return;
+                }
+
+                Journal::record(Journal::LISTING_REFRESH_STARTED, null, ['listing_id' => $id], $this->viewer());
+                Notification::make()->title(__('gshome.listings.refresh.started'))->success()->send();
+                $this->refreshId = $state->id;
+                // Подсказка «можно уйти» обещает свежие данные при следующем открытии: старый кеш карточки её нарушил бы.
+                app(RealEstateClient::class)->forgetCard($id);
+                $this->absorbRefresh($state);
+            });
+    }
+
+    /** Опрос из blade (wire:poll): читает состояние актуализации и, когда она закончилась, применяет результат. */
+    public function pollRefresh(): void
+    {
+        if ($this->refreshId === null) {
+            return;
+        }
+        // 429 на прошлом опросе: до retry_until в API не ходим.
+        $until = $this->refresh['retry_until'] ?? null;
+        if (is_string($until) && now()->lessThan(Carbon::parse($until))) {
+            return;
+        }
+
+        try {
+            $state = app(RealEstateClient::class)->refreshState($this->refreshId);
+        } catch (RealEstateRefreshNotFound) {
+            // Real Estate больше не знает эту актуализацию — ждать нечего.
+            $this->refreshId = null;
+            $this->refresh['finished'] = true;
+            $this->refresh['lost'] = true;
+            $this->refresh['error'] = null;
+            $this->markNotWaited();
+
+            return;
+        } catch (RealEstateRateLimited $e) {
+            $this->refresh['retry_until'] = now()->addSeconds($e->retryAfter)->toIso8601String();
+            $this->refresh['error'] = $e->userMessage();
+            $this->stopOnDeadline();
+
+            return;
+        } catch (RealEstateUnavailable $e) {
+            // Сбой связи при опросе — не повод бросать актуализацию: покажем причину и спросим ещё раз.
+            $this->refresh['error'] = $e->userMessage();
+            $this->stopOnDeadline();
+
+            return;
+        } catch (RealEstateException $e) {
+            // Доступ закрыт или запрос отвергнут: повтор ничего не изменит (и каждые 2 с писал бы в лог).
+            $this->refreshId = null;
+            $this->refresh['finished'] = true;
+            $this->refresh['error'] = $e->userMessage();
+            $this->markNotWaited();
+
+            return;
+        }
+
+        $this->absorbRefresh($state);
+        $this->stopOnDeadline();
+    }
+
+    /** Дедлайн актуализации + 15 с прошли, а конца нет — перестаём ждать. */
+    private function stopOnDeadline(): void
+    {
+        $deadline = $this->refresh['deadline'] ?? null;
+        if ($this->refreshId !== null && is_string($deadline) && now()->greaterThan(Carbon::parse($deadline)->addSeconds(15))) {
+            $this->refreshId = null;
+            $this->refresh['finished'] = true;
+            $this->refresh['error'] = null;
+            $this->refresh['timeout'] = __('gshome.listings.refresh.timeout');
+            $this->markNotWaited();
+        }
+    }
+
+    /** Ждать больше не будем: то, что так и осталось «проверяем…», честно назвать «не дождались». */
+    private function markNotWaited(): void
+    {
+        foreach ($this->refresh['items'] ?? [] as $n => $item) {
+            if ($item['pending'] ?? false) {
+                $this->refresh['items'][$n]['pending'] = false;
+                $this->refresh['items'][$n]['text'] = __('gshome.listings.refresh.outcomes.not_waited');
+            }
+        }
+    }
+
+    /** Состояние API → $refresh; при done/stale ещё и применяет результат к карточке и снимает refreshId. */
+    private function absorbRefresh(ListingRefresh $state): void
+    {
+        $this->refresh = [
+            'status' => $state->status,
+            'finished' => $state->finished(),
+            'eta_minutes' => max(1, (int) ceil($state->etaSeconds / 60)),
+            'poll_ms' => $state->pollAfterMs,
+            'deadline' => $state->deadlineAt?->toIso8601String(),
+            'items' => array_map(fn (ListingRefreshItem $i): array => [
+                'site' => self::siteLabel($i->source),
+                'url' => $i->sourceUrl,
+                'text' => self::itemText($i, $state->finished()),
+                'pending' => $i->outcome === 'pending',
+            ], $state->items),
+            'truncated' => $state->truncated,
+            'error' => null,
+            'timeout' => null,
+            'lost' => false,
+            'retry_until' => null,
+            'removed' => false,
+            'removed_at' => null,
+            'price_before' => null,
+            'summary' => null,
+            'stale' => null,
+        ];
+        if (! $state->finished()) {
+            return;
+        }
+
+        $this->refreshId = null;
+        $this->applyRefreshResult($state);
+    }
+
+    private function applyRefreshResult(ListingRefresh $state): void
+    {
+        $id = (int) ($this->card['id'] ?? 0);
+        // Результат уже у Real Estate: кеш карточки на 60 с больше не нужен ни на одном языке.
+        app(RealEstateClient::class)->forgetCard($id);
+
+        $this->refresh['summary'] = collect($state->items)
+            ->map(fn (ListingRefreshItem $i): string => self::siteLabel($i->source).' — '.self::itemText($i, true))
+            ->unique()->implode('; ');
+
+        $raw = $state->listing;
+        if ($raw !== null && ($raw['status'] ?? null) === 'inactive') {
+            $this->refresh['removed'] = true;
+            // Дата снятия — у самой карточки, иначе у любой из копий.
+            $at = null;
+            foreach ($state->items as $item) {
+                if ($item->deactivatedAt !== null && ($at === null || $item->id === $id)) {
+                    $at = $item->deactivatedAt;
+                }
+            }
+            $this->refresh['removed_at'] = $at?->timezone(config('app.timezone'))->format('d.m.Y H:i');
+        } elseif ($raw !== null) {
+            $this->refillCard($raw);
+        }
+
+        if ($state->stale()) {
+            $checked = collect($state->items)->pluck('checkedAt')->filter()->sort()->first();
+            $this->refresh['stale'] = __('gshome.listings.refresh.stale', [
+                'date' => $checked instanceof Carbon ? $checked->timezone(config('app.timezone'))->format('d.m.Y H:i') : '—',
+            ]);
+        }
+    }
+
+    /**
+     * Пересобирает карточку из данных актуализации (без нового GET). Направление то же, что открыл mount:
+     * если объявление перешло в направление, которое смотрящему недоступно, карточку не трогаем.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    private function refillCard(array $raw): void
+    {
+        $viewer = $this->viewer();
+        try {
+            $l = Listing::fromApi($raw, app()->getLocale());
+        } catch (\TypeError|\ErrorException|\UnexpectedValueException $e) {
+            Log::warning('Real Estate API: неожиданный формат карточки в актуализации', ['exception' => $e]);
+
+            return;
+        }
+        $direction = $l->direction();
+        if ($l->id !== (int) ($this->card['id'] ?? 0) || $direction === null
+            || ($direction->value !== ($this->card['direction_key'] ?? null) && ! in_array($direction, OrgAccess::directions($viewer), true))) {
+            return;
+        }
+
+        $before = $this->card['price'] ?? null;
+        $this->buildCard($l, $direction, $viewer);
+        if ($before !== null && $before !== $this->card['price']) {
+            $this->refresh['price_before'] = $before;
+        }
+    }
+
+    private static function siteLabel(string $source): string
+    {
+        return $source === 'myhome_ge' ? 'myhome.ge' : 'ss.ge';
+    }
+
+    /** Итог по одной копии: текст из API (`error`) выводим как есть. */
+    private static function itemText(ListingRefreshItem $item, bool $finished): string
+    {
+        if ($item->outcome === 'pending' && $finished) {
+            return __('gshome.listings.refresh.outcomes.not_waited');
+        }
+
+        return $item->outcome === 'failed'
+            ? ($item->error ?? __('gshome.listings.refresh.outcomes.failed'))
+            : __('gshome.listings.refresh.outcomes.'.$item->outcome);
+    }
+
     public function getTitle(): string
     {
         return $this->card['title'] ?? __('gshome.listings.object');
@@ -154,6 +408,7 @@ class ListingView extends Page
     protected function getHeaderActions(): array
     {
         return [
+            $this->refreshAction(),
             ...$this->pinActions(),
             $this->contactAction('contactOwn', 'own'),
             $this->contactAction('contactGroup', 'group', __('gshome.listings.contact_group')),
@@ -191,8 +446,14 @@ class ListingView extends Page
     public function pin(): ?ListingPin
     {
         $listing = $this->currentListing();
+        if ($listing !== null) {
+            return app(Pins::class)->activeFor($listing);
+        }
 
-        return $listing === null ? null : app(Pins::class)->activeFor($listing);
+        // Снятое API не отдаёт (404), но закрепление живёт: ищем его по id и группе из карточки.
+        $id = (int) ($this->card['id'] ?? 0);
+
+        return $id > 0 ? app(Pins::class)->activeForIds($id, $this->card['cluster_id'] ?? null) : null;
     }
 
     /** @return array{mine: bool, name: ?string, holder_id: int}|null */
@@ -246,7 +507,7 @@ class ListingView extends Page
             Action::make('takeInWork')
                 ->label(__('gshome.crm.pins.take'))
                 ->icon(Heroicon::OutlinedHandRaised)
-                ->visible(fn (): bool => $this->card !== [] && $this->pin() === null)
+                ->visible(fn (): bool => $this->card !== [] && ! ($this->refresh['removed'] ?? false) && $this->pin() === null)
                 ->action(function (): void {
                     $listing = $this->currentListing();
                     try {

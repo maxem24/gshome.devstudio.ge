@@ -16,11 +16,13 @@ use App\Models\Phone;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Listing;
+use App\RealEstate\RealEstateClient;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
@@ -584,5 +586,289 @@ class ListingViewTest extends TestCase
         $this->assertSame(0, $pin->deals()->count());
         $this->assertSame('+995555123456', $old->refresh()->phone_e164);
         $this->assertSame(1, Client::query()->count());
+    }
+
+    private const REFRESH_ID = '9f3c2a1e-7b4d-4c55-9a0e-1d2f3a4b5c6d';
+
+    public function test_refresh_button_visible_when_listing_is_refreshable(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => true])]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertActionVisible('collectFullInfo');
+    }
+
+    public function test_refresh_button_hidden_when_listing_is_not_refreshable(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => false])]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertActionHidden('collectFullInfo');
+    }
+
+    public function test_refresh_start_sets_id_hides_button_and_journals(): void
+    {
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->assertSet('refreshId', self::REFRESH_ID)
+            ->assertActionHidden('collectFullInfo')
+            ->assertSee('Собираем данные с сайтов')
+            ->assertSee('проверяем…');
+
+        $this->assertSame(13, Activity::query()->where('event', Journal::LISTING_REFRESH_STARTED)->sole()->properties['listing_id']);
+    }
+
+    public function test_refresh_done_updates_price_and_clears_id(): void
+    {
+        $done = RealEstateFake::refresh([
+            'status' => 'done', 'eta_seconds' => 0,
+            'items' => [['id' => 13, 'source' => 'ss_ge', 'source_url' => 'https://home.ss.ge/13', 'status' => 'active', 'outcome' => 'refreshed',
+                'checked_at' => now()->toIso8601String(), 'deactivated_at' => null, 'error' => null, 'paused_until' => null]],
+            'listing' => RealEstateFake::listing(['refreshable' => true, 'price' => ['usd' => 85000.0, 'gel' => 229500.0]]),
+        ]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => $done])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('card.price', '$85 000')
+            ->assertSet('refresh.price_before', '$90 000')
+            ->assertSee('Цена изменилась')
+            ->assertSee('ss.ge — обновлено')
+            ->assertActionVisible('collectFullInfo');
+    }
+
+    public function test_refresh_of_removed_listing_shows_banner_and_keeps_card(): void
+    {
+        $done = RealEstateFake::refresh([
+            'status' => 'done', 'eta_seconds' => 0,
+            'items' => [['id' => 13, 'source' => 'ss_ge', 'status' => 'inactive', 'outcome' => 'removed',
+                'checked_at' => '2026-10-27T10:00:00+04:00', 'deactivated_at' => '2026-10-27T10:00:00+04:00']],
+            'listing' => RealEstateFake::listing(['status' => 'inactive', 'price' => ['usd' => 1.0]]),
+        ]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => $done])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('refresh.removed', true)
+            ->assertSet('card.price', '$90 000')
+            ->assertSee('Объявление снято с публикации');
+    }
+
+    public function test_refresh_busy_notifies_and_leaves_no_id(): void
+    {
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['error' => ['code' => 'refresh_busy']], 503, ['Retry-After' => '30'])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->assertSet('refreshId', null)
+            ->assertNotified(__('gshome.listings.refresh.busy'));
+        $this->assertSame(0, Activity::query()->where('event', Journal::LISTING_REFRESH_STARTED)->count());
+    }
+
+    public function test_refresh_gives_up_after_deadline(): void
+    {
+        $running = RealEstateFake::refresh(['status' => 'running', 'deadline_at' => now()->subMinute()->toIso8601String()]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => $running], 202)],
+            refreshGets: [Http::response(['data' => $running])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSee('Сайты не ответили вовремя');
+    }
+
+    public function test_refresh_id_cannot_be_set_from_the_browser(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => true])]);
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test(ListingView::class, ['listing' => 13])->set('refreshId', self::REFRESH_ID);
+    }
+
+    /** Три копии: одна пришла, одна «снята», одна не дождалась. */
+    private function startedRefresh(array $get, array $cards = []): Testable
+    {
+        RealEstateFake::fake(
+            cards: $cards ?: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [$get[0]],
+        );
+
+        return Livewire::test(ListingView::class, ['listing' => 13])->callAction('collectFullInfo');
+    }
+
+    public function test_pin_survives_removed_listing(): void
+    {
+        $lead = User::factory()->teamLead()->create();
+        $this->actingAs($lead);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => RealEstateFake::refresh([
+                'status' => 'done', 'eta_seconds' => 0,
+                'items' => [['id' => 13, 'source' => 'ss_ge', 'status' => 'inactive', 'outcome' => 'removed',
+                    'checked_at' => '2026-10-27T10:00:00+04:00', 'deactivated_at' => '2026-10-27T10:00:00+04:00']],
+                'listing' => RealEstateFake::listing(['status' => 'inactive']),
+            ])])],
+        );
+        $pin = app(Pins::class)->take(Listing::fromApi(RealEstateFake::listing(), 'ru'), $lead);
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13])->callAction('collectFullInfo')->call('pollRefresh');
+
+        // Теперь GET /listings/13 даёт 404 (кеш сброшен), закрепление должно остаться на месте.
+        RealEstateFake::fake();
+        $page->call('$refresh')
+            ->assertSet('refresh.removed', true)
+            ->assertSee(__('gshome.crm.pins.in_work_mine'))
+            ->assertActionHidden('takeInWork')
+            ->assertActionVisible('markUnavailable');
+        $this->assertTrue($pin->refresh()->isActive());
+    }
+
+    public function test_take_in_work_hidden_for_removed_listing(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        $page = $this->startedRefresh([Http::response(['data' => RealEstateFake::refresh([
+            'status' => 'done', 'eta_seconds' => 0,
+            'items' => [['id' => 13, 'source' => 'ss_ge', 'status' => 'inactive', 'outcome' => 'removed',
+                'checked_at' => '2026-10-27T10:00:00+04:00', 'deactivated_at' => '2026-10-27T10:00:00+04:00']],
+            'listing' => RealEstateFake::listing(['status' => 'inactive']),
+        ])])]);
+
+        $page->call('pollRefresh')->assertActionHidden('takeInWork');
+    }
+
+    public function test_poll_stops_on_access_denied(): void
+    {
+        $this->assertPollStopsOn(403, __('gshome.errors.access_denied'));
+    }
+
+    public function test_poll_stops_on_bad_request(): void
+    {
+        $this->assertPollStopsOn(400, __('gshome.errors.bad_request'));
+    }
+
+    private function assertPollStopsOn(int $status, string $message): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        $page = $this->startedRefresh([Http::response(['error' => ['code' => 'x']], $status)]);
+
+        $page->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('refresh.finished', true)
+            ->assertSet('refresh.error', $message);
+    }
+
+    public function test_poll_waits_out_rate_limit_without_calling_api(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        $page = $this->startedRefresh([Http::response([], 429, ['Retry-After' => '30'])]);
+
+        $page->call('pollRefresh')->assertSet('refreshId', self::REFRESH_ID);
+        $this->assertNotNull($page->get('refresh.retry_until'));
+
+        Http::fake(fn () => throw new \LogicException('API must not be called before retry_until'));
+        $page->call('pollRefresh')->assertSet('refreshId', self::REFRESH_ID);
+    }
+
+    public function test_start_rate_limit_hides_button_until_retry_after(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response([], 429, ['Retry-After' => '30'])],
+        );
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->assertSet('refreshId', null)
+            ->assertActionHidden('collectFullInfo');
+
+        $this->travel(31)->seconds();
+        $page->call('$refresh')->assertActionVisible('collectFullInfo');
+    }
+
+    public function test_lost_refresh_does_not_claim_done_and_marks_pending_as_not_waited(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        $page = $this->startedRefresh([Http::response(['error' => ['code' => 'not_found']], 404)]);
+
+        $page->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('refresh.lost', true)
+            ->assertSee(__('gshome.listings.refresh.lost'))
+            ->assertDontSee(__('gshome.listings.refresh.done'))
+            ->assertSee(__('gshome.listings.refresh.outcomes.not_waited'))
+            ->assertDontSee(__('gshome.listings.refresh.outcomes.pending'));
+    }
+
+    public function test_refill_to_unavailable_direction_keeps_card(): void
+    {
+        // Открыли как «продажа» (у смотрящего только она), актуализация вернула «аренду».
+        $this->actingAs(User::factory()->teamLead()->create());
+        $rent = RealEstateFake::listing(['refreshable' => true, 'price' => ['usd' => 10.0], 'deal_type' => ['slug' => 'rent']]);
+        $page = $this->startedRefresh([Http::response(['data' => RealEstateFake::refresh(['status' => 'done', 'eta_seconds' => 0, 'listing' => $rent])])]);
+
+        $before = $page->get('card');
+        $page->call('pollRefresh')->assertSet('refreshId', null);
+        $this->assertSame($before, $page->get('card'));
+    }
+
+    public function test_cache_of_card_is_forgotten_on_start_and_on_done(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => RealEstateFake::refresh(['status' => 'done', 'eta_seconds' => 0])])],
+        );
+        $cardGets = fn (): int => Http::recorded(fn ($r) => $r->method() === 'GET' && str_ends_with((string) parse_url($r->url(), PHP_URL_PATH), '/listings/13'))->count();
+        $client = app(RealEstateClient::class);
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13]);
+        $afterMount = $cardGets();
+        $client->listing(13);
+        $this->assertSame($afterMount, $cardGets(), 'карточка взята из кеша');
+
+        $page->callAction('collectFullInfo');
+        $client->listing(13);
+        $this->assertGreaterThan($afterMount, $cardGets(), 'после старта кеш сброшен');
+
+        $afterStart = $cardGets();
+        $client->listing(13);
+        $this->assertSame($afterStart, $cardGets());
+        $page->call('pollRefresh');
+        $client->listing(13);
+        $this->assertGreaterThan($afterStart, $cardGets(), 'после done кеш сброшен');
     }
 }

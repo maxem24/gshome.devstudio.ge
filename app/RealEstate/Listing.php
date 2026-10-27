@@ -63,6 +63,7 @@ final readonly class Listing
         public array $clusterListings,
         public ?Carbon $sourceCreatedAt,
         public bool $partial = false,
+        public bool $refreshable = false,
     ) {}
 
     /** @param  array<string, mixed>  $d */
@@ -144,6 +145,7 @@ final readonly class Listing
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,
             partial: (bool) ($d['partial'] ?? false),
+            refreshable: (bool) ($d['refreshable'] ?? false),
         );
     }
 

@@ -29,9 +29,17 @@ class Pins
      */
     public function activeFor(Listing $listing): ?ListingPin
     {
+        return $this->activeForIds($listing->id, $listing->clusterId);
+    }
+
+    /** То же по id и группе без самого объявления: снятое API уже не отдаёт, а закрепление живёт. */
+    public function activeForIds(int $listingId, ?int $clusterId): ?ListingPin
+    {
+        $key = $clusterId !== null ? 'c:'.$clusterId : 'l:'.$listingId;
+
         return ListingPin::query()
             ->where('status', ListingPin::ACTIVE)
-            ->where(fn ($q) => $q->where('pin_key', $this->keyFor($listing))->orWhere('listing_id', $listing->id))
+            ->where(fn ($q) => $q->where('pin_key', $key)->orWhere('listing_id', $listingId))
             ->oldest('id')
             ->first();
     }

@@ -56,6 +56,9 @@ final class Journal
 
     public const LISTING_VIEWED = 'listing.viewed';
 
+    /** Нажата «Собрать полную информацию»; не событие ленты. */
+    public const LISTING_REFRESH_STARTED = 'listing.refresh_started';
+
     /** Поиск по сайтам; не событие ленты. */
     public const SEARCH_STARTED = 'search.started';
 

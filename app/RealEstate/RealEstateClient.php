@@ -2,11 +2,14 @@
 
 namespace App\RealEstate;
 
+use App\Enums\Locale;
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateRefreshBusy;
+use App\RealEstate\Exceptions\RealEstateRefreshNotFound;
 use App\RealEstate\Exceptions\RealEstateSearchNotFound;
 use App\RealEstate\Exceptions\RealEstateSearchRejected;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
@@ -134,6 +137,49 @@ class RealEstateClient
             ?? throw new RealEstateSearchNotFound('Real Estate: поиск не найден (404)');
 
         return $this->searchStatusFrom($path, $checked);
+    }
+
+    /**
+     * Ставит актуализацию объявления и всех его дублей (POST /listings/{id}/refresh). null — объявления нет (404).
+     * Повторное нажатие, пока прошлая не закончилась, API возвращает ту же актуализацию.
+     */
+    public function startRefresh(int $id): ?ListingRefresh
+    {
+        $path = "/listings/{$id}/refresh";
+        // POST без повторов: тот же довод, что у startSearch, плюс лимит нажатий клиента (10 в минуту).
+        $response = $this->send(fn () => $this->http()->asJson()->retry(1, 0, null, false)->post($path.'?lang='.app()->getLocale(), []));
+        if ($response->status() === 503 && $response->json('error.code') === 'refresh_busy') {
+            throw new RealEstateRefreshBusy(self::retryAfter($response->header('Retry-After')));
+        }
+        $checked = $this->checked($path, $response, allowNotFound: true);
+
+        return $checked === null ? null : $this->refreshFrom($path, $checked);
+    }
+
+    /** Состояние актуализации; чужой или стёртый id (404) — RealEstateRefreshNotFound. */
+    public function refreshState(string $id): ListingRefresh
+    {
+        $path = '/listing-refreshes/'.rawurlencode($id);
+        $response = $this->send(fn () => $this->http()->get($path, ['lang' => app()->getLocale()]));
+        $checked = $this->checked($path, $response, allowNotFound: true)
+            ?? throw new RealEstateRefreshNotFound('Real Estate: актуализация не найдена (404)');
+
+        return $this->refreshFrom($path, $checked);
+    }
+
+    /** Забыть кеш карточки на всех языках: после актуализации следующий показ должен взять свежие данные. */
+    public function forgetCard(int $id): void
+    {
+        foreach (Locale::cases() as $locale) {
+            Cache::forget(self::cardKey($id, $locale->value));
+        }
+    }
+
+    private function refreshFrom(string $path, Response $response): ListingRefresh
+    {
+        $json = $response->json('data');
+
+        return $this->parsed($path, fn (): ListingRefresh => ListingRefresh::fromApi($json));
     }
 
     private function searchStatusFrom(string $path, Response $response): SiteSearchStatus
