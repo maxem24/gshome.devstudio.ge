@@ -10,6 +10,7 @@ use App\Enums\SellerCategory;
 use App\Models\Phone;
 use App\Models\SavedListing;
 use App\Models\User;
+use App\RealEstate\DictionaryOptions;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Listing;
@@ -512,11 +513,7 @@ class Listings extends Page implements HasTable
     {
         $client = app(RealEstateClient::class);
         $directions = OrgAccess::directions($this->viewer());
-        $dictionary = fn (string $name, array $params = []): array => rescue(
-            fn (): array => $client->dictionary($name, $params)->mapWithKeys(fn (array $r): array => [$r['id'] => RealEstateClient::title($r)])->all(),
-            [],
-            report: false,
-        );
+        $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
 
         return [
             SelectFilter::make('direction')->label(__('gshome.listings.direction'))
@@ -529,10 +526,12 @@ class Listings extends Page implements HasTable
             ])->columns(2),
             Filter::make('location')->schema([
                 Select::make('city_id')->label(__('gshome.listings.city'))->options(fn (): array => $dictionary('cities'))->searchable()->live()
+                    ->getSearchResultsUsing(fn (string $search): array => DictionaryOptions::search('cities', [], $search))
                     ->afterStateUpdated(fn (Set $set) => $set('district_id', null)),
                 Select::make('district_id')->label(__('gshome.listings.district'))
                     ->options(fn (Get $get): array => is_scalar($get('city_id')) && ctype_digit((string) $get('city_id')) && (int) $get('city_id') > 0 ? $dictionary('districts', ['city_id' => (int) $get('city_id')]) : [])
-                    ->searchable(),
+                    ->searchable()
+                    ->getSearchResultsUsing(fn (string $search, Get $get): array => is_scalar($get('city_id')) && ctype_digit((string) $get('city_id')) && (int) $get('city_id') > 0 ? DictionaryOptions::search('districts', ['city_id' => (int) $get('city_id')], $search) : []),
             ])->columns(2),
             Filter::make('area')->schema([
                 TextInput::make('min')->label(__('gshome.listings.area_min'))->numeric(),
@@ -540,7 +539,9 @@ class Listings extends Page implements HasTable
             ])->columns(2),
             SelectFilter::make('rooms')->label(__('gshome.listings.rooms'))->multiple()
                 ->options(['1' => '1', '2' => '2', '3' => '3', '4' => '4', '5+' => '5+']),
-            SelectFilter::make('property_type')->label(__('gshome.listings.property_type'))->options(fn (): array => $dictionary('property-types')),
+            SelectFilter::make('property_type')->label(__('gshome.listings.property_type'))->options(fn (): array => $dictionary('property-types'))
+                ->searchable()
+                ->getSearchResultsUsing(fn (string $search): array => DictionaryOptions::search('property-types', [], $search)),
             SelectFilter::make('source')->label(__('gshome.listings.source'))->options(['myhome_ge' => 'myhome.ge', 'ss_ge' => 'ss.ge']),
             Filter::make('owners_only')->label(__('gshome.listings.owners_only'))->toggle(),
             Filter::make('created')->schema([
