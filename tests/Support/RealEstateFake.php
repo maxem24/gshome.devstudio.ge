@@ -85,12 +85,35 @@ final class RealEstateFake
     }
 
     /**
+     * Ответ API на POST/GET актуализации (поле data) по 16_API_актуализация.md.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public static function refresh(array $overrides = []): array
+    {
+        return array_replace([
+            'id' => '9f3c2a1e-7b4d-4c55-9a0e-1d2f3a4b5c6d', 'status' => 'queued', 'listing_id' => 13,
+            'listings_total' => 1, 'listings_refreshing' => 1, 'truncated' => false, 'paused' => false,
+            'eta_seconds' => 15, 'poll_after_ms' => 2000,
+            'created_at' => '2026-10-27T20:15:00+04:00', 'deadline_at' => now()->addMinutes(10)->toIso8601String(),
+            'items' => [[
+                'id' => 13, 'source' => 'ss_ge', 'source_url' => 'https://home.ss.ge/13', 'status' => 'active',
+                'outcome' => 'pending', 'checked_at' => null, 'deactivated_at' => null, 'error' => null, 'paused_until' => null,
+            ]],
+            'listing' => null,
+        ], $overrides);
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $pages  ответы GET /listings по порядку (последний повторяется)
      * @param  array<int, array<string, mixed>>  $cards  id => объявление для GET /listings/{id}
      * @param  list<PromiseInterface>  $searchPosts  ответы POST /search-jobs по порядку (последний повторяется), напр. Http::response(['data' => searchJob()], 202)
      * @param  list<PromiseInterface|\Closure>  $searchGets  то же для GET /search-jobs/{id} (Closure — напр. Http::failedConnection())
+     * @param  list<PromiseInterface>  $refreshPosts  ответы POST /listings/{id}/refresh по порядку (последний повторяется)
+     * @param  list<PromiseInterface>  $refreshGets  то же для GET /listing-refreshes/{id}
      */
-    public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = []): void
+    public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = [], array $refreshPosts = [], array $refreshGets = []): void
     {
         // Новые ответы — новое состояние API: короткий кеш клиента от прошлых ответов не должен их заслонять.
         Cache::flush();
@@ -98,7 +121,9 @@ final class RealEstateFake
         $i = 0;
         $p = 0;
         $g = 0;
-        Http::fake(function (Request $request) use (&$i, &$p, &$g, $pages, $cards, $searchPosts, $searchGets) {
+        $rp = 0;
+        $rg = 0;
+        Http::fake(function (Request $request) use (&$i, &$p, &$g, &$rp, &$rg, $pages, $cards, $searchPosts, $searchGets, $refreshPosts, $refreshGets) {
             $path = (string) parse_url($request->url(), PHP_URL_PATH);
 
             return match (true) {
@@ -112,6 +137,8 @@ final class RealEstateFake
                 ]]),
                 $path === '/api/v1/search-jobs' && $searchPosts !== [] => $searchPosts[min($p++, count($searchPosts) - 1)],
                 str_starts_with($path, '/api/v1/search-jobs/') && $searchGets !== [] => $searchGets[min($g++, count($searchGets) - 1)],
+                $request->method() === 'POST' && preg_match('#^/api/v1/listings/\d+/refresh$#', $path) && $refreshPosts !== [] => $refreshPosts[min($rp++, count($refreshPosts) - 1)],
+                str_starts_with($path, '/api/v1/listing-refreshes/') && $refreshGets !== [] => $refreshGets[min($rg++, count($refreshGets) - 1)],
                 $path === '/api/v1/listings' => Http::response($pages[min($i++, count($pages) - 1)]),
                 (bool) preg_match('#^/api/v1/listings/(\d+)$#', $path, $m) => isset($cards[(int) $m[1]])
                     ? Http::response(['data' => $cards[(int) $m[1]]])

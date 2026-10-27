@@ -585,4 +585,131 @@ class ListingViewTest extends TestCase
         $this->assertSame('+995555123456', $old->refresh()->phone_e164);
         $this->assertSame(1, Client::query()->count());
     }
+
+    private const REFRESH_ID = '9f3c2a1e-7b4d-4c55-9a0e-1d2f3a4b5c6d';
+
+    public function test_refresh_button_visible_when_listing_is_refreshable(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => true])]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertActionVisible('collectFullInfo');
+    }
+
+    public function test_refresh_button_hidden_when_listing_is_not_refreshable(): void
+    {
+        $this->actingAs(User::factory()->teamLead()->create());
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => false])]);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertActionHidden('collectFullInfo');
+    }
+
+    public function test_refresh_start_sets_id_hides_button_and_journals(): void
+    {
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->assertSet('refreshId', self::REFRESH_ID)
+            ->assertActionHidden('collectFullInfo')
+            ->assertSee('Собираем данные с сайтов')
+            ->assertSee('проверяем…');
+
+        $this->assertSame(13, Activity::query()->where('event', Journal::LISTING_REFRESH_STARTED)->sole()->properties['listing_id']);
+    }
+
+    public function test_refresh_done_updates_price_and_clears_id(): void
+    {
+        $done = RealEstateFake::refresh([
+            'status' => 'done', 'eta_seconds' => 0,
+            'items' => [['id' => 13, 'source' => 'ss_ge', 'source_url' => 'https://home.ss.ge/13', 'status' => 'active', 'outcome' => 'refreshed',
+                'checked_at' => now()->toIso8601String(), 'deactivated_at' => null, 'error' => null, 'paused_until' => null]],
+            'listing' => RealEstateFake::listing(['refreshable' => true, 'price' => ['usd' => 85000.0, 'gel' => 229500.0]]),
+        ]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => $done])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('card.price', '$85 000')
+            ->assertSet('refresh.price_before', '$90 000')
+            ->assertSee('Цена изменилась')
+            ->assertSee('ss.ge — обновлено')
+            ->assertActionVisible('collectFullInfo');
+    }
+
+    public function test_refresh_of_removed_listing_shows_banner_and_keeps_card(): void
+    {
+        $done = RealEstateFake::refresh([
+            'status' => 'done', 'eta_seconds' => 0,
+            'items' => [['id' => 13, 'source' => 'ss_ge', 'status' => 'inactive', 'outcome' => 'removed',
+                'checked_at' => '2026-10-27T10:00:00+04:00', 'deactivated_at' => '2026-10-27T10:00:00+04:00']],
+            'listing' => RealEstateFake::listing(['status' => 'inactive', 'price' => ['usd' => 1.0]]),
+        ]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
+            refreshGets: [Http::response(['data' => $done])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSet('refresh.removed', true)
+            ->assertSet('card.price', '$90 000')
+            ->assertSee('Объявление снято с публикации');
+    }
+
+    public function test_refresh_busy_notifies_and_leaves_no_id(): void
+    {
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['error' => ['code' => 'refresh_busy']], 503, ['Retry-After' => '30'])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->assertSet('refreshId', null)
+            ->assertNotified(__('gshome.listings.refresh.busy'));
+        $this->assertSame(0, Activity::query()->where('event', Journal::LISTING_REFRESH_STARTED)->count());
+    }
+
+    public function test_refresh_gives_up_after_deadline(): void
+    {
+        $running = RealEstateFake::refresh(['status' => 'running', 'deadline_at' => now()->subMinute()->toIso8601String()]);
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => $running], 202)],
+            refreshGets: [Http::response(['data' => $running])],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('collectFullInfo')
+            ->call('pollRefresh')
+            ->assertSet('refreshId', null)
+            ->assertSee('Сайты не ответили вовремя');
+    }
+
+    public function test_refresh_id_cannot_be_set_from_the_browser(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing(['refreshable' => true])]);
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        $this->expectException(CannotUpdateLockedPropertyException::class);
+        Livewire::test(ListingView::class, ['listing' => 13])->set('refreshId', self::REFRESH_ID);
+    }
 }

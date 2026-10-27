@@ -16,6 +16,63 @@
                 </p>
             </x-filament::section>
         @endif
+        @if ($refresh !== [])
+            {{-- Актуализация: пока идёт — опрос раз в poll_ms; по концу опрос исчезает из разметки --}}
+            <div
+                @if ($refreshId !== null) wire:poll.{{ (int) ($refresh['poll_ms'] ?? 2000) }}ms="pollRefresh" @endif
+            >
+                <x-filament::section>
+                    <div class="space-y-2" role="status">
+                        @if ($refreshId !== null)
+                            <p class="font-medium">
+                                {{ __('gshome.listings.refresh.running') }}, {{ __('gshome.listings.refresh.eta', ['minutes' => $refresh['eta_minutes']]) }}
+                            </p>
+                        @elseif ($refresh['removed'] ?? false)
+                            <p class="text-danger-600 dark:text-danger-400 text-lg font-semibold">
+                                {{ $refresh['removed_at'] ? __('gshome.listings.refresh.removed', ['date' => $refresh['removed_at']]) : __('gshome.listings.refresh.removed_unknown') }}
+                            </p>
+                        @elseif ($refresh['timeout'] ?? null)
+                            <p class="text-warning-600 dark:text-warning-400 font-medium">{{ $refresh['timeout'] }}</p>
+                        @elseif ($refresh['stale'] ?? null)
+                            <p class="text-warning-600 dark:text-warning-400 font-medium">{{ $refresh['stale'] }}</p>
+                        @elseif ($refresh['finished'] ?? false)
+                            <p class="font-medium">{{ __('gshome.listings.refresh.done') }}</p>
+                        @endif
+                        @if ($refresh['price_before'] ?? null)
+                            <p>{{ __('gshome.listings.refresh.price_changed', ['price' => $refresh['price_before']]) }}</p>
+                        @endif
+                        @if ($refresh['error'] ?? null)
+                            <p class="text-warning-600 dark:text-warning-400 text-sm">{{ $refresh['error'] }}</p>
+                        @endif
+                        @if ($refreshId === null && ($refresh['summary'] ?? null))
+                            <p class="text-sm">{{ $refresh['summary'] }}</p>
+                        @elseif ($refresh['items'] ?? [])
+                            <ul class="text-sm">
+                                @foreach ($refresh['items'] as $item)
+                                    <li>
+                                        @if ($item['url'])
+                                            <a
+                                                href="{{ $item['url'] }}"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="underline"
+                                                >{{ $item['site'] }}</a
+                                            >
+                                        @else
+                                            {{ $item['site'] }}
+                                        @endif
+                                        — {{ $item['text'] }}
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                        @if ($refresh['truncated'] ?? false)
+                            <p class="text-sm text-gray-500">{{ __('gshome.listings.refresh.truncated') }}</p>
+                        @endif
+                    </div>
+                </x-filament::section>
+            </div>
+        @endif
         <x-filament::section>
             <div class="flex flex-wrap items-center gap-3">
                 <x-filament::badge
