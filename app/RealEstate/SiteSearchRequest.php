@@ -50,6 +50,9 @@ final class SiteSearchRequest
     private static function dealTypeIds(User $viewer, mixed $deal): array
     {
         $allowed = OrgAccess::directions($viewer);
+        if ($allowed === []) {
+            throw new CrmForbidden('У человека нет направлений для поиска');
+        }
         $chosen = null;
         if (filled($deal)) {
             $chosen = is_string($deal) ? Direction::tryFrom($deal) : null;

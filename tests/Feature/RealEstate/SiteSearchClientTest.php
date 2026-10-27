@@ -2,18 +2,23 @@
 
 namespace Tests\Feature\RealEstate;
 
+use App\Access\OrgAccess;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\Direction;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\RealEstateClient;
 use App\RealEstate\SiteSearchRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
 
@@ -45,16 +50,54 @@ class SiteSearchClientTest extends TestCase
         ], $body);
     }
 
-    public function test_sale_agent_is_limited_to_sale_and_forged_rent_throws(): void
+    public function test_sale_agent_is_limited_to_sale(): void
     {
         RealEstateFake::fake();
         $lead = User::factory()->teamLead(direction: Direction::Sale)->create();
 
         $this->assertSame([1], SiteSearchRequest::build($lead, ['city_id' => 1])['deal_type_id']);
         $this->assertSame([1], SiteSearchRequest::build($lead, ['deal' => 'sale'])['deal_type_id']);
+    }
+
+    public function test_forged_rent_throws_forbidden_and_sends_nothing(): void
+    {
+        RealEstateFake::fake();
+        $lead = User::factory()->teamLead(direction: Direction::Sale)->create();
+
+        try {
+            SiteSearchRequest::build($lead, ['deal' => 'rent']);
+            $this->fail('нет исключения');
+        } catch (CrmForbidden) {
+        }
+        Http::assertNothingSent();
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function test_no_directions_throws_forbidden(): void
+    {
+        RealEstateFake::fake();
+        $viewer = new User;
+        $spy = \Mockery::mock('alias:'.OrgAccess::class);
+        $spy->shouldReceive('directions')->andReturn([]);
 
         $this->expectException(CrmForbidden::class);
-        SiteSearchRequest::build($lead, ['deal' => 'rent']);
+        SiteSearchRequest::build($viewer, ['city_id' => 1]);
+    }
+
+    public function test_post_is_never_retried_after_gateway_error(): void
+    {
+        RealEstateFake::fake(searchPosts: [
+            Http::response('bad gateway', 502),
+            Http::response(['data' => RealEstateFake::searchJob()], 202),
+        ]);
+
+        try {
+            app(RealEstateClient::class)->startSearch(['city_id' => 1]);
+            $this->fail('нет исключения');
+        } catch (RealEstateUnavailable) {
+        }
+        Http::assertSentCount(1);
     }
 
     public function test_owner_without_choice_gets_both_deal_types(): void
@@ -68,7 +111,7 @@ class SiteSearchClientTest extends TestCase
 
     public function test_start_search_posts_json_and_returns_queued_status(): void
     {
-        Http::fake(['*/search-jobs' => Http::response(['data' => $this->job('queued')], 202)]);
+        RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
 
         $status = app(RealEstateClient::class)->startSearch(['city_id' => 1, 'district_id' => [3]]);
 
@@ -84,7 +127,7 @@ class SiteSearchClientTest extends TestCase
 
     public function test_start_search_may_return_done_from_cache_with_listing_ids(): void
     {
-        Http::fake(['*/search-jobs' => Http::response(['data' => $this->job('done', [['id' => 7], ['id' => 9]])], 202)]);
+        RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob(['status' => 'done', 'listings' => [['id' => 7], ['id' => 9]]])], 202)]);
 
         $status = app(RealEstateClient::class)->startSearch(['city_id' => 1]);
 
@@ -94,7 +137,7 @@ class SiteSearchClientTest extends TestCase
 
     public function test_filters_required_throws_dedicated_exception_without_down_marker(): void
     {
-        Http::fake(['*/search-jobs' => Http::response(['error' => ['code' => 'filters_required', 'message' => 'Нужен фильтр']], 422)]);
+        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'filters_required', 'message' => 'Нужен фильтр']], 422)]);
 
         try {
             app(RealEstateClient::class)->startSearch([]);
@@ -107,9 +150,10 @@ class SiteSearchClientTest extends TestCase
 
     public function test_other_422_is_bad_request_and_429_is_rate_limited(): void
     {
-        Http::fake(['*/search-jobs' => Http::sequence()
-            ->push(['error' => ['code' => 'json_required']], 422)
-            ->push(['error' => ['code' => 'rate_limited']], 429, ['Retry-After' => '120'])]);
+        RealEstateFake::fake(searchPosts: [
+            Http::response(['error' => ['code' => 'json_required']], 422),
+            Http::response(['error' => ['code' => 'rate_limited']], 429, ['Retry-After' => '120']),
+        ]);
         $client = app(RealEstateClient::class);
 
         try {
@@ -128,9 +172,13 @@ class SiteSearchClientTest extends TestCase
 
     public function test_search_status_done_has_sites_listings_and_is_not_cached(): void
     {
-        Http::fake(['*/search-jobs/uuid-1*' => Http::sequence()
-            ->push(['data' => $this->job('done', [['id' => 5]], truncated: true)])
-            ->push(['data' => $this->job('searching')])]);
+        RealEstateFake::fake(searchGets: [
+            Http::response(['data' => RealEstateFake::searchJob([
+                'status' => 'done', 'found' => 3, 'truncated' => true, 'listings' => [['id' => 5]],
+                'sites' => ['myhome_ge' => ['status' => 'done', 'found' => 3, 'pages_done' => 2, 'message' => 'Готово']],
+            ])]),
+            Http::response(['data' => RealEstateFake::searchJob(['status' => 'searching'])]),
+        ]);
         $client = app(RealEstateClient::class);
 
         $done = $client->searchStatus('uuid-1');
@@ -146,24 +194,14 @@ class SiteSearchClientTest extends TestCase
 
     public function test_search_status_404_is_bad_request(): void
     {
-        Http::fake(['*/search-jobs/*' => Http::response(['error' => ['code' => 'not_found']], 404)]);
+        RealEstateFake::fake(searchGets: [Http::response(['error' => ['code' => 'not_found']], 404)]);
+        $log = Log::spy();
 
         $this->expectException(RealEstateBadRequest::class);
-        app(RealEstateClient::class)->searchStatus('nope');
-    }
-
-    /**
-     * @param  list<array<string, mixed>>  $listings
-     * @return array<string, mixed>
-     */
-    private function job(string $status, array $listings = [], bool $truncated = false): array
-    {
-        return [
-            'id' => 'uuid-1', 'status' => $status, 'message' => 'Поиск идёт', 'pages_done' => 0, 'found' => 3, 'truncated' => $truncated,
-            'sites' => [
-                'myhome_ge' => ['status' => $status === 'done' ? 'done' : 'queued', 'found' => 3, 'pages_done' => 2, 'message' => $status === 'done' ? 'Готово' : 'Поиск идёт'],
-                'ss_ge' => ['status' => 'skipped', 'found' => 0, 'pages_done' => 0, 'message' => 'Для ss.ge нужен город или район'],
-            ],
-        ] + ($status === 'done' ? ['listings' => $listings] : []);
+        try {
+            app(RealEstateClient::class)->searchStatus('nope');
+        } finally {
+            $log->shouldNotHaveReceived('error');
+        }
     }
 }

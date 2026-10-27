@@ -104,7 +104,8 @@ class RealEstateClient
      */
     public function startSearch(array $body): SiteSearchStatus
     {
-        $response = $this->send(fn () => $this->http()->asJson()->post('/search-jobs', $body));
+        // POST не идемпотентен: повтор после принятого сервером задания создал бы дубль и съел лимит 60/ч — без повторов.
+        $response = $this->send(fn () => $this->http()->asJson()->retry(1, 0, null, false)->post('/search-jobs', $body));
         if ($response->status() === 422 && $response->json('error.code') === 'filters_required') {
             throw new RealEstateFiltersRequired((string) $response->json('error.message'));
         }
@@ -118,12 +119,16 @@ class RealEstateClient
         $path = '/search-jobs/'.rawurlencode($id);
         $response = $this->send(fn () => $this->http()->get($path, ['lang' => app()->getLocale()]));
 
-        return $this->searchStatusFrom($path, $this->checked($path, $response, false));
+        // 404 — ожидаемый случай (чужой или протухший id): без Log::error из badRequest().
+        $checked = $this->checked($path, $response, allowNotFound: true)
+            ?? throw new RealEstateBadRequest('Real Estate: поиск не найден (404)');
+
+        return $this->searchStatusFrom($path, $checked);
     }
 
-    private function searchStatusFrom(string $path, ?Response $response): SiteSearchStatus
+    private function searchStatusFrom(string $path, Response $response): SiteSearchStatus
     {
-        $json = $response?->json('data');
+        $json = $response->json('data');
 
         return $this->parsed($path, fn (): SiteSearchStatus => SiteSearchStatus::fromApi($json));
     }

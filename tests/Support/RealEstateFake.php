@@ -2,6 +2,7 @@
 
 namespace Tests\Support;
 
+use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -61,16 +62,43 @@ final class RealEstateFake
     }
 
     /**
+     * Ответ API на POST/GET /search-jobs (поле data). Для status=done добавляет listings.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public static function searchJob(array $overrides = []): array
+    {
+        $job = array_replace_recursive([
+            'id' => 'uuid-1', 'status' => 'queued', 'message' => 'Поиск идёт, обычно 1–3 мин',
+            'pages_done' => 0, 'found' => 0, 'truncated' => false,
+            'sites' => [
+                'myhome_ge' => ['status' => 'queued', 'found' => 0, 'pages_done' => 0, 'message' => 'Поиск идёт'],
+                'ss_ge' => ['status' => 'skipped', 'found' => 0, 'pages_done' => 0, 'message' => 'Для ss.ge нужен город или район'],
+            ],
+        ], $overrides);
+        if ($job['status'] === 'done') {
+            $job += ['listings' => []];
+        }
+
+        return $job;
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $pages  ответы GET /listings по порядку (последний повторяется)
      * @param  array<int, array<string, mixed>>  $cards  id => объявление для GET /listings/{id}
+     * @param  list<PromiseInterface>  $searchPosts  ответы POST /search-jobs по порядку (последний повторяется), напр. Http::response(['data' => searchJob()], 202)
+     * @param  list<PromiseInterface>  $searchGets  то же для GET /search-jobs/{id}
      */
-    public static function fake(array $pages = [], array $cards = []): void
+    public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = []): void
     {
         // Новые ответы — новое состояние API: короткий кеш клиента от прошлых ответов не должен их заслонять.
         Cache::flush();
         $pages = $pages ?: [self::page([])];
         $i = 0;
-        Http::fake(function (Request $request) use (&$i, $pages, $cards) {
+        $p = 0;
+        $g = 0;
+        Http::fake(function (Request $request) use (&$i, &$p, &$g, $pages, $cards, $searchPosts, $searchGets) {
             $path = (string) parse_url($request->url(), PHP_URL_PATH);
 
             return match (true) {
@@ -82,6 +110,8 @@ final class RealEstateFake
                 str_starts_with($path, '/api/v1/dictionaries/') => Http::response(['data' => [
                     ['id' => 1, 'slug' => 'tbilisi', 'title_ka' => 'თბილისი', 'title_en' => 'Tbilisi', 'title_ru' => 'Тбилиси'],
                 ]]),
+                $path === '/api/v1/search-jobs' && $searchPosts !== [] => $searchPosts[min($p++, count($searchPosts) - 1)],
+                str_starts_with($path, '/api/v1/search-jobs/') && $searchGets !== [] => $searchGets[min($g++, count($searchGets) - 1)],
                 $path === '/api/v1/listings' => Http::response($pages[min($i++, count($pages) - 1)]),
                 (bool) preg_match('#^/api/v1/listings/(\d+)$#', $path, $m) => isset($cards[(int) $m[1]])
                     ? Http::response(['data' => $cards[(int) $m[1]]])
