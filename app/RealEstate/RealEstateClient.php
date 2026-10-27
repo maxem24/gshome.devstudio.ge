@@ -5,7 +5,10 @@ namespace App\RealEstate;
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateSearchNotFound;
+use App\RealEstate\Exceptions\RealEstateSearchRejected;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use Carbon\Carbon;
@@ -94,6 +97,50 @@ class RealEstateClient
         }
 
         return $this->parsed("/listings/{$id}", fn (): Listing => Listing::fromApi($data, $locale));
+    }
+
+    /**
+     * Ставит поиск на myhome и ss.ge (POST /search-jobs). Ответ не кешируем: у каждого поиска свой id и своё состояние.
+     *
+     * @param  array<string, mixed>  $body  тело из SiteSearchRequest::build()
+     */
+    public function startSearch(array $body): SiteSearchStatus
+    {
+        // POST не идемпотентен: повтор после принятого сервером задания создал бы дубль и съел лимит 60/ч — без повторов.
+        $response = $this->send(fn () => $this->http()->asJson()->retry(1, 0, null, false)->post('/search-jobs', $body));
+        if ($response->status() === 422 && $response->json('error.code') === 'filters_required') {
+            throw new RealEstateFiltersRequired((string) $response->json('error.message'));
+        }
+        if ($response->status() === 422 && $response->json('error.code') === 'validation_failed') {
+            $fields = $response->json('error.fields');
+            $names = is_array($fields) ? array_map('strval', array_keys($fields)) : [];
+            // Не наш баг, а отказ сайтов по фильтрам: предупреждение, не ошибка.
+            Log::warning('Real Estate отклонил фильтры поиска по сайтам', ['fields' => $fields]);
+
+            throw new RealEstateSearchRejected('Real Estate: HTTP 422 validation_failed', $names);
+        }
+
+        return $this->searchStatusFrom('/search-jobs', $this->checked('/search-jobs', $response, false));
+    }
+
+    /** Состояние поиска; чужой или несуществующий id (404) — RealEstateBadRequest. */
+    public function searchStatus(string $id, ?string $lang = null): SiteSearchStatus
+    {
+        $path = '/search-jobs/'.rawurlencode($id);
+        $response = $this->send(fn () => $this->http()->get($path, ['lang' => $lang ?? app()->getLocale()]));
+
+        // 404 — ожидаемый случай (чужой или протухший id): без Log::error из badRequest().
+        $checked = $this->checked($path, $response, allowNotFound: true)
+            ?? throw new RealEstateSearchNotFound('Real Estate: поиск не найден (404)');
+
+        return $this->searchStatusFrom($path, $checked);
+    }
+
+    private function searchStatusFrom(string $path, Response $response): SiteSearchStatus
+    {
+        $json = $response->json('data');
+
+        return $this->parsed($path, fn (): SiteSearchStatus => SiteSearchStatus::fromApi($json));
     }
 
     /** @param  array<string, scalar>  $query */
@@ -239,19 +286,23 @@ class RealEstateClient
     /** @param  array<string, scalar>  $query */
     private function get(string $path, array $query, bool $allowNotFound = false): ?Response
     {
+        return $this->checked($path, $this->send(fn () => $this->http()->get($path, $query)), $allowNotFound);
+    }
+
+    /** @param  \Closure(): Response  $call */
+    private function send(\Closure $call): Response
+    {
         if ($this->down || Cache::has(self::DOWN_KEY)) {
             throw new RealEstateUnavailable('Real Estate: нет связи (недавний сбой)');
         }
 
         try {
-            $response = $this->http()->get($path, $query);
+            return $call();
         } catch (ConnectionException) {
             $this->markDown();
 
             throw new RealEstateUnavailable('Real Estate: нет связи');
         }
-
-        return $this->checked($path, $response, $allowNotFound);
     }
 
     /** Ответ API → сам ответ, null (404, если разрешён) или исключение с понятной человеку причиной. */

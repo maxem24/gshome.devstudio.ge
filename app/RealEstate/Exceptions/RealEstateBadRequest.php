@@ -3,7 +3,7 @@
 namespace App\RealEstate\Exceptions;
 
 /** 422 — ошибка в запросе GS Home (баг клиента), человеку — общий текст. */
-final class RealEstateBadRequest extends RealEstateException
+class RealEstateBadRequest extends RealEstateException
 {
     public function userMessage(): string
     {

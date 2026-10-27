@@ -56,6 +56,11 @@ final class Journal
 
     public const LISTING_VIEWED = 'listing.viewed';
 
+    /** Поиск по сайтам; не событие ленты. */
+    public const SEARCH_STARTED = 'search.started';
+
+    public const SEARCH_FINISHED = 'search.finished';
+
     /** Настройка, не событие ленты. */
     public const DEAL_STAGES_SAVED = 'settings.deal_stages_saved';
 

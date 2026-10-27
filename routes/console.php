@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Напоминания о показах: зависят от окон в 2 часа и 1 час, пять минут — достаточная точность.
 Schedule::command('crm:viewing-reminders')->everyFiveMinutes();
+
+// Поиски по сайтам, у которых оборвался опрос (рестарт Horizon, потеря задания): закрываем по таймауту.
+Schedule::command('search:sweep')->everyFiveMinutes();

@@ -24,6 +24,12 @@ class ListingTest extends TestCase
         $this->assertSame('https://re.test/storage/1_t.webp', $l->mainThumb());
     }
 
+    public function test_partial_flag_defaults_to_false_and_is_read_from_api(): void
+    {
+        $this->assertFalse(Listing::fromApi(RealEstateFake::listing(), 'ru')->partial);
+        $this->assertTrue(Listing::fromApi(RealEstateFake::listing(['partial' => true]), 'ru')->partial);
+    }
+
     public function test_title_falls_back_to_georgian(): void
     {
         $l = Listing::fromApi(RealEstateFake::listing(['title' => ['ru' => null], 'description' => ['ru' => null]]), 'ru');
