@@ -44,8 +44,17 @@ class AdminPanelProvider extends PanelProvider
             ->userMenuItems(LocaleMenu::items())
             // Кнопка «Найти квартиру» видна на каждом экране панели, всем ролям.
             ->renderHook(PanelsRenderHook::USER_MENU_BEFORE, fn (): string => Auth::check() ? Blade::render('@livewire(\App\Livewire\FindListing::class)') : '')
+            ->brandName('JS Home')
+            ->brandLogo(asset('images/brand/logo-navy.png'))
+            ->darkModeBrandLogo(asset('images/brand/logo-white.png'))
+            ->brandLogoHeight('2.75rem')
+            ->favicon(asset('images/brand/icon-32.png'))
+            ->renderHook(PanelsRenderHook::HEAD_END, fn () => view('filament.brand.head'))
+            ->renderHook(PanelsRenderHook::FOOTER, fn () => view('filament.brand.contacts'))
+            ->renderHook(PanelsRenderHook::AUTH_LOGIN_FORM_AFTER, fn () => view('filament.brand.contacts'))
+            // Тёмно-синий агентства; палитра Filament строится по светлоте, 400-600 читаются и в тёмной теме.
             ->colors([
-                'primary' => Color::Amber,
+                'primary' => Color::hex('#0c1a4a'),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
