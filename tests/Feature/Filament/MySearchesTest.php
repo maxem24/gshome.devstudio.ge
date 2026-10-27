@@ -275,6 +275,7 @@ class MySearchesTest extends TestCase
 
         Livewire::test(SearchResult::class, ['search' => $search->id])
             ->assertSee('Аренда в Сабуртало')
+            ->assertSee('/listings/14?search='.$search->id, escape: false)
             ->assertSet('hidden', 0);
     }
 }

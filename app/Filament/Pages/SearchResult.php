@@ -96,7 +96,7 @@ class SearchResult extends Page implements HasTable
                 return $this->rows;
             })
             ->paginated(false)
-            ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id']]))
+            ->recordUrl(fn (array $record): string => ListingView::getUrl(['listing' => $record['id'], 'search' => $this->searchId]))
             ->columns([
                 Stack::make([
                     TextColumn::make('title')->weight(FontWeight::Bold)->wrap(),
