@@ -28,8 +28,8 @@ final class SiteSearchRequest
 
         $city = self::id($form['city_id'] ?? null);
         $type = self::id($form['property_type_id'] ?? null);
-        $body += $city !== null ? ['city_id' => $city] : [];
-        $body += $type !== null ? ['property_type_id' => $type] : [];
+        $body += $city !== null ? ['city_id' => [$city]] : [];
+        $body += $type !== null ? ['property_type_id' => [$type]] : [];
 
         foreach (self::IDS as $key) {
             $ids = self::list($form[$key] ?? null, self::id(...));

@@ -46,7 +46,7 @@ class SiteSearchClientTest extends TestCase
         ]);
 
         $this->assertSame([
-            'deal_type_id' => [1], 'city_id' => 1, 'property_type_id' => 2, 'district_id' => [3, 5],
+            'deal_type_id' => [1], 'city_id' => [1], 'property_type_id' => [2], 'district_id' => [3, 5],
             'rooms' => [2, 3], 'price_usd_max' => 90000, 'area_min' => 40.5,
         ], $body);
     }
