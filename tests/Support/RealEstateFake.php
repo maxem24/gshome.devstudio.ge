@@ -70,7 +70,7 @@ final class RealEstateFake
     public static function searchJob(array $overrides = []): array
     {
         $job = array_replace_recursive([
-            'id' => 'uuid-1', 'status' => 'queued', 'message' => 'Поиск идёт, обычно 1–3 мин',
+            'id' => '0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11', 'status' => 'queued', 'message' => 'Поиск идёт, обычно 1–3 мин',
             'pages_done' => 0, 'found' => 0, 'truncated' => false,
             'sites' => [
                 'myhome_ge' => ['status' => 'queued', 'found' => 0, 'pages_done' => 0, 'message' => 'Поиск идёт'],
@@ -88,7 +88,7 @@ final class RealEstateFake
      * @param  list<array<string, mixed>>  $pages  ответы GET /listings по порядку (последний повторяется)
      * @param  array<int, array<string, mixed>>  $cards  id => объявление для GET /listings/{id}
      * @param  list<PromiseInterface>  $searchPosts  ответы POST /search-jobs по порядку (последний повторяется), напр. Http::response(['data' => searchJob()], 202)
-     * @param  list<PromiseInterface>  $searchGets  то же для GET /search-jobs/{id}
+     * @param  list<PromiseInterface|\Closure>  $searchGets  то же для GET /search-jobs/{id} (Closure — напр. Http::failedConnection())
      */
     public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = []): void
     {

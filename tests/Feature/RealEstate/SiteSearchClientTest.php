@@ -116,7 +116,7 @@ class SiteSearchClientTest extends TestCase
         $status = app(RealEstateClient::class)->startSearch(['city_id' => 1, 'district_id' => [3]]);
 
         $this->assertSame('queued', $status->status);
-        $this->assertSame('uuid-1', $status->id);
+        $this->assertSame('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11', $status->id);
         $this->assertFalse($status->isFinished());
         $this->assertSame('skipped', $status->sites['ss_ge']['status']);
         Http::assertSent(fn (Request $r): bool => $r->method() === 'POST'
@@ -181,14 +181,14 @@ class SiteSearchClientTest extends TestCase
         ]);
         $client = app(RealEstateClient::class);
 
-        $done = $client->searchStatus('uuid-1');
+        $done = $client->searchStatus('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11');
         $this->assertTrue($done->isFinished());
         $this->assertTrue($done->truncated);
         $this->assertSame(3, $done->found);
         $this->assertSame([5], $done->listingIds);
         $this->assertSame(['status' => 'done', 'found' => 3, 'pages_done' => 2, 'message' => 'Готово'], $done->sites['myhome_ge']);
 
-        $this->assertSame('searching', $client->searchStatus('uuid-1')->status);
+        $this->assertSame('searching', $client->searchStatus('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11')->status);
         Http::assertSent(fn (Request $r): bool => $r->method() === 'GET' && str_contains($r->url(), 'lang='));
     }
 

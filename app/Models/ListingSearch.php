@@ -1,0 +1,81 @@
+<?php
+
+namespace App\Models;
+
+use App\Access\OrgAccess;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
+
+/**
+ * Поиск по сайтам, запущенный человеком. Копий карточек не храним — только id найденных.
+ *
+ * @property int $user_id
+ * @property array<string, mixed> $filters
+ * @property string $body_hash
+ * @property ?string $remote_id
+ * @property string $status queued|running|done|failed|cancelled|timed_out
+ * @property ?string $message
+ * @property array<string, array<string, mixed>>|null $sites
+ * @property int $found
+ * @property bool $truncated
+ * @property list<int>|null $listing_ids
+ * @property Carbon $started_at
+ * @property ?Carbon $finished_at
+ * @property ?Carbon $notified_at
+ */
+#[Fillable(['user_id', 'filters', 'body_hash', 'remote_id', 'status', 'message', 'sites', 'found', 'truncated', 'listing_ids', 'started_at', 'finished_at', 'notified_at'])]
+class ListingSearch extends Model
+{
+    use SoftDeletes;
+
+    public const RUNNING = ['queued', 'running'];
+
+    protected function casts(): array
+    {
+        return [
+            'filters' => 'array',
+            'sites' => 'array',
+            'listing_ids' => 'array',
+            'truncated' => 'boolean',
+            'started_at' => 'datetime',
+            'finished_at' => 'datetime',
+            'notified_at' => 'datetime',
+        ];
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function isRunning(): bool
+    {
+        return in_array($this->status, self::RUNNING, true);
+    }
+
+    /** Готов, но часть сайтов не дошла до конца. */
+    public function isPartial(): bool
+    {
+        if ($this->status !== 'done') {
+            return false;
+        }
+        foreach ($this->sites ?? [] as $site) {
+            if (($site['status'] ?? '') !== 'done') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param  Builder<ListingSearch>  $query */
+    public function scopeVisibleTo(Builder $query, User $viewer): void
+    {
+        $query->whereIn('user_id', OrgAccess::visibleUsers($viewer)->select('users.id'));
+    }
+}

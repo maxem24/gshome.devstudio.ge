@@ -223,6 +223,12 @@ return [
         'pair_exists' => 'This pair of companies already exists.',
     ],
     'search' => [
+        'done' => 'Search is ready: :count listings',
+        'done_partial' => 'Search is partly ready: :count listings',
+        'failed' => 'Search failed',
+        'timed_out' => 'The collectors did not finish in time',
+        'lost' => 'The search was lost on the Real Estate side',
+        'open' => 'Open',
         'filters_required' => 'Specify at least a city or district and a property type — otherwise the search is too broad.',
     ],
     'errors' => [
