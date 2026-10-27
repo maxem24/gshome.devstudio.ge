@@ -45,7 +45,6 @@ class FindListing extends Component implements HasActions, HasSchemas
             ->label(__('gshome.search.find'))
             ->icon(Heroicon::MagnifyingGlass)
             ->color('gray')
-            ->iconButton()
             ->labeledFrom('md')
             ->modalHeading(__('gshome.search.find'))
             ->modalWidth(Width::ThreeExtraLarge)

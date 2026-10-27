@@ -1,0 +1,12 @@
+{
+    "name": "JS Home",
+    "short_name": "JS Home",
+    "start_url": "/admin",
+    "display": "standalone",
+    "theme_color": "#0c1a4a",
+    "background_color": "#0c1a4a",
+    "icons": [
+        { "src": "/images/brand/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+        { "src": "/images/brand/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    ]
+}
