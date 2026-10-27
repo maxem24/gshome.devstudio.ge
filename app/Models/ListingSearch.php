@@ -58,14 +58,14 @@ class ListingSearch extends Model
         return in_array($this->status, self::RUNNING, true);
     }
 
-    /** Готов, но часть сайтов не дошла до конца. */
+    /** Готов, но часть подходящих сайтов не дошла до конца; skipped — не сбой, сайт просто не подошёл. */
     public function isPartial(): bool
     {
         if ($this->status !== 'done') {
             return false;
         }
         foreach ($this->sites ?? [] as $site) {
-            if (($site['status'] ?? '') !== 'done') {
+            if (! in_array($site['status'] ?? '', ['done', 'skipped'], true)) {
                 return true;
             }
         }

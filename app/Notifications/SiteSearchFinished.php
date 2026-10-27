@@ -37,7 +37,7 @@ class SiteSearchFinished extends BaseNotification
         };
 
         $notification = Notification::make()->title($title);
-        if ($this->search->status !== 'done' && $this->search->message) {
+        if ($this->search->status !== 'done' && $this->search->message && $this->search->message !== $title) {
             $notification->body($this->search->message);
         }
         if (Route::has(self::RESULT_ROUTE)) {

@@ -7,6 +7,7 @@ use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateSearchNotFound;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use Carbon\Carbon;
@@ -121,7 +122,7 @@ class RealEstateClient
 
         // 404 — ожидаемый случай (чужой или протухший id): без Log::error из badRequest().
         $checked = $this->checked($path, $response, allowNotFound: true)
-            ?? throw new RealEstateBadRequest('Real Estate: поиск не найден (404)');
+            ?? throw new RealEstateSearchNotFound('Real Estate: поиск не найден (404)');
 
         return $this->searchStatusFrom($path, $checked);
     }

@@ -202,4 +202,86 @@ class SiteSearchesTest extends TestCase
         $this->assertSame([], ListingSearch::query()->visibleTo($other)->pluck('id')->all());
         $this->assertSame([$mine->id], ListingSearch::query()->visibleTo($this->nino->teamLead)->pluck('id')->all());
     }
+
+    public function test_skipped_site_does_not_make_search_partial(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response($this->job(['status' => 'done', 'found' => 4, 'sites' => [
+            'myhome_ge' => ['status' => 'done', 'found' => 4],
+            'ss_ge' => ['status' => 'skipped', 'found' => 0],
+        ]]), 202)]);
+
+        app(SiteSearches::class)->start($this->nino, $this->form);
+
+        $this->assertSame('Поиск готов: 4 объявлений', $this->nino->notifications()->first()->data['title']);
+    }
+
+    public function test_job_failure_closes_running_search_as_failed_and_notifies(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response($this->job(), 202)]);
+        $search = app(SiteSearches::class)->start($this->nino, $this->form);
+
+        (new PollListingSearch($search->id))->failed(new \RuntimeException('boom'));
+
+        $this->assertSame('failed', $search->fresh()->status);
+        $this->assertSame(1, $this->nino->notifications()->count());
+    }
+
+    public function test_dead_running_search_is_timed_out_and_new_one_started(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response($this->job(), 202)]);
+        $old = app(SiteSearches::class)->start($this->nino, $this->form);
+
+        $this->travel(31)->minutes();
+        $new = app(SiteSearches::class)->start($this->nino, $this->form);
+
+        $this->assertNotSame($old->id, $new->id);
+        $this->assertSame('timed_out', $old->fresh()->status);
+        $this->assertSame(2, $this->posts());
+    }
+
+    public function test_late_close_does_not_overwrite_done(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response($this->job(), 202)]);
+        $searches = app(SiteSearches::class);
+        $stale = $searches->start($this->nino, $this->form);
+        $copy = ListingSearch::query()->find($stale->id);
+        $searches->close($copy, 'done');
+
+        $searches->close($stale, 'timed_out');
+
+        $this->assertSame('done', $stale->fresh()->status);
+        $this->assertSame(1, $this->nino->notifications()->count());
+    }
+
+    public function test_non_404_bad_request_keeps_polling(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(
+            searchPosts: [Http::response($this->job(), 202)],
+            searchGets: [Http::response(['error' => ['code' => 'validation']], 422)],
+        );
+        $searches = app(SiteSearches::class);
+        $search = $searches->start($this->nino, $this->form);
+
+        (new PollListingSearch($search->id))->handle($searches);
+
+        $this->assertSame('queued', $search->fresh()->status);
+        Queue::assertPushed(PollListingSearch::class, 2);
+    }
+
+    public function test_timeout_notification_has_no_duplicate_body(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(searchPosts: [Http::response($this->job(), 202)]);
+        $searches = app(SiteSearches::class);
+        $search = $searches->start($this->nino, $this->form);
+        $this->travel(31)->minutes();
+        (new PollListingSearch($search->id))->handle($searches);
+
+        $this->assertNull($this->nino->notifications()->first()->data['body'] ?? null);
+    }
 }

@@ -43,4 +43,15 @@ class PollListingSearch implements ShouldQueue
             self::dispatch($search->id)->delay((int) config('search.poll_seconds', 10));
         }
     }
+
+    /** Непойманная ошибка не должна оставлять поиск «в работе» навсегда: закрываем его как failed и уведомляем. */
+    public function failed(\Throwable $e): void
+    {
+        Log::error('Опрос поиска по сайтам упал', ['search' => $this->searchId, 'error' => $e->getMessage()]);
+
+        $search = ListingSearch::query()->find($this->searchId);
+        if ($search !== null && $search->isRunning()) {
+            app(SiteSearches::class)->close($search, 'failed', __('gshome.search.failed'));
+        }
+    }
 }
