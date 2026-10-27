@@ -18,7 +18,9 @@ use App\Models\ListingSearch;
 use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateRefreshNotFound;
+use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\Listing;
 use App\RealEstate\ListingDetails;
 use App\RealEstate\ListingRefresh;
@@ -66,6 +68,10 @@ class ListingView extends Page
      */
     #[Locked]
     public array $refresh = [];
+
+    /** Не показывать кнопку актуализации до этого времени (ISO): API ответил 429 на запуск. */
+    #[Locked]
+    public ?string $retryUntil = null;
 
     public static function getRoutePath(Panel $panel): string
     {
@@ -178,13 +184,17 @@ class ListingView extends Page
             ->label(__('gshome.listings.refresh.button'))
             ->icon(Heroicon::OutlinedArrowPath)
             ->color('primary')
-            ->visible(fn (): bool => (bool) ($this->card['refreshable'] ?? false) && $this->refreshId === null)
+            ->visible(fn (): bool => (bool) ($this->card['refreshable'] ?? false) && $this->refreshId === null
+                && ($this->retryUntil === null || now()->greaterThanOrEqualTo(Carbon::parse($this->retryUntil))))
             ->action(function (): void {
                 $id = (int) ($this->card['id'] ?? 0);
                 abort_unless($id > 0 && ($this->card['refreshable'] ?? false), 404);
                 try {
                     $state = app(RealEstateClient::class)->startRefresh($id);
                 } catch (RealEstateException $e) {
+                    if ($e instanceof RealEstateRateLimited) {
+                        $this->retryUntil = now()->addSeconds($e->retryAfter)->toIso8601String();
+                    }
                     Notification::make()->title($e->userMessage())->danger()->send();
 
                     return;
@@ -198,6 +208,8 @@ class ListingView extends Page
                 Journal::record(Journal::LISTING_REFRESH_STARTED, null, ['listing_id' => $id], $this->viewer());
                 Notification::make()->title(__('gshome.listings.refresh.started'))->success()->send();
                 $this->refreshId = $state->id;
+                // Подсказка «можно уйти» обещает свежие данные при следующем открытии: старый кеш карточки её нарушил бы.
+                app(RealEstateClient::class)->forgetCard($id);
                 $this->absorbRefresh($state);
             });
     }
@@ -208,20 +220,41 @@ class ListingView extends Page
         if ($this->refreshId === null) {
             return;
         }
+        // 429 на прошлом опросе: до retry_until в API не ходим.
+        $until = $this->refresh['retry_until'] ?? null;
+        if (is_string($until) && now()->lessThan(Carbon::parse($until))) {
+            return;
+        }
 
         try {
             $state = app(RealEstateClient::class)->refreshState($this->refreshId);
-        } catch (RealEstateRefreshNotFound $e) {
+        } catch (RealEstateRefreshNotFound) {
             // Real Estate больше не знает эту актуализацию — ждать нечего.
             $this->refreshId = null;
             $this->refresh['finished'] = true;
-            $this->refresh['error'] = $e->userMessage();
+            $this->refresh['lost'] = true;
+            $this->refresh['error'] = null;
+            $this->markNotWaited();
 
             return;
-        } catch (RealEstateException $e) {
+        } catch (RealEstateRateLimited $e) {
+            $this->refresh['retry_until'] = now()->addSeconds($e->retryAfter)->toIso8601String();
+            $this->refresh['error'] = $e->userMessage();
+            $this->stopOnDeadline();
+
+            return;
+        } catch (RealEstateUnavailable $e) {
             // Сбой связи при опросе — не повод бросать актуализацию: покажем причину и спросим ещё раз.
             $this->refresh['error'] = $e->userMessage();
             $this->stopOnDeadline();
+
+            return;
+        } catch (RealEstateException $e) {
+            // Доступ закрыт или запрос отвергнут: повтор ничего не изменит (и каждые 2 с писал бы в лог).
+            $this->refreshId = null;
+            $this->refresh['finished'] = true;
+            $this->refresh['error'] = $e->userMessage();
+            $this->markNotWaited();
 
             return;
         }
@@ -239,6 +272,18 @@ class ListingView extends Page
             $this->refresh['finished'] = true;
             $this->refresh['error'] = null;
             $this->refresh['timeout'] = __('gshome.listings.refresh.timeout');
+            $this->markNotWaited();
+        }
+    }
+
+    /** Ждать больше не будем: то, что так и осталось «проверяем…», честно назвать «не дождались». */
+    private function markNotWaited(): void
+    {
+        foreach ($this->refresh['items'] ?? [] as $n => $item) {
+            if ($item['pending'] ?? false) {
+                $this->refresh['items'][$n]['pending'] = false;
+                $this->refresh['items'][$n]['text'] = __('gshome.listings.refresh.outcomes.not_waited');
+            }
         }
     }
 
@@ -254,12 +299,14 @@ class ListingView extends Page
             'items' => array_map(fn (ListingRefreshItem $i): array => [
                 'site' => self::siteLabel($i->source),
                 'url' => $i->sourceUrl,
-                'text' => self::itemText($i),
+                'text' => self::itemText($i, $state->finished()),
                 'pending' => $i->outcome === 'pending',
             ], $state->items),
             'truncated' => $state->truncated,
             'error' => null,
             'timeout' => null,
+            'lost' => false,
+            'retry_until' => null,
             'removed' => false,
             'removed_at' => null,
             'price_before' => null,
@@ -281,7 +328,7 @@ class ListingView extends Page
         app(RealEstateClient::class)->forgetCard($id);
 
         $this->refresh['summary'] = collect($state->items)
-            ->map(fn (ListingRefreshItem $i): string => self::siteLabel($i->source).' — '.self::itemText($i))
+            ->map(fn (ListingRefreshItem $i): string => self::siteLabel($i->source).' — '.self::itemText($i, true))
             ->unique()->implode('; ');
 
         $raw = $state->listing;
@@ -342,8 +389,12 @@ class ListingView extends Page
     }
 
     /** Итог по одной копии: текст из API (`error`) выводим как есть. */
-    private static function itemText(ListingRefreshItem $item): string
+    private static function itemText(ListingRefreshItem $item, bool $finished): string
     {
+        if ($item->outcome === 'pending' && $finished) {
+            return __('gshome.listings.refresh.outcomes.not_waited');
+        }
+
         return $item->outcome === 'failed'
             ? ($item->error ?? __('gshome.listings.refresh.outcomes.failed'))
             : __('gshome.listings.refresh.outcomes.'.$item->outcome);
@@ -395,8 +446,14 @@ class ListingView extends Page
     public function pin(): ?ListingPin
     {
         $listing = $this->currentListing();
+        if ($listing !== null) {
+            return app(Pins::class)->activeFor($listing);
+        }
 
-        return $listing === null ? null : app(Pins::class)->activeFor($listing);
+        // Снятое API не отдаёт (404), но закрепление живёт: ищем его по id и группе из карточки.
+        $id = (int) ($this->card['id'] ?? 0);
+
+        return $id > 0 ? app(Pins::class)->activeForIds($id, $this->card['cluster_id'] ?? null) : null;
     }
 
     /** @return array{mine: bool, name: ?string, holder_id: int}|null */
@@ -450,7 +507,7 @@ class ListingView extends Page
             Action::make('takeInWork')
                 ->label(__('gshome.crm.pins.take'))
                 ->icon(Heroicon::OutlinedHandRaised)
-                ->visible(fn (): bool => $this->card !== [] && $this->pin() === null)
+                ->visible(fn (): bool => $this->card !== [] && ! ($this->refresh['removed'] ?? false) && $this->pin() === null)
                 ->action(function (): void {
                     $listing = $this->currentListing();
                     try {

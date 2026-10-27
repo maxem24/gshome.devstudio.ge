@@ -31,6 +31,8 @@
                             <p class="text-danger-600 dark:text-danger-400 text-lg font-semibold">
                                 {{ $refresh['removed_at'] ? __('gshome.listings.refresh.removed', ['date' => $refresh['removed_at']]) : __('gshome.listings.refresh.removed_unknown') }}
                             </p>
+                        @elseif ($refresh['lost'] ?? false)
+                            <p class="text-warning-600 dark:text-warning-400 font-medium">{{ __('gshome.listings.refresh.lost') }}</p>
                         @elseif ($refresh['timeout'] ?? null)
                             <p class="text-warning-600 dark:text-warning-400 font-medium">{{ $refresh['timeout'] }}</p>
                         @elseif ($refresh['stale'] ?? null)

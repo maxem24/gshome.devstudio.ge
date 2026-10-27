@@ -60,6 +60,7 @@ return [
                 'recent' => 'data is fresh',
                 'removed' => 'taken down',
                 'failed' => 'could not be checked',
+                'not_waited' => 'no answer received',
             ],
             'truncated' => 'Not all copies of the listing were updated',
             'timeout' => 'The sites did not answer in time',
