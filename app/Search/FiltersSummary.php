@@ -6,6 +6,7 @@ use App\Access\OrgAccess;
 use App\Enums\Direction;
 use App\Models\User;
 use App\RealEstate\RealEstateClient;
+use Illuminate\Support\Str;
 
 /** Фильтры поиска коротко: сделка, тип, цена, площадь, комнаты, число районов. Один текст для списка поисков, страницы результата и колокольчика. */
 class FiltersSummary
@@ -17,6 +18,10 @@ class FiltersSummary
      */
     public static function make(array $filters, ?User $by = null, ?string $locale = null): string
     {
+        if (is_string($filters['link'] ?? null) && $filters['link'] !== '') {
+            return self::link($filters, $locale);
+        }
+
         $parts = [];
         $deal = filled($filters['deal'] ?? null) ? Direction::tryFrom((string) $filters['deal']) : null;
         if ($deal === null && $by !== null && count($directions = OrgAccess::directions($by)) === 1) {
@@ -49,6 +54,29 @@ class FiltersSummary
         $parts = array_values(array_filter($parts));
 
         return $parts === [] ? __('gshome.search.mine.any', [], $locale) : implode(' · ', $parts);
+    }
+
+    /**
+     * Поиск по ссылке: «Ссылка myhome · Сдаётся · /udzravi-qoneba/…» — фильтры задал сайт, наших нет.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    private static function link(array $filters, ?string $locale): string
+    {
+        $site = match ($filters['link_source'] ?? null) {
+            'myhome_ge' => 'myhome',
+            'ss_ge' => 'ss.ge',
+            default => (string) parse_url((string) $filters['link'], PHP_URL_HOST),
+        };
+        $deal = filled($filters['deal'] ?? null) ? Direction::tryFrom((string) $filters['deal']) : null;
+        $path = (string) parse_url((string) $filters['link'], PHP_URL_PATH);
+
+        return implode(' · ', array_filter([
+            __('gshome.link.summary', ['site' => $site], $locale),
+            $deal !== null ? __("gshome.direction.{$deal->value}", [], $locale) : null,
+            ($type = self::id($filters['property_type_id'] ?? null)) !== null ? self::typeTitle($type, $locale ?? app()->getLocale()) : null,
+            $path !== '' && $path !== '/' ? Str::limit(rawurldecode($path), 40) : null,
+        ]));
     }
 
     /** Название типа на языке получателя: колокольчик собирает очередь, у неё язык процесса, а не человека. */

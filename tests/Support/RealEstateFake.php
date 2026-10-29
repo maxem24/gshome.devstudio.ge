@@ -106,14 +106,45 @@ final class RealEstateFake
     }
 
     /**
+     * Ответ POST/GET /imports (поле data) для ссылки на объявление; уже в базе — status done и listing_id.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    public static function importListing(array $overrides = []): array
+    {
+        return array_replace([
+            'kind' => 'listing', 'id' => '5d1e2f3a-4b5c-4d6e-8f70-112233445566', 'source' => 'myhome_ge', 'external_id' => '21345678',
+            'url' => 'https://www.myhome.ge/pr/21345678/', 'status' => 'queued', 'listing_id' => null, 'message' => 'Сборщик откроет объявление',
+        ], $overrides);
+    }
+
+    /**
+     * Ответ POST /imports для ссылки на выдачу: внутри обычный поиск.
+     *
+     * @param  array<string, mixed>  $search  поверх searchJob()
+     * @return array<string, mixed>
+     */
+    public static function importSearch(array $search = [], array $filters = ['deal_type_id' => 2, 'property_type_id' => 1, 'city_id' => 1]): array
+    {
+        return [
+            'kind' => 'search', 'source' => 'ss_ge', 'url' => 'https://home.ss.ge/ka/udzravi-qoneba/l/bina/qiravdeba?cityIdList=95',
+            'filters' => $filters, 'search' => self::searchJob($search),
+        ];
+    }
+
+    /**
      * @param  list<array<string, mixed>>  $pages  ответы GET /listings по порядку (последний повторяется)
      * @param  array<int, array<string, mixed>>  $cards  id => объявление для GET /listings/{id}
      * @param  list<PromiseInterface>  $searchPosts  ответы POST /search-jobs по порядку (последний повторяется), напр. Http::response(['data' => searchJob()], 202)
      * @param  list<PromiseInterface|\Closure>  $searchGets  то же для GET /search-jobs/{id} (Closure — напр. Http::failedConnection())
      * @param  list<PromiseInterface>  $refreshPosts  ответы POST /listings/{id}/refresh по порядку (последний повторяется)
      * @param  list<PromiseInterface>  $refreshGets  то же для GET /listing-refreshes/{id}
+     * @param  list<PromiseInterface>  $importPosts  ответы POST /imports по порядку (последний повторяется)
+     * @param  list<PromiseInterface>  $importGets  то же для GET /imports/{id}
+     * @param  list<string>  $imports  `imports` в GET /me — сайты, ссылки с которых принимаются
      */
-    public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = [], array $refreshPosts = [], array $refreshGets = []): void
+    public static function fake(array $pages = [], array $cards = [], array $searchPosts = [], array $searchGets = [], array $refreshPosts = [], array $refreshGets = [], array $importPosts = [], array $importGets = [], array $imports = []): void
     {
         // Новые ответы — новое состояние API: короткий кеш клиента от прошлых ответов не должен их заслонять.
         Cache::flush();
@@ -123,7 +154,9 @@ final class RealEstateFake
         $g = 0;
         $rp = 0;
         $rg = 0;
-        Http::fake(function (Request $request) use (&$i, &$p, &$g, &$rp, &$rg, $pages, $cards, $searchPosts, $searchGets, $refreshPosts, $refreshGets) {
+        $ip = 0;
+        $ig = 0;
+        Http::fake(function (Request $request) use (&$i, &$p, &$g, &$rp, &$rg, &$ip, &$ig, $pages, $cards, $searchPosts, $searchGets, $refreshPosts, $refreshGets, $importPosts, $importGets, $imports) {
             $path = (string) parse_url($request->url(), PHP_URL_PATH);
 
             return match (true) {
@@ -135,6 +168,9 @@ final class RealEstateFake
                 str_starts_with($path, '/api/v1/dictionaries/') => Http::response(['data' => [
                     ['id' => 1, 'slug' => 'tbilisi', 'title_ka' => 'თბილისი', 'title_en' => 'Tbilisi', 'title_ru' => 'Тбилиси'],
                 ]]),
+                $path === '/api/v1/me' => Http::response(['data' => ['client' => 'GS Home', 'refresh_sources' => [], 'imports' => $imports]]),
+                $path === '/api/v1/imports' && $importPosts !== [] => $importPosts[min($ip++, count($importPosts) - 1)],
+                str_starts_with($path, '/api/v1/imports/') && $importGets !== [] => $importGets[min($ig++, count($importGets) - 1)],
                 $path === '/api/v1/search-jobs' && $searchPosts !== [] => $searchPosts[min($p++, count($searchPosts) - 1)],
                 str_starts_with($path, '/api/v1/search-jobs/') && $searchGets !== [] => $searchGets[min($g++, count($searchGets) - 1)],
                 $request->method() === 'POST' && preg_match('#^/api/v1/listings/\d+/refresh$#', $path) && $refreshPosts !== [] => $refreshPosts[min($rp++, count($refreshPosts) - 1)],

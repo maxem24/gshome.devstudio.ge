@@ -9,6 +9,7 @@ use App\Models\User;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\Search\FiltersSummary;
+use App\Search\LinkImports;
 use App\Search\SearchStart;
 use App\Search\SiteSearches;
 use BackedEnum;
@@ -111,7 +112,17 @@ class MySearches extends Page implements HasTable
         abort_unless($search->user_id === $viewer->getKey(), 403);
 
         try {
-            $start = app(SiteSearches::class)->start($viewer, $search->filters);
+            // Поиск по ссылке повторяется той же ссылкой: фильтров формы у него нет.
+            $link = $search->filters['link'] ?? null;
+            $start = is_string($link) && $link !== ''
+                ? app(LinkImports::class)->start($viewer, $link)->search
+                : app(SiteSearches::class)->start($viewer, $search->filters);
+            if ($start === null) {
+                // Ссылка вдруг стала объявлением (сайт поменял адреса) — запускать нечего.
+                Notification::make()->danger()->title(__('gshome.link.not_search'))->send();
+
+                return;
+            }
         } catch (CrmForbidden) {
             abort(403);
         } catch (RealEstateRateLimited) {

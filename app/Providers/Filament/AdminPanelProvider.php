@@ -44,6 +44,8 @@ class AdminPanelProvider extends PanelProvider
             ->userMenuItems(LocaleMenu::items())
             // Кнопка «Найти квартиру» видна на каждом экране панели, всем ролям.
             ->renderHook(PanelsRenderHook::USER_MENU_BEFORE, fn (): string => Auth::check() ? Blade::render('@livewire(\App\Livewire\FindListing::class)') : '')
+            // Рядом — «По ссылке»: ссылка myhome / ss.ge на объявление или выдачу (видна, когда Real Estate принимает ссылки).
+            ->renderHook(PanelsRenderHook::USER_MENU_BEFORE, fn (): string => Auth::check() ? Blade::render('@livewire(\App\Livewire\ImportByLink::class)') : '')
             ->brandName('JS Home')
             ->brandLogo(asset('images/brand/logo-navy.png'))
             ->darkModeBrandLogo(asset('images/brand/logo-white.png'))

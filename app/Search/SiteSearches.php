@@ -28,10 +28,21 @@ class SiteSearches
     public function start(User $by, array $form): SearchStart
     {
         $body = SiteSearchRequest::build($by, $form);
-        $hash = sha1((string) json_encode($body));
 
+        return $this->startWith($by, sha1((string) json_encode($body)), fn (): array => [$this->client->startSearch($body), $form])
+            ?? throw new \LogicException('POST /search-jobs всегда даёт поиск');
+    }
+
+    /**
+     * Старт поиска с защитой от повторов: такой же идёт — он, такой же готов недавно — он, иначе $post.
+     * $post шлёт запрос и отдаёт [состояние, фильтры для записи] или null, если поиска не вышло (ссылка на объявление).
+     *
+     * @param  \Closure(): (array{SiteSearchStatus, array<string, mixed>}|null)  $post
+     */
+    public function startWith(User $by, string $hash, \Closure $post): ?SearchStart
+    {
         // Проверка и создание под advisory-замком: два одновременных старта с теми же фильтрами шлют один POST.
-        $start = DB::transaction(function () use ($by, $form, $body, $hash): SearchStart {
+        $start = DB::transaction(function () use ($by, $hash, $post): ?SearchStart {
             DB::select('select pg_advisory_xact_lock(?)', [crc32($by->getKey().':'.$hash)]);
 
             $same = ListingSearch::query()->where('user_id', $by->getKey())->where('body_hash', $hash);
@@ -52,11 +63,15 @@ class SiteSearches
                 return new SearchStart($fresh, SearchStart::REUSED);
             }
 
-            $status = $this->client->startSearch($body);
+            $posted = $post();
+            if ($posted === null) {
+                return null;
+            }
+            [$status, $filters] = $posted;
 
             $search = new ListingSearch([
                 'user_id' => $by->getKey(),
-                'filters' => $form,
+                'filters' => $filters,
                 'body_hash' => $hash,
                 'remote_id' => $status->id,
                 'started_at' => now(),
@@ -69,6 +84,9 @@ class SiteSearches
             return new SearchStart($search, SearchStart::NEW);
         });
 
+        if ($start === null) {
+            return null;
+        }
         $search = $start->search;
         if ($start->kind === SearchStart::NEW) {
             if ($search->isRunning()) {

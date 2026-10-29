@@ -7,6 +7,7 @@ use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateFiltersRequired;
+use App\RealEstate\Exceptions\RealEstateLinkRejected;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\Exceptions\RealEstateRefreshBusy;
 use App\RealEstate\Exceptions\RealEstateRefreshNotFound;
@@ -47,6 +48,8 @@ class RealEstateClient
     private const DOWN_TTL = 30;
 
     private const DOWN_KEY = 'real-estate:down';
+
+    private const IMPORTS_KEY = 'real-estate:me:imports';
 
     /** Связь уже оборвалась (или шлюз ответил 502/504) в этом запросе — остальные вызовы падают сразу, без новых таймаутов. */
     private bool $down = false;
@@ -137,6 +140,78 @@ class RealEstateClient
             ?? throw new RealEstateSearchNotFound('Real Estate: поиск не найден (404)');
 
         return $this->searchStatusFrom($path, $checked);
+    }
+
+    /**
+     * Ссылка на объявление или выдачу myhome / ss.ge (POST /imports). Без повторов — тот же довод, что у startSearch:
+     * выдача по ссылке — это поиск и делит с ним лимит.
+     */
+    public function startImport(string $url): LinkImport
+    {
+        $path = '/imports';
+        $response = $this->send(fn () => $this->http()->asJson()->retry(1, 0, null, false)->post($path.'?lang='.app()->getLocale(), ['url' => $url]));
+        $code = $response->json('error.code');
+        if ($response->status() === 422 && $code === 'validation_failed') {
+            $texts = $response->json('error.fields.url');
+            $texts = array_values(array_filter(is_array($texts) ? $texts : [$texts], fn (mixed $t): bool => is_string($t) && $t !== ''));
+            Log::warning('Real Estate не принял ссылку', ['url' => $url, 'fields' => $response->json('error.fields')]);
+
+            throw new RealEstateLinkRejected('Real Estate: HTTP 422 /imports', $texts);
+        }
+        // Новая карточка делит потолок с актуализацией: тот же 503 refresh_busy и тот же текст.
+        if ($response->status() === 503 && $code === 'refresh_busy') {
+            throw new RealEstateRefreshBusy(self::retryAfter($response->header('Retry-After')));
+        }
+        // 503 с другим кодом — нет сборщика на связи: это ответ, а не сбой API; без кода — обычный «недоступен».
+        if ($response->status() === 503 && is_string($code) && is_string($message = $response->json('error.message')) && $message !== '') {
+            throw new RealEstateLinkRejected("Real Estate: HTTP 503 {$code}", [$message]);
+        }
+
+        return $this->importFrom($path, $this->checked($path, $response, false));
+    }
+
+    /** Состояние ссылки на объявление; чужой или стёртый id (404) — null. */
+    public function importState(string $id): ?LinkImport
+    {
+        $path = '/imports/'.rawurlencode($id);
+        $response = $this->send(fn () => $this->http()->get($path, ['lang' => app()->getLocale()]));
+        $checked = $this->checked($path, $response, allowNotFound: true);
+
+        return $checked === null ? null : $this->importFrom($path, $checked);
+    }
+
+    /**
+     * Сайты, ссылки с которых Real Estate сейчас принимает (`GET /me` → `imports`). Пусто — кнопки «По ссылке» нет.
+     * Спрашиваем раз в 10 минут: кнопка в шапке на каждой странице. Любой сбой — пусто на минуту.
+     *
+     * @return list<string>
+     */
+    public function importSources(): array
+    {
+        $cached = Cache::get(self::IMPORTS_KEY);
+        if (is_array($cached)) {
+            return $cached;
+        }
+
+        try {
+            $sources = $this->get('/me', [])?->json('data.imports');
+            $sources = array_values(array_filter(is_array($sources) ? $sources : [], fn (mixed $s): bool => is_string($s) && $s !== ''));
+            Cache::put(self::IMPORTS_KEY, $sources, 600);
+        } catch (\Throwable $e) {
+            // Кнопка в шапке каждой страницы: любой сбой здесь — «кнопки нет», а не 500 на всей панели.
+            Log::warning('Real Estate: GET /me не ответил, кнопка «По ссылке» скрыта', ['error' => $e->getMessage()]);
+            $sources = [];
+            Cache::put(self::IMPORTS_KEY, $sources, 60);
+        }
+
+        return $sources;
+    }
+
+    private function importFrom(string $path, Response $response): LinkImport
+    {
+        $json = $response->json('data');
+
+        return $this->parsed($path, fn (): LinkImport => LinkImport::fromApi($json));
     }
 
     /**
