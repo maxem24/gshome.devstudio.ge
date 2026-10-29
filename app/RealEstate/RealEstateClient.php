@@ -82,6 +82,7 @@ class RealEstateClient
                 array_values(array_map(fn (mixed $d): Listing => Listing::fromApi($d, app()->getLocale()), $json['data'])),
                 is_string($json['meta']['next_cursor'] ?? null) ? $json['meta']['next_cursor'] : null,
                 is_string($json['meta']['prev_cursor'] ?? null) ? $json['meta']['prev_cursor'] : null,
+                array_values(array_map('intval', array_filter(is_array($json['meta']['missing_ids'] ?? null) ? $json['meta']['missing_ids'] : [], 'is_numeric'))),
             );
         });
     }
@@ -116,11 +117,10 @@ class RealEstateClient
         }
         if ($response->status() === 422 && $response->json('error.code') === 'validation_failed') {
             $fields = $response->json('error.fields');
-            $names = is_array($fields) ? array_map('strval', array_keys($fields)) : [];
             // Не наш баг, а отказ сайтов по фильтрам: предупреждение, не ошибка.
             Log::warning('Real Estate отклонил фильтры поиска по сайтам', ['fields' => $fields]);
 
-            throw new RealEstateSearchRejected('Real Estate: HTTP 422 validation_failed', $names);
+            throw RealEstateSearchRejected::fromFields('Real Estate: HTTP 422 validation_failed', $fields);
         }
 
         return $this->searchStatusFrom('/search-jobs', $this->checked('/search-jobs', $response, false));
@@ -413,6 +413,12 @@ class RealEstateClient
         $fields = $response->json('error.fields');
         if ($response->status() === 422 && is_array($fields) && array_keys($fields) === ['cursor']) {
             throw new RealEstateStaleCursor('Real Estate: курсор устарел');
+        }
+        // Район и микрорайон не сходятся (с 29.10): тексты сервера — для человека, это не баг клиента.
+        if ($response->status() === 422 && ($rejected = RealEstateSearchRejected::fromFields("Real Estate: HTTP 422 {$path}", $fields))->isAboutPlace()) {
+            Log::warning('Real Estate отклонил район и микрорайон', ['path' => $path, 'fields' => $fields]);
+
+            throw $rejected;
         }
 
         Log::error("Real Estate API: {$response->status()} — ошибка в запросе GS Home", ['path' => $path, 'fields' => $response->json('error.fields')]);

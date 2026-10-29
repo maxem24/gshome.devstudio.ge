@@ -13,6 +13,7 @@ use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\RealEstateClient;
 use App\Search\SiteSearches;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
 use Filament\Actions\Contracts\HasActions;
@@ -30,6 +31,7 @@ use Filament\Schemas\Contracts\HasSchemas;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Contracts\View\View;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
@@ -194,7 +196,16 @@ class FindListing extends Component implements HasActions, HasSchemas
                 Select::make('district_id')->label(__('gshome.listings.district'))->multiple()->searchable()->live()
                     ->options(fn (Get $get): array => ($city = $ids([$get('city_id')])) !== [] ? $dictionary('districts', ['city_id' => (int) $city[0]]) : [])
                     ->getSearchResultsUsing(fn (string $search, Get $get): array => ($city = $ids([$get('city_id')])) !== [] ? DictionaryOptions::search('districts', ['city_id' => (int) $city[0]], $search) : [])
-                    ->afterStateUpdated(fn (Set $set) => $set('subdistrict_id', [])),
+                    // Снятый район уносит только свои микрорайоны: остальные выбранные остаются.
+                    ->afterStateUpdated(fn (Set $set, Get $get) => $set('subdistrict_id', array_keys(array_intersect_key(
+                        self::subdistrictOptions($ids($get('district_id'))),
+                        array_flip(array_map('intval', $ids($get('subdistrict_id')))),
+                    ))))
+                    ->rules([fn (Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get, $ids): void {
+                        foreach (self::wholeDistrictsBesideSubdistricts($ids($get('city_id')), $ids($value), $ids($get('subdistrict_id'))) as $name) {
+                            $fail(__('gshome.search.district_whole_beside_subdistricts', ['district' => $name]));
+                        }
+                    }]),
                 Select::make('subdistrict_id')->label(__('gshome.search.subdistrict'))->multiple()->searchable()
                     ->getSearchResultsUsing(function (string $search, Get $get) use ($ids): array {
                         $out = [];
@@ -204,15 +215,8 @@ class FindListing extends Component implements HasActions, HasSchemas
 
                         return $out;
                     })
-                    ->options(function (Get $get) use ($ids, $dictionary): array {
-                        $out = [];
-                        // Подрайоны каждого выбранного района; пять районов — предел, чтобы не плодить запросы.
-                        foreach (array_slice($ids($get('district_id')), 0, 5) as $district) {
-                            $out += $dictionary('subdistricts', ['district_id' => (int) $district]);
-                        }
-
-                        return $out;
-                    }),
+                    // Подрайоны каждого выбранного района; пять районов — предел, чтобы не плодить запросы.
+                    ->options(fn (Get $get): array => self::subdistrictOptions(array_slice($ids($get('district_id')), 0, 5))),
                 TextInput::make('price_usd_min')->label(__('gshome.listings.price_min'))->numeric()->minValue(0)->live(onBlur: true),
                 TextInput::make('price_usd_max')->label(__('gshome.listings.price_max'))->numeric()->minValue(0)->live(onBlur: true),
                 Text::make(fn (Get $get): string => __('gshome.search.low_sale_price', ['price' => number_format(self::lowSalePrice($get, $directions) ?? 0)]))
@@ -233,6 +237,60 @@ class FindListing extends Component implements HasActions, HasSchemas
                 ->visible(fn (Get $get): bool => ! self::inOwnDirections(self::effectiveDeal($get, $directions), $directions)),
             Text::make(__('gshome.search.ss_hint'))->color('gray')->size('sm'),
         ];
+    }
+
+    /**
+     * Микрорайоны выбранных районов, по районам: id района ⇒ [id микрорайона ⇒ подпись].
+     *
+     * @param  list<int|string>  $districts
+     * @return Collection<int, array<int, string>>
+     */
+    private static function subdistrictsByDistrict(array $districts): Collection
+    {
+        return collect($districts)->mapWithKeys(fn (int|string $district): array => [
+            (int) $district => DictionaryOptions::options('subdistricts', ['district_id' => (int) $district]),
+        ]);
+    }
+
+    /**
+     * Все микрорайоны выбранных районов одним списком; ключи — id, их не перенумеровываем.
+     *
+     * @param  list<int|string>  $districts
+     * @return array<int, string>
+     */
+    private static function subdistrictOptions(array $districts): array
+    {
+        $out = [];
+        foreach (self::subdistrictsByDistrict($districts) as $options) {
+            $out += $options;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Сервер ищет по району И микрорайону сразу (с 29.10). Район без выбранных микрорайонов рядом
+     * с микрорайонами другого района ничего не найдёт, API ответит 422. Такие районы — подписями.
+     *
+     * @param  list<int|string>  $city
+     * @param  list<int|string>  $districts
+     * @param  list<int|string>  $subdistricts
+     * @return list<string>
+     */
+    public static function wholeDistrictsBesideSubdistricts(array $city, array $districts, array $subdistricts): array
+    {
+        if ($subdistricts === [] || count($districts) < 2) {
+            return [];
+        }
+        $chosen = array_flip(array_map('intval', $subdistricts));
+        $labels = $city !== [] ? DictionaryOptions::labels('districts', ['city_id' => (int) $city[0]], $districts) : [];
+
+        return self::subdistrictsByDistrict($districts)
+            ->filter(fn (array $options): bool => array_intersect_key($options, $chosen) === [])
+            ->keys()
+            ->map(fn (int $district): string => $labels[$district] ?? (string) $district)
+            ->values()
+            ->all();
     }
 
     /**

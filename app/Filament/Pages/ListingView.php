@@ -13,6 +13,7 @@ use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
 use App\Enums\Role;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
+use App\Jobs\PollListingRefresh;
 use App\Models\ListingPin;
 use App\Models\ListingSearch;
 use App\Models\SavedListing;
@@ -174,7 +175,28 @@ class ListingView extends Page
                 'seller' => $m['seller_category']->getLabel().($m['agency_name'] ? " · {$m['agency_name']}" : ''),
                 'price' => $m['price_usd'] !== null ? '$'.number_format($m['price_usd'], 0, '.', ' ') : '—',
                 'ownership' => $toArray($m['phone_e164'] !== null ? ($resolved[$m['phone_e164']] ?? Ownership::other()) : Ownership::other()),
+                'soft_match' => self::softMatch($m['match'] ?? null),
             ], $l->clusterListings),
+            'soft_match' => self::softMatch($l->match),
+        ];
+    }
+
+    /**
+     * Мягкая склейка — подпись «возможно, та же квартира · 70 %» и фраза API, почему склеили. Полная — null.
+     *
+     * @param  array{type: string, confidence: int, explanation: ?string}|null  $match
+     * @return array{label: string, confidence: int, explanation: ?string}|null
+     */
+    private static function softMatch(?array $match): ?array
+    {
+        if (($match['type'] ?? null) !== 'soft') {
+            return null;
+        }
+
+        return [
+            'label' => __('gshome.listings.soft_match', ['confidence' => $match['confidence']]),
+            'confidence' => $match['confidence'],
+            'explanation' => $match['explanation'],
         ];
     }
 
@@ -208,6 +230,10 @@ class ListingView extends Page
                 Journal::record(Journal::LISTING_REFRESH_STARTED, null, ['listing_id' => $id], $this->viewer());
                 Notification::make()->title(__('gshome.listings.refresh.started'))->success()->send();
                 $this->refreshId = $state->id;
+                if (! $state->finished()) {
+                    // Менеджер может уйти со страницы: ждать конца и звонить в колокольчик будет очередь.
+                    PollListingRefresh::start($state->id, $id, $this->viewer()->id);
+                }
                 // Подсказка «можно уйти» обещает свежие данные при следующем открытии: старый кеш карточки её нарушил бы.
                 app(RealEstateClient::class)->forgetCard($id);
                 $this->absorbRefresh($state);
@@ -317,6 +343,8 @@ class ListingView extends Page
             return;
         }
 
+        // Результат уже на экране: очереди звонить в колокольчик незачем.
+        PollListingRefresh::markShown($state->id);
         $this->refreshId = null;
         $this->applyRefreshResult($state);
     }

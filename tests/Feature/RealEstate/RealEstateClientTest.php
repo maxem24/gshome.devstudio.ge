@@ -5,6 +5,7 @@ namespace Tests\Feature\RealEstate;
 use App\RealEstate\Exceptions\RealEstateAccessDenied;
 use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\Exceptions\RealEstateSearchRejected;
 use App\RealEstate\Exceptions\RealEstateStaleCursor;
 use App\RealEstate\Exceptions\RealEstateUnavailable;
 use App\RealEstate\RealEstateClient;
@@ -70,8 +71,26 @@ class RealEstateClientTest extends TestCase
             '422' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['x' => ['bad']]]], [], RealEstateBadRequest::class],
             '422 cursor' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad']]]], [], RealEstateStaleCursor::class],
             '422 cursor and more' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['cursor' => ['bad'], 'q' => ['bad']]]], [], RealEstateBadRequest::class],
+            '422 place' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['district_id' => ['Район «Ваке» выбран целиком…']]]], [], RealEstateSearchRejected::class],
+            '422 place and more' => [422, ['error' => ['code' => 'validation_failed', 'fields' => ['district_id' => ['…'], 'q' => ['bad']]]], [], RealEstateBadRequest::class],
             '503' => [503, ['error' => ['code' => 'server_error']], [], RealEstateUnavailable::class],
         ];
+    }
+
+    public function test_place_mismatch_on_listings_shows_server_text_and_is_only_a_warning(): void
+    {
+        $text = 'Микрорайон «Самгори» (Исани-Самгори) не входит в выбранные районы: район и микрорайон должны совпадать.';
+        Http::fake(['*' => Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['subdistrict_id' => [$text]]]], 422)]);
+        $log = Log::spy();
+
+        try {
+            $this->client()->listings(['district_id' => '10', 'subdistrict_id' => '201'], null);
+            $this->fail('нет исключения');
+        } catch (RealEstateSearchRejected $e) {
+            $this->assertSame($text, $e->userMessage());
+        }
+        $log->shouldHaveReceived('warning')->once();
+        $log->shouldNotHaveReceived('error');
     }
 
     /** Отдельный случай на каждый код: Http::fake в цикле копит подмены, и побеждает первая. */

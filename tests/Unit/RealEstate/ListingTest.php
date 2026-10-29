@@ -30,6 +30,21 @@ class ListingTest extends TestCase
         $this->assertTrue(Listing::fromApi(RealEstateFake::listing(['partial' => true]), 'ru')->partial);
     }
 
+    public function test_match_of_listing_and_cluster_copies(): void
+    {
+        $soft = ['type' => 'soft', 'confidence' => 70, 'missing' => ['rooms'], 'evidence' => ['price'], 'explanation' => 'Комнат нет у одной копии, совпала цена.'];
+        $l = Listing::fromApi(RealEstateFake::listing([
+            'match' => ['type' => 'full', 'confidence' => 100, 'missing' => [], 'evidence' => [], 'explanation' => null],
+            'cluster' => ['id' => 5, 'match' => 'soft', 'min_confidence' => 70, 'listings_count' => 2, 'phones_e164' => [],
+                'listings' => [['id' => 41, 'source' => 'myhome_ge', 'seller' => [], 'contact' => [], 'match' => $soft]]],
+        ]), 'ru');
+
+        $this->assertFalse($l->isSoftMatch());
+        $this->assertSame(['type' => 'full', 'confidence' => 100, 'explanation' => null], $l->match);
+        $this->assertSame(['type' => 'soft', 'confidence' => 70, 'explanation' => 'Комнат нет у одной копии, совпала цена.'], $l->clusterListings[0]['match']);
+        $this->assertNull(Listing::fromApi(RealEstateFake::listing(), 'ru')->match);
+    }
+
     public function test_title_falls_back_to_georgian(): void
     {
         $l = Listing::fromApi(RealEstateFake::listing(['title' => ['ru' => null], 'description' => ['ru' => null]]), 'ru');

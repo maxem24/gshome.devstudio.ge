@@ -8,6 +8,7 @@ use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
+use App\Jobs\PollListingRefresh;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\ListingPin;
@@ -20,6 +21,7 @@ use App\RealEstate\RealEstateClient;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Features\SupportTesting\Testable;
@@ -36,6 +38,8 @@ class ListingViewTest extends TestCase
     {
         parent::setUp();
         RealEstateFake::configure();
+        // Очередь в тестах синхронная: опрос актуализации (PollListingRefresh) крутился бы внутри клика.
+        Queue::fake();
     }
 
     public function test_url_and_route(): void
@@ -284,6 +288,26 @@ class ListingViewTest extends TestCase
 
         $this->assertDatabaseMissing('saved_listings', ['user_id' => $user->id, 'listing_id' => 13]);
         $this->assertDatabaseHas('saved_listings', ['user_id' => $other->id, 'listing_id' => 13]);
+    }
+
+    public function test_soft_match_is_marked_on_the_copy_and_on_the_listing(): void
+    {
+        $soft = ['type' => 'soft', 'confidence' => 70, 'missing' => ['rooms'], 'evidence' => ['phone'], 'explanation' => 'У одной копии не указаны комнаты, совпал телефон.'];
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing([
+            'match' => $soft,
+            'cluster' => ['id' => 5, 'match' => 'soft', 'min_confidence' => 70, 'listings_count' => 2, 'phones_e164' => [],
+                'listings' => [
+                    ['id' => 55, 'source' => 'ss_ge', 'is_primary' => true, 'seller' => [], 'contact' => [], 'match' => ['type' => 'full', 'confidence' => 100]],
+                    ['id' => 56, 'source' => 'myhome_ge', 'is_primary' => false, 'seller' => [], 'contact' => [], 'match' => $soft],
+                ]],
+        ])]);
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee('Это объявление попало в группу по мягкой склейке, уверенность 70 %.')
+            ->assertSee('У одной копии не указаны комнаты, совпал телефон.')
+            ->assertSeeHtml('Возможно, та же квартира · 70 %')
+            ->assertDontSee('· 100 %');
     }
 
     private function pinFor(User $by, int $id = 13, ?int $cluster = null): ListingPin
@@ -608,6 +632,7 @@ class ListingViewTest extends TestCase
 
     public function test_refresh_start_sets_id_hides_button_and_journals(): void
     {
+        Queue::fake();
         RealEstateFake::fake(
             cards: [13 => RealEstateFake::listing(['refreshable' => true])],
             refreshPosts: [Http::response(['data' => RealEstateFake::refresh()], 202)],
@@ -622,6 +647,21 @@ class ListingViewTest extends TestCase
             ->assertSee('проверяем…');
 
         $this->assertSame(13, Activity::query()->where('event', Journal::LISTING_REFRESH_STARTED)->sole()->properties['listing_id']);
+        Queue::assertPushed(PollListingRefresh::class, fn (PollListingRefresh $j): bool => $j->refreshId === self::REFRESH_ID && $j->listingId === 13);
+    }
+
+    public function test_refresh_already_done_does_not_queue_poll_job(): void
+    {
+        Queue::fake();
+        RealEstateFake::fake(
+            cards: [13 => RealEstateFake::listing(['refreshable' => true])],
+            refreshPosts: [Http::response(['data' => RealEstateFake::refresh(['status' => 'done', 'listing' => RealEstateFake::listing()])], 200)],
+        );
+        $this->actingAs(User::factory()->teamLead()->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])->callAction('collectFullInfo');
+
+        Queue::assertNotPushed(PollListingRefresh::class);
     }
 
     public function test_refresh_done_updates_price_and_clears_id(): void

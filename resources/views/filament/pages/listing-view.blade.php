@@ -130,6 +130,11 @@
                 @endif
                 @if ($card['cluster'])
                     <x-filament::section :heading="__('gshome.listings.duplicates')">
+                        @if ($card['soft_match'])
+                            <p class="text-warning-600 dark:text-warning-400 mb-2 text-sm">
+                                {{ __('gshome.listings.soft_match_self', ['confidence' => $card['soft_match']['confidence']]) }} {{ $card['soft_match']['explanation'] }}
+                            </p>
+                        @endif
                         <div class="mb-2 hidden gap-6 text-sm font-medium md:grid md:grid-cols-2">
                             <div>{{ __('gshome.listings.duplicates_in_system') }}</div>
                             <div>{{ __('gshome.listings.duplicates_on_source') }}</div>
@@ -183,6 +188,13 @@
                                             <span>{{ $member['source'] }}</span>
                                         @endif
                                         <span>{{ $member['seller'] }}</span>
+                                        @if ($member['soft_match'])
+                                            <x-filament::badge
+                                                color="warning"
+                                                :tooltip="$member['soft_match']['explanation']"
+                                                >{{ $member['soft_match']['label'] }}</x-filament::badge
+                                            >
+                                        @endif
                                     </div>
                                 </li>
                             @endforeach

@@ -39,7 +39,11 @@ class SiteSearchFinished extends BaseNotification
 
         $notification = Notification::make()->title($title);
         if ($this->search->status === 'done') {
-            $notification->body($this->search->zeroButFound() ? $this->search->zeroButFoundNote($locale) : $this->search->foundOnSitesNote($locale));
+            // Свой текст вместо message сервера: пометки о микрорайонах (note) дописываем сами.
+            $notification->body(implode(' ', [
+                $this->search->zeroButFound() ? $this->search->zeroButFoundNote($locale) : $this->search->foundOnSitesNote($locale),
+                ...$this->search->siteNotes(),
+            ]));
         } elseif ($this->search->message && $this->search->message !== $title) {
             $notification->body($this->search->message);
         }

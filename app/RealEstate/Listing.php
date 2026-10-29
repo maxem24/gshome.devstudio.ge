@@ -15,7 +15,8 @@ final readonly class Listing
      * @param  list<array{slug: string, title: string}>  $amenities
      * @param  list<string>  $subwayStations
      * @param  list<string>  $clusterPhonesE164
-     * @param  list<array{id: int, source: string, source_url: ?string, seller_category: SellerCategory, agency_name: ?string, contact_name: ?string, phone_e164: ?string, price_usd: ?float}>  $clusterListings
+     * @param  list<array{id: int, source: string, source_url: ?string, seller_category: SellerCategory, agency_name: ?string, contact_name: ?string, phone_e164: ?string, price_usd: ?float, match?: ?array{type: string, confidence: int, explanation: ?string}}>  $clusterListings
+     * @param  array{type: string, confidence: int, explanation: ?string}|null  $match  как объявление попало в группу дублей (`full`/`soft`)
      */
     public function __construct(
         public int $id,
@@ -64,7 +65,32 @@ final readonly class Listing
         public ?Carbon $sourceCreatedAt,
         public bool $partial = false,
         public bool $refreshable = false,
+        public ?array $match = null,
     ) {}
+
+    /** Мягкая склейка: не хватало комнат, этажности или микрорайона, совпали телефон / дом / цена (с 29.10). */
+    public function isSoftMatch(): bool
+    {
+        return ($this->match['type'] ?? null) === 'soft';
+    }
+
+    /**
+     * `match` из API → тип, уверенность и готовая фраза. Без типа — null (объявление без группы).
+     *
+     * @return array{type: string, confidence: int, explanation: ?string}|null
+     */
+    public static function match(mixed $m): ?array
+    {
+        if (! is_array($m) || ! is_string($m['type'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'type' => $m['type'],
+            'confidence' => (int) ($m['confidence'] ?? 100),
+            'explanation' => is_string($m['explanation'] ?? null) && $m['explanation'] !== '' ? $m['explanation'] : null,
+        ];
+    }
 
     /** @param  array<string, mixed>  $d */
     public static function fromApi(array $d, string $locale): self
@@ -142,10 +168,12 @@ final readonly class Listing
                 'contact_name' => $m['contact']['name'] ?? null,
                 'phone_e164' => is_string($m['contact']['phone_e164'] ?? null) ? $m['contact']['phone_e164'] : null,
                 'price_usd' => isset($m['price']['usd']) ? (float) $m['price']['usd'] : null,
+                'match' => self::match($m['match'] ?? null),
             ], $cluster['listings'] ?? [])),
             sourceCreatedAt: isset($d['source_created_at']) ? Carbon::parse($d['source_created_at']) : null,
             partial: (bool) ($d['partial'] ?? false),
             refreshable: (bool) ($d['refreshable'] ?? false),
+            match: self::match($d['match'] ?? null),
         );
     }
 

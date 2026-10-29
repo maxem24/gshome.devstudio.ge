@@ -6,7 +6,7 @@ namespace App\RealEstate;
 final readonly class SiteSearchStatus
 {
     /**
-     * @param  array<string, array{status: string, found: int, pages_done: int, message: string, until?: string}>  $sites
+     * @param  array<string, array{status: string, found: int, pages_done: int, message: string, until?: string, note?: string}>  $sites  note — сайт искал не по всем выбранным микрорайонам (тот же текст в конце message)
      * @param  list<int>  $listingIds
      */
     public function __construct(
@@ -41,7 +41,8 @@ final readonly class SiteSearchStatus
                 'found' => (int) ($site['found'] ?? 0),
                 'pages_done' => (int) ($site['pages_done'] ?? 0),
                 'message' => (string) ($site['message'] ?? ''),
-            ] + (isset($site['until']) ? ['until' => (string) $site['until']] : []);
+            ] + (isset($site['until']) ? ['until' => (string) $site['until']] : [])
+                + (is_string($site['note'] ?? null) && $site['note'] !== '' ? ['note' => $site['note']] : []);
         }
 
         $ids = [];
