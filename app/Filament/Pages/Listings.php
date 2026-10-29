@@ -27,11 +27,10 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
-use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
-use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Enums\FiltersLayout;
@@ -240,7 +239,7 @@ class Listings extends Page implements HasTable
                     }),
             ], position: RecordActionsPosition::AfterContent)
             ->columns($this->display === 'grid' ? $this->gridColumns() : $this->listColumns())
-            ->contentGrid($this->display === 'grid' ? ['md' => 2, 'xl' => 3] : null)
+            ->contentGrid($this->display === 'grid' ? ['md' => 2, 'lg' => 3, 'xl' => 4] : null)
             ->filters($this->filters(), layout: FiltersLayout::AboveContentCollapsible)
             ->persistFiltersInSession()
             ->filtersFormColumns(4)
@@ -473,22 +472,10 @@ class Listings extends Page implements HasTable
         return parent::render();
     }
 
-    /** @return array<int, Stack> плитка сетки (ТЗ 4.2) */
+    /** @return array<int, Stack> плитка сетки (ТЗ 4.2): общая с результатом поиска, фото квадратом */
     private function gridColumns(): array
     {
-        return [
-            Stack::make([
-                TextColumn::make('title')->weight(FontWeight::Bold)->wrap(),
-                ImageColumn::make('image')->label('')->imageHeight(180)->extraImgAttributes(['class' => 'w-full object-cover rounded-lg'])
-                    ->defaultImageUrl(null),
-                TextColumn::make('price')->weight(FontWeight::Bold)->size('lg'),
-                TextColumn::make('direction')->badge(),
-                TextColumn::make('address')->color('gray')->wrap(),
-                TextColumn::make('facts')->wrap(),
-                TextColumn::make('ownership_label')->badge()->color(fn (array $record): string => $record['ownership_color']),
-                TextColumn::make('ownership_notes')->html()->placeholder(''),
-            ])->space(2),
-        ];
+        return [Stack::make([ViewColumn::make('card')->view('filament.listings.card')])];
     }
 
     /** @return array<int, TextColumn> */

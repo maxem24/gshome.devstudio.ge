@@ -15,12 +15,15 @@ use BackedEnum;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Filament\Support\Enums\FontWeight;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ViewColumn;
 use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use UnitEnum;
 
 /** Мои поиски по сайтам: свои и людей, которых видит человек; новые сверху. */
@@ -60,28 +63,34 @@ class MySearches extends Page implements HasTable
             ->poll(fn (): ?string => ListingSearch::query()->visibleTo($this->viewer())->whereIn('status', ListingSearch::RUNNING)->exists() ? '10s' : null)
             ->recordUrl(fn (ListingSearch $record): string => SearchResult::getUrl(['search' => $record->getKey()]))
             ->columns([
-                TextColumn::make('user.name')->label(__('gshome.search.mine.person'))
-                    ->visible($viewer->role !== Role::Agent),
-                TextColumn::make('filters')->label(__('gshome.search.mine.filters'))
-                    ->state(fn (ListingSearch $record): string => FiltersSummary::make($record->filters, $record->user))->wrap(),
+                // Что искали — главное в строке; когда и кто — мелко под ним.
+                TextColumn::make('filters')->label(__('gshome.search.mine.search'))
+                    ->state(fn (ListingSearch $record): string => '№'.$record->getKey().' · '.FiltersSummary::make($record->filters, $record->user))
+                    ->weight(FontWeight::Medium)
+                    ->description(fn (ListingSearch $record): string => collect([
+                        $record->started_at?->timezone((string) config('crm.timezone'))->format('d.m.Y H:i'),
+                        $viewer->role !== Role::Agent ? $record->user?->name : null,
+                    ])->filter()->implode(' · '))
+                    ->wrap(),
                 TextColumn::make('status')->label(__('gshome.search.mine.status'))->badge()
                     ->state(fn (ListingSearch $record): string => __("gshome.search.status.{$record->status}"))
-                    ->color(fn (ListingSearch $record): string => match (true) {
-                        $record->isRunning() => 'info',
-                        $record->status === 'done' && ! $record->isPartial() => 'success',
-                        $record->status === 'done' => 'warning',
-                        default => 'danger',
-                    })
-                    ->description(fn (ListingSearch $record): ?string => $record->message)->wrap(),
-                TextColumn::make('sites')->label(__('gshome.search.mine.sites'))
-                    ->state(fn (ListingSearch $record): array => self::siteLines($record))->listWithLineBreaks()->wrap(),
+                    ->color(fn (ListingSearch $record): string => $record->statusColor())
+                    ->description(fn (ListingSearch $record): ?string => $record->message !== null ? Str::limit($record->message, 90) : null)
+                    ->tooltip(fn (ListingSearch $record): ?string => $record->message)
+                    ->wrap(),
+                ViewColumn::make('sites')->label(__('gshome.search.mine.sites'))->view('filament.searches.sites'),
                 TextColumn::make('found')->label(__('gshome.search.mine.found'))
                     ->state(fn (ListingSearch $record): int => $record->shown())->numeric()
+                    ->weight(FontWeight::Bold)->size('lg')
                     ->description(fn (ListingSearch $record): ?string => $record->status === 'done' ? $record->foundOnSitesNote() : null),
-                TextColumn::make('started_at')->label(__('gshome.search.mine.started'))
-                    ->dateTime('d.m.Y H:i', (string) config('crm.timezone')),
             ])
             ->recordActions([
+                Action::make('open')
+                    ->label(__('gshome.search.open'))
+                    ->icon(Heroicon::OutlinedArrowRight)
+                    ->color('primary')
+                    ->button()
+                    ->url(fn (ListingSearch $record): string => SearchResult::getUrl(['search' => $record->getKey()])),
                 Action::make('again')
                     ->label(__('gshome.search.mine.again'))
                     ->icon(Heroicon::OutlinedArrowPath)
@@ -132,19 +141,38 @@ class MySearches extends Page implements HasTable
         $notification->send();
     }
 
-    /** @return list<string> */
-    public static function siteLines(ListingSearch $search): array
+    /**
+     * Сайты поиска для показа: имя, статус словами и цветом, сколько нашёл, пояснение.
+     * Пометка о микрорайонах (note) уже стоит в общем сообщении поиска — из пояснения сайта её убираем.
+     *
+     * @return list<array{name: string, label: string, color: string, found: int, message: ?string}>
+     */
+    public static function sites(ListingSearch $search): array
     {
-        $lines = [];
+        $out = [];
         foreach ($search->sites ?? [] as $key => $site) {
             $status = (string) ($site['status'] ?? '');
             $label = __("gshome.search.site_status.{$status}");
-            $lines[] = str_replace('_ge', '.ge', (string) $key).': '.($label === "gshome.search.site_status.{$status}" ? $status : $label)
-                .' ('.(int) ($site['found'] ?? 0).')'
-                .(filled($site['message'] ?? null) ? ' — '.$site['message'] : '');
+            $message = (string) ($site['message'] ?? '');
+            $note = (string) ($site['note'] ?? '');
+            if ($note !== '' && $message !== $note && str_ends_with($message, $note)) {
+                $message = rtrim(mb_substr($message, 0, mb_strlen($message) - mb_strlen($note)));
+            }
+            $out[] = [
+                'name' => str_replace('_ge', '.ge', (string) $key),
+                'label' => $label === "gshome.search.site_status.{$status}" ? $status : $label,
+                'color' => match ($status) {
+                    'done' => 'success',
+                    'queued', 'running', 'leased', 'importing' => 'info',
+                    'skipped', 'paused' => 'warning',
+                    default => 'danger',
+                },
+                'found' => (int) ($site['found'] ?? 0),
+                'message' => filled($message) ? $message : null,
+            ];
         }
 
-        return $lines;
+        return $out;
     }
 
     private function viewer(): User

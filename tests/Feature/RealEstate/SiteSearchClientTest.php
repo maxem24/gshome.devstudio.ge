@@ -220,11 +220,51 @@ class SiteSearchClientTest extends TestCase
             app(RealEstateClient::class)->startSearch(['district_id' => [999999]]);
             $this->fail('нет исключения');
         } catch (RealEstateSearchRejected $e) {
-            $this->assertSame(__('gshome.search.rejected_district'), $e->userMessage());
+            // Текст сервера — как есть (строкой или списком).
+            $this->assertSame('Район 999999 не найден', $e->userMessage());
         }
         $log->shouldHaveReceived('warning')->once();
         $log->shouldNotHaveReceived('error');
         $this->assertFalse(Cache::has('real-estate:down'));
+    }
+
+    public function test_server_place_text_is_russian_only_other_languages_get_ours(): void
+    {
+        $e = RealEstateSearchRejected::fromFields('x', ['subdistrict_id' => ['Микрорайон «Самгори» …']]);
+        app()->setLocale('en');
+
+        $this->assertSame(__('gshome.search.rejected_district'), $e->userMessage());
+        app()->setLocale('ru');
+        $this->assertSame('Микрорайон «Самгори» …', $e->userMessage());
+    }
+
+    public function test_rejected_without_texts_falls_back_to_our_message(): void
+    {
+        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['subdistrict_id' => []]]], 422)]);
+
+        try {
+            app(RealEstateClient::class)->startSearch([]);
+            $this->fail('нет исключения');
+        } catch (RealEstateSearchRejected $e) {
+            $this->assertSame(__('gshome.search.rejected_district'), $e->userMessage());
+        }
+    }
+
+    public function test_site_note_is_kept_only_when_present(): void
+    {
+        $note = 'На myhome нет микрорайона «Шоссе Аэропорта» (Исани-Самгори) — по нему там не искали.';
+        RealEstateFake::fake(searchGets: [Http::response(['data' => RealEstateFake::searchJob([
+            'status' => 'done',
+            'sites' => [
+                'myhome_ge' => ['status' => 'done', 'found' => 40, 'pages_done' => 5, 'message' => "Готово. {$note}", 'note' => $note],
+                'ss_ge' => ['status' => 'done', 'found' => 80, 'pages_done' => 5, 'message' => 'Готово'],
+            ],
+        ])])]);
+
+        $sites = app(RealEstateClient::class)->searchStatus('0b0e7d3a-5c1f-4a53-9a55-3a1f0c9d2e11')->sites;
+
+        $this->assertSame($note, $sites['myhome_ge']['note']);
+        $this->assertArrayNotHasKey('note', $sites['ss_ge']);
     }
 
     public function test_search_status_404_is_bad_request(): void

@@ -65,12 +65,16 @@ class MySearchesTest extends TestCase
             'found' => 250, 'truncated' => true, 'listing_ids' => range(1, 100),
             'sites' => ['myhome_ge' => ['status' => 'paused', 'found' => 250], 'ss_ge' => ['status' => 'importing', 'found' => 0]],
         ]);
+        RealEstateFake::fake();
         $this->actingAs($this->nino);
 
         Livewire::test(MySearches::class)
             ->assertSee('Найдено на сайтах: 250, показаны 100 самых свежих')
-            ->assertSee('myhome.ge: на паузе (250)')
-            ->assertSee('ss.ge: сохраняем (0)');
+            ->assertSee('на паузе')
+            ->assertSee('сохраняем');
+        $sites = MySearches::sites($search);
+        $this->assertSame(['myhome.ge', 'на паузе', 250, 'warning'], [$sites[0]['name'], $sites[0]['label'], $sites[0]['found'], $sites[0]['color']]);
+        $this->assertSame(['ss.ge', 'сохраняем', 0, 'info'], [$sites[1]['name'], $sites[1]['label'], $sites[1]['found'], $sites[1]['color']]);
         Livewire::test(SearchResult::class, ['search' => $search->id])
             ->assertSee('Найдено на сайтах: 250, показаны 100 самых свежих');
     }
@@ -85,7 +89,7 @@ class MySearchesTest extends TestCase
             ->assertCanSeeTableRecords([$mine])
             ->assertCanNotSeeTableRecords([$theirs])
             ->assertSee('мой поиск готов')
-            ->assertSee('myhome.ge: готов (2)');
+            ->assertSee('myhome.ge');
     }
 
     public function test_team_lead_sees_own_agents_but_not_other_teams(): void
@@ -169,27 +173,53 @@ class MySearchesTest extends TestCase
     public function test_result_shows_cards_and_hides_other_direction_with_count(): void
     {
         $search = $this->search($this->nino, ['listing_ids' => [13, 14, 99], 'found' => 3]);
-        RealEstateFake::fake([], [
-            13 => RealEstateFake::listing(['id' => 13, 'title' => ['ru' => 'Квартира в Ваке']]),
-            14 => RealEstateFake::listing([
-                'id' => 14,
-                'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'],
-                'title' => ['ru' => 'Аренда в Сабуртало'],
-            ]),
-        ]);
+        // Направление отбирает API (deal_type_id поиска), снятые — в meta.missing_ids.
+        $page = RealEstateFake::page([RealEstateFake::listing(['id' => 13, 'title' => ['ru' => 'Квартира в Ваке']])]);
+        $page['meta']['missing_ids'] = [99];
+        RealEstateFake::fake([$page]);
         $this->actingAs($this->nino);
 
         Livewire::test(SearchResult::class, ['search' => $search->id])
             ->assertSee('Квартира в Ваке')
-            ->assertDontSee('Аренда в Сабуртало')
-            ->assertSet('hidden', 2)
-            ->assertSee('Скрыто объявлений: 2');
+            ->assertSet('hidden', 1)
+            ->assertSee('Сняты с сайтов: 1');
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/listings?')
+            && $request['ids'] === '13,14,99' && $request['deal_type_id'] === '1' && $request['per_page'] === (string) SearchResult::PER_PAGE);
+    }
+
+    public function test_result_pages_through_api_cursors_and_sorts_on_the_server(): void
+    {
+        $search = $this->search($this->nino, ['listing_ids' => range(1, 30), 'found' => 30]);
+        RealEstateFake::fake([
+            RealEstateFake::page([RealEstateFake::listing(['id' => 1, 'title' => ['ru' => 'Первая']])], next: 'c2'),
+            RealEstateFake::page([RealEstateFake::listing(['id' => 25, 'title' => ['ru' => 'Двадцать пятая']])], prev: 'c1'),
+            RealEstateFake::page([RealEstateFake::listing(['id' => 7, 'title' => ['ru' => 'Самая дешёвая']])]),
+        ]);
+        $this->actingAs($this->nino);
+
+        Livewire::test(SearchResult::class, ['search' => $search->id])
+            ->assertSee('Первая')
+            ->assertSee('1–1')
+            ->assertDontSee('1–1 из')
+            ->call('nextResultPage')
+            ->assertSet('page', 2)
+            ->assertSee('Двадцать пятая')
+            // Последняя страница: всего столько, сколько дошло до неё.
+            ->assertSee('25–25 из 25')
+            ->set('sort', 'price_asc')
+            ->assertSet('page', 1)
+            ->assertSet('cursor', null)
+            ->assertSee('Самая дешёвая');
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), 'cursor=c2'));
+        Http::assertSent(fn ($request): bool => ($request['sort'] ?? null) === 'price_usd' && ! str_contains($request->url(), 'cursor='));
     }
 
     public function test_result_marks_partial_cards(): void
     {
         $search = $this->search($this->nino, ['listing_ids' => [13]]);
-        RealEstateFake::fake([], [13 => RealEstateFake::listing(['id' => 13, 'partial' => true])]);
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 13, 'partial' => true])])]);
         $this->actingAs($this->nino);
 
         Livewire::test(SearchResult::class, ['search' => $search->id])->assertSee('неполная карточка');
@@ -206,9 +236,10 @@ class MySearchesTest extends TestCase
 
         Livewire::test(SearchResult::class, ['search' => $search->id])
             ->assertSee('Поиск идёт, обычно 1–3 мин')
-            ->assertSee('myhome.ge: идёт (0)')
+            ->assertSee('идёт')
             ->assertSeeHtml('wire:poll.10s');
-        Http::assertNothingSent();
+        // Справочник типа для подписи фильтров — можно; объявлений, пока поиск идёт, не читаем.
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/listings'));
     }
 
     public function test_finished_search_does_not_poll_and_flags_partial(): void
@@ -235,6 +266,26 @@ class MySearchesTest extends TestCase
         $this->assertSame(SearchResult::getUrl(['search' => $search->id]), $data['actions'][0]['url']);
     }
 
+    public function test_subdistrict_note_shows_once_on_the_page_and_in_the_notification(): void
+    {
+        $note = 'На myhome нет микрорайона «Шоссе Аэропорта» (Исани-Самгори) — по нему там не искали.';
+        $search = $this->search($this->nino, [
+            'message' => "Поиск завершён. {$note}",
+            'sites' => [
+                'myhome_ge' => ['status' => 'done', 'found' => 40, 'pages_done' => 5, 'message' => "Готово. {$note}", 'note' => $note],
+                'ss_ge' => ['status' => 'done', 'found' => 80, 'pages_done' => 5, 'message' => 'Готово'],
+            ],
+        ]);
+
+        $sites = MySearches::sites($search);
+        $this->assertSame('Готово.', $sites[0]['message']);
+        $this->assertSame('Готово', $sites[1]['message']);
+        $this->assertSame([$note], $search->siteNotes());
+
+        $data = (new SiteSearchFinished($search))->toDatabase($this->nino);
+        $this->assertStringEndsWith($note, $data['body']);
+    }
+
     public function test_pages_open_from_the_menu(): void
     {
         RealEstateFake::fake();
@@ -250,10 +301,11 @@ class MySearchesTest extends TestCase
             'found' => 80, 'listing_ids' => [],
         ]);
         $this->actingAs($this->nino);
-        $text = 'На сайтах найдено 80, но ни одно не прошло ваши фильтры: Продажа · ≤ 500 $ · 2 комн.';
+        $text = "На сайтах найдено 80, но ни одно не прошло ваши фильтры: Продажа · ≤\u{00A0}500\u{00A0}$ · 2 комн.";
+        RealEstateFake::fake();
 
         Livewire::test(SearchResult::class, ['search' => $search->id])->assertSee($text);
-        Livewire::test(MySearches::class)->assertSee('Продажа · ≤ 500 $ · 2 комн.');
+        Livewire::test(MySearches::class)->assertSee("Продажа · ≤\u{00A0}500\u{00A0}$ · 2 комн.");
         $data = (new SiteSearchFinished($search))->toDatabase($this->nino);
         $this->assertSame($text, $data['body']);
 
@@ -264,18 +316,66 @@ class MySearchesTest extends TestCase
     public function test_result_shows_rent_cards_for_the_sale_agents_own_rent_search(): void
     {
         $search = $this->search($this->nino, ['filters' => ['deal' => 'rent', 'city_id' => 1], 'listing_ids' => [14], 'found' => 1]);
-        RealEstateFake::fake([], [
-            14 => RealEstateFake::listing([
+        RealEstateFake::fake([RealEstateFake::page([
+            RealEstateFake::listing([
                 'id' => 14,
                 'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'],
                 'title' => ['ru' => 'Аренда в Сабуртало'],
             ]),
-        ]);
+        ])]);
         $this->actingAs($this->nino);
 
         Livewire::test(SearchResult::class, ['search' => $search->id])
             ->assertSee('Аренда в Сабуртало')
             ->assertSee('/listings/14?search='.$search->id, escape: false)
             ->assertSet('hidden', 0);
+
+        // Сделка поиска — аренда: API отбирает её, а не направление агента (продажа).
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), '/listings?') && $request['deal_type_id'] === '2');
+    }
+
+    public function test_missing_deal_type_is_an_incomplete_list_not_every_direction(): void
+    {
+        $search = $this->search($this->nino, ['listing_ids' => [13], 'found' => 1]);
+        Http::fake(fn ($request) => str_contains($request->url(), '/dictionaries/deal-types')
+            ? Http::response(['data' => [['id' => 2, 'slug' => 'rent', 'title_ka' => 'ქ', 'title_en' => 'Rent', 'title_ru' => 'Сдаётся']]])
+            : null);
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 13, 'title' => ['ru' => 'Не должна показаться']])])]);
+        $this->actingAs($this->nino);
+
+        Livewire::test(SearchResult::class, ['search' => $search->id])
+            ->assertOk()
+            ->assertSet('incomplete', true)
+            ->assertDontSee('Не должна показаться');
+        Http::assertNotSent(fn ($request): bool => str_contains($request->url(), '/listings?'));
+    }
+
+    public function test_back_from_a_card_returns_to_the_same_page_and_order(): void
+    {
+        $search = $this->search($this->nino, ['listing_ids' => range(1, 60), 'found' => 60]);
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 49, 'title' => ['ru' => 'С третьей страницы']])], prev: 'c2')]);
+        $this->actingAs($this->nino);
+
+        // Адрес, на который ведёт «назад»: ?sort=…&p=3&c=…
+        Livewire::withQueryParams(['sort' => 'price_asc', 'p' => 3, 'c' => 'c3'])
+            ->test(SearchResult::class, ['search' => $search->id])
+            ->assertSet('page', 3)
+            ->assertSet('cursor', 'c3')
+            ->assertSee('С третьей страницы')
+            ->assertSee('49–49 из 49');
+
+        Http::assertSent(fn ($request): bool => str_contains($request->url(), 'cursor=c3') && ($request['sort'] ?? null) === 'price_usd');
+    }
+
+    public function test_page_without_cursor_in_the_address_is_the_first_page(): void
+    {
+        $search = $this->search($this->nino, ['listing_ids' => [13], 'found' => 1]);
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 13])])]);
+        $this->actingAs($this->nino);
+
+        Livewire::withQueryParams(['p' => 7])
+            ->test(SearchResult::class, ['search' => $search->id])
+            ->assertSet('page', 1)
+            ->assertSet('cursor', null);
     }
 }

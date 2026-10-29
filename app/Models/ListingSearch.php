@@ -69,6 +69,30 @@ class ListingSearch extends Model
             : __('gshome.search.found_on_sites', ['found' => $this->found], $locale);
     }
 
+    /** Цвет статуса: идёт — info, готов целиком — success, готов частично — warning, остальное — danger. */
+    public function statusColor(): string
+    {
+        return match (true) {
+            $this->isRunning() => 'info',
+            $this->status === 'done' && ! $this->isPartial() => 'success',
+            $this->status === 'done' => 'warning',
+            default => 'danger',
+        };
+    }
+
+    /**
+     * Пометки сайтов, искавших не по всем выбранным микрорайонам («На myhome нет микрорайона …»).
+     *
+     * @return list<string>
+     */
+    public function siteNotes(): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map(fn (mixed $site): mixed => is_array($site) ? ($site['note'] ?? null) : null, $this->sites ?? []),
+            fn (mixed $note): bool => is_string($note) && $note !== '',
+        )));
+    }
+
     /**
      * Направления этого поиска: выбранная сделка, а если её нет в фильтрах — направления того, кто искал.
      *

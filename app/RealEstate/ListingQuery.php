@@ -32,6 +32,12 @@ final class ListingQuery
         ];
     }
 
+    /** Ключ сортировки экрана → `sort` API; неизвестный — null (порядок API по умолчанию, сначала новые). */
+    public static function sortParam(?string $key): ?string
+    {
+        return self::SORT_PARAMS[$key ?? ''] ?? null;
+    }
+
     /** Предел API на длину поиска `q`. */
     private const MAX_SEARCH = 100;
 
@@ -79,7 +85,7 @@ final class ListingQuery
         }
         $set('created_since', $since);
         $set('created_until', $until);
-        $set('sort', self::SORT_PARAMS[self::scalar($filters, 'sort', 'value') ?? ''] ?? null);
+        $set('sort', self::sortParam(self::scalar($filters, 'sort', 'value')));
         $search = trim((string) $search);
         // max:100 в API; длиннее — 422, поэтому обрезаем (и после обрезки снова проверяем min:2).
         $search = trim(mb_substr($search, 0, self::MAX_SEARCH));
@@ -163,7 +169,22 @@ final class ListingQuery
         $allowed = OrgAccess::directions($viewer);
         $chosen = Direction::tryFrom(self::scalar($filters, 'direction', 'value') ?? '');
         $directions = $chosen !== null && in_array($chosen, $allowed, true) ? [$chosen] : $allowed;
-        $ids = $client->dealTypeIds();
+
+        return self::dealTypeIdsFor($directions, $client);
+    }
+
+    /**
+     * Направления → `deal_type_id`. Нет id в справочнике — RealEstateUnavailable, а не пустой фильтр:
+     * без него API отдал бы все направления, в том числе чужое.
+     *
+     * @param  list<Direction>  $directions
+     */
+    public static function dealTypeIdsFor(array $directions, ?RealEstateClient $client = null): string
+    {
+        $ids = ($client ?? app(RealEstateClient::class))->dealTypeIds();
+        if ($directions === []) {
+            throw new RealEstateUnavailable('Real Estate: нет направлений для deal_type_id');
+        }
 
         return collect($directions)->map(fn (Direction $d): int => $ids[$d->value]
             ?? throw new RealEstateUnavailable("Real Estate: нет типа сделки {$d->value}"))

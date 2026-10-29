@@ -103,15 +103,92 @@ class FindListingTest extends TestCase
         $this->assertSame(0, ListingSearch::query()->count());
     }
 
-    public function test_rejected_district_shows_search_specific_message(): void
+    public function test_rejected_place_shows_the_server_text_as_is(): void
     {
-        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'validation_failed', 'fields' => ['district_id' => 'Район 9 не найден']]], 422)]);
+        $text = 'Микрорайон «Самгори» (Исани-Самгори) не входит в выбранные районы: район и микрорайон должны совпадать. Добавьте его район или уберите микрорайон.';
+        RealEstateFake::fake(searchPosts: [Http::response(['error' => ['code' => 'validation_failed', 'message' => '…', 'fields' => ['subdistrict_id' => [$text]]]], 422)]);
         $this->actingAs($this->seller());
 
         Livewire::test(FindListing::class)
             ->callAction('find', ['city_id' => 1])
-            ->assertNotified(__('gshome.search.rejected_district'))
+            ->assertNotified($text)
             ->assertActionMounted('find');
+    }
+
+    /** Тбилиси (1): Ваке (10) с Ваке-центром (101), Исани-Самгори (20) с Самгори (201) и Варкетили (202). */
+    private function fakePlaces(array $searchPosts = []): void
+    {
+        $row = fn (int $id, string $ru): array => ['id' => $id, 'slug' => (string) $id, 'title_ka' => $ru, 'title_en' => $ru, 'title_ru' => $ru];
+        // Раньше общего фейка: первый ответивший колбэк Http::fake выигрывает, null пропускает дальше.
+        Http::fake(function (Request $request) use ($row): mixed {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $q);
+
+            return match (true) {
+                $path === '/api/v1/dictionaries/districts' => Http::response(['data' => [$row(10, 'Ваке'), $row(20, 'Исани-Самгори')]]),
+                $path === '/api/v1/dictionaries/subdistricts' && ($q['district_id'] ?? null) === '10' => Http::response(['data' => [$row(101, 'Ваке-центр')]]),
+                $path === '/api/v1/dictionaries/subdistricts' && ($q['district_id'] ?? null) === '20' => Http::response(['data' => [$row(201, 'Самгори'), $row(202, 'Варкетили')]]),
+                default => null,
+            };
+        });
+        RealEstateFake::fake(searchPosts: $searchPosts);
+    }
+
+    public function test_whole_district_beside_subdistricts_of_another_is_refused_before_the_api(): void
+    {
+        $this->fakePlaces([Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1, 'district_id' => [10, 20], 'subdistrict_id' => [201]])
+            ->assertHasActionErrors(['district_id'])
+            ->assertActionMounted('find');
+
+        Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/search-jobs'));
+        $this->assertSame(0, ListingSearch::query()->count());
+    }
+
+    public function test_subdistricts_with_their_district_or_whole_districts_alone_are_fine(): void
+    {
+        $this->fakePlaces();
+
+        $this->assertSame([], FindListing::wholeDistrictsBesideSubdistricts([1], [10, 20], [101, 201]));
+        $this->assertSame([], FindListing::wholeDistrictsBesideSubdistricts([1], [20], [201]));
+        $this->assertSame([], FindListing::wholeDistrictsBesideSubdistricts([1], [10, 20], []));
+    }
+
+    public function test_listed_districts_without_chosen_subdistricts_are_named(): void
+    {
+        $this->fakePlaces();
+
+        $this->assertSame(['Ваке'], FindListing::wholeDistrictsBesideSubdistricts([1], [10, 20], [201, 202]));
+    }
+
+    public function test_district_with_its_subdistricts_reaches_the_api(): void
+    {
+        $this->fakePlaces([Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->callAction('find', ['city_id' => 1, 'district_id' => [20], 'subdistrict_id' => [201, 202]])
+            ->assertHasNoErrors()
+            ->assertNotified(__('gshome.search.started'));
+
+        Http::assertSent(fn (Request $r): bool => str_ends_with($r->url(), '/search-jobs')
+            && $r['district_id'] === [20] && $r['subdistrict_id'] === [201, 202]);
+    }
+
+    public function test_dropping_a_district_keeps_the_other_districts_subdistricts(): void
+    {
+        $this->fakePlaces();
+        $this->actingAs($this->seller());
+
+        Livewire::test(FindListing::class)
+            ->mountAction('find')
+            ->fillForm(['city_id' => 1, 'district_id' => [10, 20]])
+            ->fillForm(['subdistrict_id' => [101, 201]])
+            ->fillForm(['district_id' => [20]])
+            ->assertSchemaStateSet(['subdistrict_id' => [201]]);
     }
 
     public function test_repeat_start_says_already_running_then_offers_fresh_result(): void
