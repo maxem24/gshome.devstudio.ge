@@ -28,6 +28,7 @@ use App\RealEstate\ListingRefresh;
 use App\RealEstate\ListingRefreshItem;
 use App\RealEstate\ListingRows;
 use App\RealEstate\RealEstateClient;
+use App\Search\LinkImports;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
@@ -107,8 +108,10 @@ class ListingView extends Page
 
         $direction = $l?->direction();
         abort_if($l === null || $direction === null, 404);
-        // Чужое направление открывается только из собственного поиска по сайтам, в выдачу которого объявление входит.
-        abort_unless(in_array($direction, OrgAccess::directions($viewer), true) || $this->foundBySearch($viewer, $l, $direction), 404);
+        // Чужое направление открывается только из собственного поиска по сайтам, в выдачу которого объявление входит,
+        // или по своей ссылке «По ссылке».
+        abort_unless(in_array($direction, OrgAccess::directions($viewer), true) || $this->foundBySearch($viewer, $l, $direction)
+            || LinkImports::sentBy($viewer, $l->id, request()->query('link')), 404);
 
         // Просмотр пишем после проверки направления; mount идёт раз на загрузку страницы.
         Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);

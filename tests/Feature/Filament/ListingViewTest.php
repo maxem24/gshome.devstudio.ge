@@ -18,6 +18,7 @@ use App\Models\SavedListing;
 use App\Models\User;
 use App\RealEstate\Listing;
 use App\RealEstate\RealEstateClient;
+use App\Search\LinkImports;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -184,6 +185,23 @@ class ListingViewTest extends TestCase
         $search->update(['filters' => ['deal' => 'sale']]);
 
         $this->actingAs($agent)->get('/admin/listings/13?search='.$search->id)->assertNotFound();
+    }
+
+    public function test_other_direction_opens_by_own_link_import(): void
+    {
+        [$agent] = $this->sellerWithRentSearch();
+
+        $this->actingAs($agent)->get(LinkImports::cardUrl($agent, 13))->assertOk();
+    }
+
+    public function test_link_signature_of_another_person_or_listing_is_404(): void
+    {
+        [$agent] = $this->sellerWithRentSearch();
+        [$other] = $this->sellerWithRentSearch();
+
+        $this->actingAs($agent)->get(LinkImports::cardUrl($other, 13))->assertNotFound();
+        $this->actingAs($agent)->get('/admin/listings/13?link='.substr(LinkImports::cardUrl($agent, 14), -64))->assertNotFound();
+        $this->actingAs($agent)->get('/admin/listings/13?link=x')->assertNotFound();
     }
 
     public function test_daily_rent_and_pledge_are_404_even_for_owner(): void
