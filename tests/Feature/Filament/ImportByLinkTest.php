@@ -10,10 +10,12 @@ use App\Livewire\ImportByLink;
 use App\Models\Company;
 use App\Models\ListingSearch;
 use App\Models\User;
+use App\RealEstate\RealEstateClient;
 use App\Search\FiltersSummary;
 use App\Search\LinkImports;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -53,6 +55,18 @@ class ImportByLinkTest extends TestCase
         $this->actingAs($this->seller())->get('/admin/listings')->assertOk()->assertSee(__('gshome.link.button'));
     }
 
+    public function test_short_outage_of_real_estate_keeps_the_button(): void
+    {
+        RealEstateFake::fake(imports: self::SITES);
+        $client = app(RealEstateClient::class);
+        $this->assertSame(self::SITES, $client->importSources());
+
+        Cache::forget('real-estate:me:imports');
+        Cache::put('real-estate:down', true, 30);
+
+        $this->assertSame(self::SITES, $client->importSources());
+    }
+
     public function test_sites_are_recognised_by_host(): void
     {
         $this->assertSame('myhome_ge', LinkImports::source('https://www.myhome.ge/pr/21345678/'));
@@ -61,6 +75,8 @@ class ImportByLinkTest extends TestCase
         $this->assertNull(LinkImports::source('https://myhome.ge.evil.com/pr/1'));
         $this->assertNull(LinkImports::source('javascript:alert(1)//myhome.ge'));
         $this->assertNull(LinkImports::source('ftp://myhome.ge/pr/1'));
+        $this->assertNull(LinkImports::source("https://www.myhome.ge/pr/1/\nhttps://www.myhome.ge/pr/2/"));
+        $this->assertNull(LinkImports::source('https://www.myhome.ge/pr/1/ посмотрите'));
     }
 
     public function test_link_from_another_site_is_refused_before_the_api(): void
@@ -179,6 +195,35 @@ class ImportByLinkTest extends TestCase
     private function nonImportRequests(): int
     {
         return count(Http::recorded(fn (Request $r): bool => ! str_contains($r->url(), '/imports')));
+    }
+
+    public function test_again_sends_the_pasted_link_so_a_running_search_is_not_posted_twice(): void
+    {
+        $pasted = 'https://home.ss.ge/ka/udzravi-qoneba/l/bina/qiravdeba?cityIdList=95&utm_source=fb';
+        RealEstateFake::fake(imports: self::SITES, importPosts: [Http::response(['data' => RealEstateFake::importSearch()], 202)]);
+        $user = $this->seller();
+        $this->actingAs($user);
+
+        Livewire::test(ImportByLink::class)->callAction('link', ['url' => $pasted]);
+        $search = ListingSearch::query()->where('user_id', $user->id)->sole();
+        $this->assertSame($pasted, $search->filters['link_sent']);
+
+        Livewire::test(MySearches::class)->call('searchAgain', $search->id)->assertNotified(__('gshome.search.started_running'));
+        $this->assertCount(1, Http::recorded(fn (Request $r): bool => str_contains($r->url(), '/imports')));
+    }
+
+    public function test_again_on_a_link_that_became_a_listing_opens_the_card(): void
+    {
+        RealEstateFake::fake(imports: self::SITES, importPosts: [Http::response(['data' => RealEstateFake::importListing(['status' => 'done', 'listing_id' => 77])], 202)]);
+        $user = $this->seller();
+        $this->actingAs($user);
+        $search = ListingSearch::query()->create([
+            'user_id' => $user->id, 'filters' => ['link' => 'https://www.myhome.ge/pr/21345678/', 'link_source' => 'myhome_ge'],
+            'body_hash' => 'old', 'remote_id' => '7c9e6679-7425-40de-944b-e07fc1f90ae7', 'status' => 'done', 'found' => 0, 'truncated' => false, 'started_at' => now()->subHour(), 'finished_at' => now()->subHour(),
+        ]);
+
+        Livewire::test(MySearches::class)->call('searchAgain', $search->id)->assertRedirect(LinkImports::cardUrl($user, 77));
+        Queue::assertNothingPushed();
     }
 
     public function test_again_repeats_a_link_search_with_its_link(): void

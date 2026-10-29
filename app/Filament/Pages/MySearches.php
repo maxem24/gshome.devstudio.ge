@@ -6,8 +6,10 @@ use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\Role;
 use App\Models\ListingSearch;
 use App\Models\User;
+use App\RealEstate\Exceptions\RealEstateBadRequest;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
+use App\RealEstate\LinkImport;
 use App\Search\FiltersSummary;
 use App\Search\LinkImports;
 use App\Search\SearchStart;
@@ -113,20 +115,27 @@ class MySearches extends Page implements HasTable
 
         try {
             // Поиск по ссылке повторяется той же ссылкой: фильтров формы у него нет.
-            $link = $search->filters['link'] ?? null;
-            $start = is_string($link) && $link !== ''
-                ? app(LinkImports::class)->start($viewer, $link)->search
-                : app(SiteSearches::class)->start($viewer, $search->filters);
-            if ($start === null) {
-                // Ссылка вдруг стала объявлением (сайт поменял адреса) — запускать нечего.
-                Notification::make()->danger()->title(__('gshome.link.not_search'))->send();
+            $link = $search->filters['link_sent'] ?? $search->filters['link'] ?? null;
+            if (is_string($link) && $link !== '') {
+                $linkStart = app(LinkImports::class)->start($viewer, $link);
+                if ($linkStart->listing !== null) {
+                    // Ссылка вдруг стала объявлением (сайт поменял адреса): ведём себя как «По ссылке».
+                    $this->openImportedListing($viewer, $linkStart->listing);
 
-                return;
+                    return;
+                }
+                $start = $linkStart->search;
+            } else {
+                $start = app(SiteSearches::class)->start($viewer, $search->filters);
             }
         } catch (CrmForbidden) {
             abort(403);
         } catch (RealEstateRateLimited) {
             Notification::make()->danger()->title(__('gshome.search.rate_limited'))->send();
+
+            return;
+        } catch (RealEstateBadRequest) {
+            Notification::make()->danger()->title(__('gshome.link.rejected'))->send();
 
             return;
         } catch (RealEstateException $e) {
@@ -135,7 +144,21 @@ class MySearches extends Page implements HasTable
             return;
         }
 
+        if ($start === null) {
+            return; // LinkStart без объявления всегда с поиском; ветка — для анализатора
+        }
         $this->notifyStart($start);
+    }
+
+    private function openImportedListing(User $viewer, LinkImport $listing): void
+    {
+        if ($listing->ready()) {
+            $this->redirect(LinkImports::cardUrl($viewer, (int) $listing->listingId));
+        } elseif ($listing->finished()) {
+            Notification::make()->danger()->title($listing->message !== '' ? $listing->message : __('gshome.link.failed'))->send();
+        } else {
+            Notification::make()->success()->title(__('gshome.link.queued'))->body(__('gshome.link.queued_body'))->send();
+        }
     }
 
     /** Что сказать после старта: новый поиск, такой же уже идёт или есть свежий готовый. */

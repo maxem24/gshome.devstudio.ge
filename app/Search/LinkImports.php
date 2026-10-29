@@ -31,7 +31,12 @@ class LinkImports
     /** Сайт ссылки (`myhome_ge`, `ss_ge`) по хосту, с поддоменами (www., home.); чужой — null. */
     public static function source(string $url): ?string
     {
-        $parts = parse_url(trim($url));
+        $url = trim($url);
+        // Две ссылки или ссылка с текстом в одном поле — не одна ссылка.
+        if (preg_match('/\s/u', $url) === 1) {
+            return null;
+        }
+        $parts = parse_url($url);
         if (! is_array($parts) || ! in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true)) {
             return null;
         }
@@ -56,7 +61,8 @@ class LinkImports
 
     public static function sentBy(User $viewer, int $listingId, mixed $signature): bool
     {
-        return is_string($signature) && hash_equals(self::signature($viewer, $listingId), $signature);
+        // Без направлений человек объявления не открывает вовсе — и подпись не помогает.
+        return is_string($signature) && OrgAccess::directions($viewer) !== [] && hash_equals(self::signature($viewer, $listingId), $signature);
     }
 
     private static function signature(User $by, int $listingId): string
@@ -106,12 +112,16 @@ class LinkImports
     {
         $deal = null;
         if ($import->filters['deal_type_id'] !== null) {
-            $slug = array_search($import->filters['deal_type_id'], rescue(fn (): array => $this->client->dealTypeIds(), [], report: false), true);
+            // Справочник не отдался — исключение: поиск без сделки навсегда ушёл бы в направления агента.
+            // Real Estate держит выдачу 30 минут, повтор возьмёт ту же.
+            $slug = array_search($import->filters['deal_type_id'], $this->client->dealTypeIds(), true);
             $deal = is_string($slug) ? Direction::tryFrom($slug) : null;
         }
 
         return array_filter([
             'link' => $import->url !== '' ? $import->url : $url,
+            // Что вставил человек: по ней ключ поиска, «Повторить» шлёт её же и попадает в тот же ключ.
+            'link_sent' => $url,
             'link_source' => $import->source !== '' ? $import->source : null,
             'deal' => $deal?->value,
             'property_type_id' => $import->filters['property_type_id'],

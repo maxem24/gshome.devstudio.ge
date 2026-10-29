@@ -349,7 +349,6 @@ return [
         'timed_out' => 'The collector did not answer in 20 minutes — try later.',
         'open_source' => 'Open on the site',
         'summary' => ':site link',
-        'not_search' => 'This link no longer leads to a search — paste it via "By link".',
     ],
 
     'errors' => [

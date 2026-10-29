@@ -12,6 +12,7 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Traits\Localizable;
 
 /**
  * Ждёт, пока сборщик откроет карточку по ссылке, и кладёт итог в колокольчик (со ссылкой на карточку или с причиной).
@@ -20,6 +21,7 @@ use Illuminate\Support\Facades\Log;
  */
 class PollListingImport implements ShouldQueue
 {
+    use Localizable;
     use Queueable;
 
     public int $tries = 1;
@@ -64,12 +66,10 @@ class PollListingImport implements ShouldQueue
         }
 
         // Тексты Real Estate (message) — на языке человека: у очереди язык процесса.
-        $previous = app()->getLocale();
-        app()->setLocale($user->locale->value);
         try {
-            $state = $client->importState($this->importId);
+            $state = $this->withLocale($user->locale->value, fn (): ?LinkImport => $client->importState($this->importId));
             if ($state === null) {
-                $user->notify(new ListingImported($this->url, null, __('gshome.link.lost')));
+                $this->notify($user, null, __('gshome.link.lost', [], $user->locale->value));
 
                 return;
             }
@@ -77,8 +77,6 @@ class PollListingImport implements ShouldQueue
             // Сбой сети или API — не повод бросать: пробуем снова, пока не вышел потолок.
             Log::warning('Опрос ссылки на объявление не удался', ['import' => $this->importId, 'error' => $e->getMessage()]);
             $state = null;
-        } finally {
-            app()->setLocale($previous);
         }
 
         if ($state?->finished()) {
@@ -88,7 +86,7 @@ class PollListingImport implements ShouldQueue
         }
 
         if (now()->timestamp - $this->startedAt >= self::CAP_SECONDS) {
-            $user->notify(new ListingImported($this->url, null, __('gshome.link.timed_out', [], $user->locale->value)));
+            $this->notify($user, null, __('gshome.link.timed_out', [], $user->locale->value));
 
             return;
         }
@@ -99,21 +97,24 @@ class PollListingImport implements ShouldQueue
     private function finish(User $user, RealEstateClient $client, LinkImport $state): void
     {
         if (! $state->ready()) {
-            $user->notify(new ListingImported($this->url, null, $state->message !== '' ? $state->message : __('gshome.link.failed', [], $user->locale->value)));
+            $this->notify($user, null, $state->message !== '' ? $state->message : __('gshome.link.failed', [], $user->locale->value));
 
             return;
         }
 
-        $previous = app()->getLocale();
-        app()->setLocale($user->locale->value);
         try {
-            $title = $client->listing((int) $state->listingId)?->title;
+            $title = $this->withLocale($user->locale->value, fn (): ?string => $client->listing((int) $state->listingId)?->title);
         } catch (RealEstateException|ConnectionException) {
             $title = null;
-        } finally {
-            app()->setLocale($previous);
         }
 
-        $user->notify(new ListingImported($this->url, $state->listingId, null, $title ?: '#'.$state->listingId));
+        $this->notify($user, $state->listingId, null, $title ?: '#'.$state->listingId);
+    }
+
+    /** Итог опроса: снимаем замок, чтобы ту же ссылку можно было сразу прислать снова и её опросили. */
+    private function notify(User $user, ?int $listingId, ?string $reason, string $title = ''): void
+    {
+        Cache::forget(self::lockKey($this->importId, $this->userId));
+        $user->notify(new ListingImported($this->url, $listingId, $reason, $title));
     }
 }

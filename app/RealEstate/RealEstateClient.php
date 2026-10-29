@@ -182,9 +182,11 @@ class RealEstateClient
 
     /**
      * Сайты, ссылки с которых Real Estate сейчас принимает (`GET /me` → `imports`). Пусто — кнопки «По ссылке» нет.
-     * Спрашиваем раз в 10 минут: кнопка в шапке на каждой странице. Любой сбой — пусто на минуту.
+     * Спрашиваем раз в 10 минут: кнопка в шапке на каждой странице. Сбой — минуту последний ответ (за сутки), без него пусто.
      *
      * @return list<string>
+     *
+     * @phpstan-impure
      */
     public function importSources(): array
     {
@@ -197,10 +199,13 @@ class RealEstateClient
             $sources = $this->get('/me', [])?->json('data.imports');
             $sources = array_values(array_filter(is_array($sources) ? $sources : [], fn (mixed $s): bool => is_string($s) && $s !== ''));
             Cache::put(self::IMPORTS_KEY, $sources, 600);
+            Cache::put(self::IMPORTS_KEY.':last', $sources, now()->addDay());
         } catch (\Throwable $e) {
-            // Кнопка в шапке каждой страницы: любой сбой здесь — «кнопки нет», а не 500 на всей панели.
-            Log::warning('Real Estate: GET /me не ответил, кнопка «По ссылке» скрыта', ['error' => $e->getMessage()]);
-            $sources = [];
+            // Кнопка в шапке каждой страницы: сбой здесь — не 500 на всей панели. Короткий сбой (в том числе
+            // отметка «API лежит» от чужого запроса) не прячет кнопку: держим последний ответ, а без него — «кнопки нет».
+            Log::warning('Real Estate: GET /me не ответил для кнопки «По ссылке»', ['error' => $e->getMessage()]);
+            $last = Cache::get(self::IMPORTS_KEY.':last');
+            $sources = is_array($last) ? $last : [];
             Cache::put(self::IMPORTS_KEY, $sources, 60);
         }
 

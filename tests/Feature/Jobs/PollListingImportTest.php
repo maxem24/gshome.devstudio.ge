@@ -55,6 +55,17 @@ class PollListingImportTest extends TestCase
         Notification::assertSentTo($user, ListingImported::class, fn (ListingImported $n): bool => $n->listingId === null && $n->reason === 'Объявление снято с публикации');
     }
 
+    public function test_finished_poll_frees_the_link_for_a_new_paste(): void
+    {
+        RealEstateFake::fake(importGets: [Http::response(['data' => RealEstateFake::importListing(['status' => 'failed'])])]);
+        $user = User::factory()->owner()->create();
+        $this->assertTrue(PollListingImport::start(self::ID, $user->id, self::URL));
+
+        $this->poll($user);
+
+        $this->assertTrue(PollListingImport::start(self::ID, $user->id, self::URL));
+    }
+
     public function test_still_running_polls_again_and_gives_up_after_the_cap(): void
     {
         RealEstateFake::fake(importGets: [Http::response(['data' => RealEstateFake::importListing(['status' => 'running'])])]);
