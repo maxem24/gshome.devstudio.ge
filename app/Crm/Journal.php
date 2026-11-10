@@ -40,6 +40,8 @@ final class Journal
 
     public const DEAL_LOST = 'deal.lost';
 
+    public const DEAL_INTAKE_CHANGED = 'deal.intake_changed';
+
     public const VIEWING_SCHEDULED = 'viewing.scheduled';
 
     public const VIEWING_RESCHEDULED = 'viewing.rescheduled';

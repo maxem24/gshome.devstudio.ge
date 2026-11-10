@@ -68,7 +68,7 @@ class Deals
 
     public function win(Deal $deal, string $amount, string $currency, User $by): void
     {
-        if (! preg_match('/^\d{1,12}(\.\d{1,2})?$/', $amount) || (float) $amount <= 0) {
+        if (! DealIntake::isMoney($amount)) {
             throw new CrmForbidden('Amount must be a positive number.');
         }
         if (! in_array($currency, config('crm.currencies'), true)) {
@@ -113,6 +113,58 @@ class Deals
             ]);
             $this->logStage($deal, $from, $stage, $by);
             Journal::record(Journal::DEAL_LOST, $deal, $this->props($deal), $by);
+            $this->pins->touch($deal->pin);
+        });
+    }
+
+    /**
+     * Анкета клиента и цена: оба необязательны, но цена и валюта — парой.
+     *
+     * @param  array<string, mixed>  $intake
+     */
+    public function updateIntake(Deal $deal, array $intake, ?string $price, ?string $priceCurrency, User $by): void
+    {
+        $price = $price === null ? null : trim($price);
+        $priceCurrency = $priceCurrency === null ? null : trim($priceCurrency);
+        $price = $price === '' ? null : $price;
+        $priceCurrency = $priceCurrency === '' ? null : $priceCurrency;
+        if (($price === null) !== ($priceCurrency === null)) {
+            throw new CrmForbidden('Price and currency go together.');
+        }
+        if ($price !== null) {
+            if (! DealIntake::isMoney($price)) {
+                throw new CrmForbidden('Price must be a positive number.');
+            }
+            if (! in_array($priceCurrency, config('crm.currencies'), true)) {
+                throw new CrmForbidden('Unknown currency.');
+            }
+            $price = number_format((float) $price, 2, '.', '');
+        }
+
+        DB::transaction(function () use ($deal, $intake, $price, $priceCurrency, $by): void {
+            $this->lockOpen($deal, $by);
+            $new = DealIntake::clean($deal->pin->direction, $intake);
+            /** @var array<string, mixed> $old */
+            $old = $deal->intake ?? [];
+
+            $changed = [];
+            foreach (array_unique([...array_keys($old), ...array_keys($new)]) as $key) {
+                if (($old[$key] ?? null) !== ($new[$key] ?? null)) {
+                    $changed[$key] = ['from' => $old[$key] ?? null, 'to' => $new[$key] ?? null];
+                }
+            }
+            if ($deal->price !== $price) {
+                $changed['price'] = ['from' => $deal->price, 'to' => $price];
+            }
+            if ($deal->price_currency !== $priceCurrency) {
+                $changed['price_currency'] = ['from' => $deal->price_currency, 'to' => $priceCurrency];
+            }
+            if ($changed === []) {
+                return;
+            }
+
+            $deal->update(['intake' => $new, 'price' => $price, 'price_currency' => $priceCurrency]);
+            Journal::record(Journal::DEAL_INTAKE_CHANGED, $deal, $this->props($deal) + ['changed' => $changed], $by);
             $this->pins->touch($deal->pin);
         });
     }
