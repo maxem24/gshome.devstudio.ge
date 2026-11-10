@@ -286,9 +286,15 @@ class DealResourceTest extends TestCase
         $this->actingAs($nino);
 
         $this->assertNull(ViewDeal::partnerLabel($deal, $foreign->id));
-        $this->assertSame($nino->name, ViewDeal::partnerLabel($deal, $nino->id) ?? $nino->name);
+        // Сам агент сделки партнёром быть не может: имя не подсказывается.
+        $this->assertNull(ViewDeal::partnerLabel($deal, $nino->id));
         $mate = User::factory()->agent($this->lead)->create(['name' => 'Mate']);
         $this->assertSame('Mate', ViewDeal::partnerLabel($deal, $mate->id));
+
+        // Текущий партнёр подписан по имени, даже если кандидатом он уже не считается.
+        $current = User::factory()->agent($foreignLead)->create(['name' => 'Current Partner']);
+        $deal->forceFill(['partner_user_id' => $current->id])->save();
+        $this->assertSame('Current Partner', ViewDeal::partnerLabel($deal->refresh(), $current->id));
     }
 
     public function test_partner_lead_sees_deal(): void

@@ -38,8 +38,8 @@ class CrmDemo
     /** Номер клиента для сценария «конфликт номера»: на показе вводим его с другим именем. */
     public const CONFLICT_PHONE = '+995555100101';
 
-    /** Номера демо-клиентов: +995555100101 … +995555100106. */
-    private const PHONES = ['+995555100101', '+995555100102', '+995555100103', '+995555100104', '+995555100105', '+995555100106'];
+    /** Номера демо-клиентов: +995555100101 … +995555100107. */
+    private const PHONES = ['+995555100101', '+995555100102', '+995555100103', '+995555100104', '+995555100105', '+995555100106', '+995555100107'];
 
     /** @var array{clients: list<int>, pins: list<int>, deals: list<int>, viewings: list<int>, tasks: list<int>, notifications: list<string>, activities: list<int>} */
     private array $created = ['clients' => [], 'pins' => [], 'deals' => [], 'viewings' => [], 'tasks' => [], 'notifications' => [], 'activities' => []];
@@ -104,11 +104,12 @@ class CrmDemo
         // Закрепления прежнего демо считаем свободными: их сотрёт эта же транзакция.
         $old = $wipeFirst ? array_map('intval', CrmSetting::query()->find(self::SETTING)?->value['pins'] ?? []) : [];
         $listings = $this->listings($nino, $old);
+        $rent = $this->rentCase($lead, $old);
         $now = Carbon::now();
 
         try {
             // Всё или ничего: стирание прежнего, записи, уведомления и пометка демо — в одной транзакции.
-            return DB::transaction(function () use ($wipeFirst, $now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings): array {
+            return DB::transaction(function () use ($wipeFirst, $now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings, $rent): array {
                 $setting = $wipeFirst ? CrmSetting::query()->find(self::SETTING) : null;
                 $this->assertPhonesFree($setting === null ? [] : ($setting->value['clients'] ?? []));
                 if ($setting !== null) {
@@ -118,7 +119,7 @@ class CrmDemo
                 $before = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
                     ->where('notifiable_id', $nino->id)->pluck('id')->all();
                 $lastActivity = (int) Activity::query()->max('id');
-                $notes = $this->scenarios($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings);
+                $notes = $this->scenarios($now, $lead, $nino, $giorgi, $lead2, $agent3, $agent4, $listings, $rent);
                 // Уведомления запоминаем только демо-агента и только появившиеся за этот прогон:
                 // чужие (настоящих людей) --fresh не тронет.
                 $this->created['notifications'] = DB::table('notifications')->where('notifiable_type', $nino->getMorphClass())
@@ -233,9 +234,10 @@ class CrmDemo
 
     /**
      * @param  list<Listing>  $l  [0] — с группой дублей, остальные — разные квартиры
+     * @param  array{0: User, 1: Listing}|null  $rent  агент аренды и свободная помесячная аренда; null — аренды в базе нет
      * @return list<string>
      */
-    private function scenarios(CarbonInterface $now, User $lead, User $nino, User $giorgi, User $lead2, User $agent3, User $agent4, array $l): array
+    private function scenarios(CarbonInterface $now, User $lead, User $nino, User $giorgi, User $lead2, User $agent3, User $agent4, array $l, ?array $rent): array
     {
         $at = function (string $shift) use ($now): CarbonInterface {
             $t = $now->copy()->modify($shift);
@@ -254,6 +256,11 @@ class CrmDemo
         $tamar = $this->client($nino, '+995555100102', 'Тамар', 'Гелашвили', ['buyer']);
         $dealGroup = $this->deal($pinGroup, $tamar, $nino);
         $this->deals->moveStage($dealGroup, 'viewing_scheduled', $nino);
+        // Анкета продажи: ипотека, взнос, цена — по рассказу агентства о первом звонке.
+        $this->deals->updateIntake($dealGroup, [
+            'purpose' => 'living', 'payment' => 'mortgage', 'down_payment' => '30000', 'down_payment_currency' => 'USD',
+            'wants_discount' => true, 'notes' => 'Звонила во вторник, просит показать после 18:00',
+        ], '95000', 'USD', $nino);
 
         // 5. Показ вчера, итог не внесён: висит в «Моих задачах» и под колокольчиком.
         $at('-3 days');
@@ -276,6 +283,9 @@ class CrmDemo
         $this->deals->moveStage($dealStory, 'viewing_done', $nino);
         $at('-2 days 13:00');
         $this->deals->moveStage($dealStory, 'negotiation', $nino);
+        // Общая сделка: клиент Нино, второй агент (Гиорги) — партнёр, комиссию делят при закрытии.
+        $this->deals->updateIntake($dealStory, ['purpose' => 'investment', 'payment' => 'cash', 'bank_help' => false], '88000', 'USD', $nino);
+        $this->deals->setPartner($dealStory, $giorgi, $nino);
 
         // 3. Зависший объект: взят 8 дней назад, движения нет.
         $at('-8 days');
@@ -285,8 +295,10 @@ class CrmDemo
         $at('-7 days');
         $pinWon = $this->pin($l[3], $giorgi);
         $dealWon = $this->deal($pinWon, $this->client($giorgi, '+995555100104', 'Ника', 'Ломидзе', ['buyer']), $giorgi);
+        $at('-5 days');
+        $this->deals->setPartner($dealWon, $nino, $giorgi);
         $at('-3 days');
-        $this->deals->win($dealWon, '120000', 'USD', $giorgi);
+        $this->deals->win($dealWon, '120000', 'USD', $giorgi, '30000');
 
         $at('-6 days');
         $pinLost = $this->pin($l[4], $agent4);
@@ -299,6 +311,19 @@ class CrmDemo
         $this->deal($pinGone, $this->client($agent3, '+995555100106', 'Лука', 'Кавтарадзе', ['tenant', 'buyer']), $agent3);
         $at('-1 day');
         $this->pins->markUnavailable($pinGone, $lead2);
+
+        // 8. Аренда: анкета аренды и месячная цена. Нужен агент аренды и свободное объявление аренды.
+        $rentNote = 'Аренда: в базе нет агента аренды или свободного объявления помесячной аренды — анкета аренды в демо не создана.';
+        if ($rent !== null) {
+            [$renter, $rentListing] = $rent;
+            $at('-4 days');
+            $pinRent = $this->pin($rentListing, $renter);
+            $dealRent = $this->deal($pinRent, $this->client($renter, '+995555100107', 'Элене', 'Беридзе', ['tenant']), $renter);
+            $this->deals->updateIntake($dealRent, [
+                'occupants' => 'Мать с ребёнком', 'term' => '1y', 'prepay' => '2', 'pets' => false, 'deposit_ok' => 'yes',
+            ], '900', 'USD', $renter);
+            $rentNote = "Аренда: сделка №{$dealRent->id} у {$renter->name} — анкета аренды и цена в месяц.";
+        }
 
         // Задача от тимлида агенту — новое уведомление под колокольчиком.
         $at('-1 hour');
@@ -318,6 +343,8 @@ class CrmDemo
             "Зависший объект: {$l[2]->id} у {$agent3->name} — красным в отчёте.",
             "Журнал «приходил ли агент»: сделка №{$dealStory->id}, клиент Давид Майсурадзе.",
             'Показ вчера без итога — «Мои задачи» и колокольчик у Нино.',
+            "Общая сделка: №{$dealStory->id} (Нино + {$giorgi->name} партнёром), закрытая в паре — №{$dealWon->id}, в отчёте доход делится.",
+            $rentNote,
         ];
     }
 
@@ -374,6 +401,38 @@ class CrmDemo
         $rest = array_values(array_filter($found, fn (Listing $l): bool => $l !== $grouped[0]));
 
         return [$grouped[0], ...array_slice($rest, 0, 5)];
+    }
+
+    /**
+     * Агент аренды из компании тимлида и свободное объявление помесячной аренды; null, если чего-то нет.
+     *
+     * @param  list<int>  $ignorePins
+     * @return array{0: User, 1: Listing}|null
+     */
+    private function rentCase(User $lead, array $ignorePins): ?array
+    {
+        $renter = User::query()
+            ->where('role', Role::Agent)->where('direction', Direction::Rent)->where('status', UserStatus::Active)
+            ->where('company_id', $lead->company_id)->orderBy('id')->first();
+        $params = $renter === null ? null : ListingQuery::params($renter, [], null);
+        if ($renter === null || $params === null) {
+            return null;
+        }
+
+        $cursor = null;
+        for ($page = 0; $page < 5; $page++) {
+            $result = $this->api->listings($params, $cursor);
+            foreach ($result->listings as $listing) {
+                if ($listing->direction() === Direction::Rent && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
+                    return [$renter, $listing];
+                }
+            }
+            if (($cursor = $result->nextCursor) === null) {
+                break;
+            }
+        }
+
+        return null;
     }
 
     /** @param  list<string>  $tags */
