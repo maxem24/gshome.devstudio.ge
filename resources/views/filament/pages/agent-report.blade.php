@@ -40,7 +40,9 @@
                                 {{ __('gshome.crm.report.viewings_held') }}
                             </th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.won') }}</th>
-                            <th class="p-2 text-end">{{ __('gshome.crm.report.won_as_partner') }}</th>
+                            <th class="p-2 text-end">
+                                {{ __('gshome.crm.report.won_as_partner') }}
+                            </th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.lost') }}</th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.earnings') }}</th>
                             @foreach ($stages as $label)
