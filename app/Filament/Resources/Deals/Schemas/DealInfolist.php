@@ -87,7 +87,7 @@ class DealInfolist
             $key = (string) $key;
             if (is_bool($value)) {
                 $answer = DealIntake::label($key, $value);
-            } elseif (is_string($value) && DealIntake::options($key) !== null) {
+            } elseif (is_string($value) && $key !== 'down_payment_currency' && DealIntake::options($key) !== null) {
                 $answer = DealIntake::label($key, $value);
             } else {
                 $answer = (string) $value;

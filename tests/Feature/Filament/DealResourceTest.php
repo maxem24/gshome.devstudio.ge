@@ -144,7 +144,7 @@ class DealResourceTest extends TestCase
         $this->actingAs($nino);
 
         Livewire::test(ViewDeal::class, ['record' => $deal->id])
-            ->callAction('editIntake', ['term' => '1y', 'pets' => true, 'price' => '1200', 'price_currency' => 'USD'])
+            ->callAction('editIntake', ['term' => '1y', 'pets' => 'yes', 'price' => '1200', 'price_currency' => 'USD'])
             ->assertHasNoActionErrors();
 
         $deal->refresh();
@@ -242,6 +242,53 @@ class DealResourceTest extends TestCase
             ->assertSee(__('gshome.crm.intake.term_1y'))
             ->assertSee('Семья с ребёнком')
             ->assertSee('1200');
+    }
+
+    public function test_untouched_tri_state_is_not_stored_and_journal_has_only_term(): void
+    {
+        [$deal, $nino] = $this->rentDeal();
+        $this->actingAs($nino);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('editIntake', ['term' => '1y'])
+            ->assertHasNoActionErrors();
+
+        $deal->refresh();
+        $this->assertSame(['term' => '1y'], $deal->intake);
+        $changed = Activity::query()->where('event', Journal::DEAL_INTAKE_CHANGED)->firstOrFail()->properties['changed'] ?? [];
+        $this->assertSame(['term'], array_keys($changed));
+    }
+
+    public function test_explicit_no_is_stored_as_false(): void
+    {
+        [$deal, $nino] = $this->rentDeal();
+        $this->actingAs($nino);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('editIntake', ['pets' => 'no']);
+        $this->assertFalse($deal->refresh()->intake['pets']);
+
+        // Повторное открытие подставляет «нет», а пустой выбор снимает ответ.
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->mountAction('editIntake')
+            ->assertActionDataSet(['pets' => 'no'])
+            ->setActionData(['pets' => null])
+            ->callMountedAction();
+        $this->assertArrayNotHasKey('pets', $deal->refresh()->intake);
+    }
+
+    public function test_partner_select_label_does_not_leak_foreign_names(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $foreignLead = User::factory()->teamLead(Company::factory()->create(), Direction::Sale)->create();
+        $foreign = User::factory()->agent($foreignLead)->create(['name' => 'Secret Foreign']);
+        $deal = $this->deal($nino, 41);
+        $this->actingAs($nino);
+
+        $this->assertNull(ViewDeal::partnerLabel($deal, $foreign->id));
+        $this->assertSame($nino->name, ViewDeal::partnerLabel($deal, $nino->id) ?? $nino->name);
+        $mate = User::factory()->agent($this->lead)->create(['name' => 'Mate']);
+        $this->assertSame('Mate', ViewDeal::partnerLabel($deal, $mate->id));
     }
 
     public function test_partner_lead_sees_deal(): void

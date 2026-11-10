@@ -432,8 +432,6 @@ return [
             'bank_help' => 'Нужна помощь банка',
             'down_payment' => 'Первоначальный взнос',
             'down_payment_currency' => 'Валюта взноса',
-            'down_payment_currency_USD' => 'USD',
-            'down_payment_currency_GEL' => 'GEL',
             'wants_discount' => 'Хочет скидку',
         ],
         'deals' => [

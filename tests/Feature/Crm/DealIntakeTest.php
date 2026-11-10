@@ -187,6 +187,9 @@ class DealIntakeTest extends TestCase
             foreach ([Direction::Rent, Direction::Sale] as $direction) {
                 foreach (DealIntake::fields($direction) as $key) {
                     $this->assertNotSame('gshome.crm.intake.'.$key, DealIntake::label($key), "{$locale} {$key}");
+                    if ($key === 'down_payment_currency') {
+                        continue; // подписью служит сам код валюты
+                    }
                     foreach (DealIntake::options($key) ?? [] as $option) {
                         $label = DealIntake::label($key, $option);
                         $this->assertStringStartsNotWith('gshome.crm.intake.', $label, "{$locale} {$key}={$option}");

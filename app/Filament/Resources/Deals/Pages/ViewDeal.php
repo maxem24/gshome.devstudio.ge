@@ -10,6 +10,8 @@ use App\Crm\DealStages;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
 use App\Enums\Direction;
+use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Filament\Resources\Deals\DealResource;
 use App\Models\Deal;
 use App\Models\User;
@@ -19,7 +21,6 @@ use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Filament\Schemas\Components\Utilities\Get;
@@ -30,6 +31,9 @@ use Illuminate\Support\Facades\DB;
 class ViewDeal extends ViewRecord
 {
     protected static string $resource = DealResource::class;
+
+    /** Булевы ответы анкеты: в форме — выбор «не спрашивали / да / нет», а не переключатель. */
+    private const TRI_STATE = ['pets', 'bank_help', 'wants_discount'];
 
     public function getTitle(): string
     {
@@ -89,13 +93,23 @@ class ViewDeal extends ViewRecord
                 ->label(__('gshome.crm.intake.edit'))
                 ->visible(fn (Deal $record): bool => $record->isOpen() && $this->can('manage', $record))
                 ->fillForm(fn (Deal $record): array => [
-                    ...($record->intake ?? []),
+                    ...array_map(fn ($v) => is_bool($v) ? ($v ? 'yes' : 'no') : $v, $record->intake ?? []),
                     'price' => $record->price,
                     'price_currency' => $record->price_currency,
                 ])
                 ->schema(fn (Deal $record): array => self::intakeSchema($record->pin->direction))
                 ->action(fn (Deal $record, array $data) => $this->perform($record, 'manage', function (Deal $deal, User $user) use ($data): void {
                     $intake = Arr::only($data, DealIntake::fields($deal->pin->direction));
+                    // Да / нет / не спрашивали: пустое не пишется, «нет» — это false.
+                    foreach (self::TRI_STATE as $key) {
+                        if (array_key_exists($key, $intake)) {
+                            $intake[$key] = match ($intake[$key]) {
+                                'yes' => true,
+                                'no' => false,
+                                default => null,
+                            };
+                        }
+                    }
                     $price = filled($data['price'] ?? null) ? (string) $data['price'] : null;
                     // Валюта без цены не сохраняется: в базе они идут парой.
                     $currency = $price === null ? null : (string) ($data['price_currency'] ?? '');
@@ -111,7 +125,8 @@ class ViewDeal extends ViewRecord
                         ->label(__('gshome.crm.deals.partner'))
                         ->searchable()
                         ->getSearchResultsUsing(fn (string $search): array => self::partnerCandidates($record->agent, $search))
-                        ->getOptionLabelUsing(fn ($value): ?string => User::query()->whereKey($value)->value('name')),
+                        // Имя — только текущего партнёра или допустимого кандидата, а не любого id.
+                        ->getOptionLabelUsing(fn ($value): ?string => self::partnerLabel($record, $value)),
                 ])
                 ->action(fn (Deal $record, array $data) => $this->perform($record, 'manage', function (Deal $deal, User $user) use ($data): void {
                     $partner = filled($data['partner_user_id'] ?? null) ? User::query()->find($data['partner_user_id']) : null;
@@ -155,6 +170,9 @@ class ViewDeal extends ViewRecord
         /** @var array<int, string> $found */
         $found = User::query()
             ->whereIn('company_id', OrgAccess::identifiableCompanyIds($agent))
+            ->where('status', UserStatus::Active)
+            ->whereIn('role', [Role::TeamLead, Role::Agent])
+            ->whereKeyNot($agent->id)
             ->where('name', 'ilike', '%'.addcslashes($search, '%_\\').'%')
             ->orderBy('name')
             ->limit(50)
@@ -164,6 +182,22 @@ class ViewDeal extends ViewRecord
             ->all();
 
         return $found;
+    }
+
+    /** Имя — только текущего партнёра или допустимого кандидата, а не любого id. */
+    public static function partnerLabel(Deal $deal, mixed $id): ?string
+    {
+        $user = is_scalar($id) ? User::query()->find($id) : null;
+
+        return $user !== null && ($user->id === $deal->partner_user_id || OrgAccess::canPartner($deal->agent, $user)) ? $user->name : null;
+    }
+
+    private static function triState(string $key, string $label): Select
+    {
+        return Select::make($key)->label($label)->options([
+            'yes' => DealIntake::label($key, true),
+            'no' => DealIntake::label($key, false),
+        ]);
     }
 
     /** @return list<Field> поля анкеты направления и цена */
@@ -178,13 +212,13 @@ class ViewDeal extends ViewRecord
             $fields[] = match (true) {
                 $key === 'down_payment_currency' => Select::make($key)->label($label)->options($currencies)->visible($ifMortgage),
                 $key === 'down_payment' => TextInput::make($key)->label($label)->regex('/^\d{1,12}(\.\d{1,2})?$/')->inputMode('decimal')->visible($ifMortgage),
-                $key === 'bank_help' => Toggle::make($key)->label($label)->visible(fn (Get $get): bool => $get('payment') === 'cash'),
+                $key === 'bank_help' => self::triState($key, $label)->visible(fn (Get $get): bool => $get('payment') === 'cash'),
                 $key === 'notes' => Textarea::make($key)->label($label)->maxLength(2000)->columnSpanFull(),
                 $options !== null => Select::make($key)
                     ->label($label)
                     ->options(collect($options)->mapWithKeys(fn (string $v): array => [$v => DealIntake::label($key, $v)])->all())
                     ->live($key === 'payment'),
-                in_array($key, ['pets', 'wants_discount'], true) => Toggle::make($key)->label($label),
+                in_array($key, self::TRI_STATE, true) => self::triState($key, $label),
                 default => TextInput::make($key)->label($label)->maxLength(255),
             };
         }

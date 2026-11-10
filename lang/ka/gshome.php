@@ -433,8 +433,6 @@ return [
             'bank_help' => 'სჭირდება ბანკის დახმარება',
             'down_payment' => 'პირველადი შენატანი (ბე)',
             'down_payment_currency' => 'შენატანის ვალუტა',
-            'down_payment_currency_USD' => 'USD',
-            'down_payment_currency_GEL' => 'GEL',
             'wants_discount' => 'სურს ფასდაკლება',
         ],
         'deals' => [

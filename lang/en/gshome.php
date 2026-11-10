@@ -432,8 +432,6 @@ return [
             'bank_help' => 'Needs help from a bank',
             'down_payment' => 'Down payment',
             'down_payment_currency' => 'Down payment currency',
-            'down_payment_currency_USD' => 'USD',
-            'down_payment_currency_GEL' => 'GEL',
             'wants_discount' => 'Wants a discount',
         ],
         'deals' => [
