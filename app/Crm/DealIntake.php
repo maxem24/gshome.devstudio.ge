@@ -115,6 +115,7 @@ final class DealIntake
             return __('gshome.crm.intake.'.($value ? 'yes' : 'no'));
         }
 
-        return __('gshome.crm.intake.'.$key.'_'.$value);
+        // Точка в значении («1.5») ломает ключ перевода: в файле ключ плоский, с «_».
+        return __('gshome.crm.intake.'.$key.'_'.str_replace('.', '_', $value));
     }
 }

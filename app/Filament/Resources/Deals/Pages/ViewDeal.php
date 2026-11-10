@@ -2,21 +2,28 @@
 
 namespace App\Filament\Resources\Deals\Pages;
 
+use App\Access\OrgAccess;
+use App\Crm\DealIntake;
 use App\Crm\Deals;
 use App\Crm\DealStage;
 use App\Crm\DealStages;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
+use App\Enums\Direction;
 use App\Filament\Resources\Deals\DealResource;
 use App\Models\Deal;
 use App\Models\User;
 use Closure;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Field;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Schemas\Components\Utilities\Get;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -55,7 +62,7 @@ class ViewDeal extends ViewRecord
                 ->visible(fn (Deal $record): bool => $record->isOpen() && $this->can('manage', $record))
                 ->schema([
                     TextInput::make('amount')
-                        ->label(__('gshome.crm.deals.amount'))
+                        ->label(__('gshome.crm.deals.commission'))
                         ->required()
                         ->regex('/^\d{1,12}(\.\d{1,2})?$/')
                         ->inputMode('decimal'),
@@ -64,10 +71,53 @@ class ViewDeal extends ViewRecord
                         ->options(array_combine((array) config('crm.currencies'), (array) config('crm.currencies')))
                         ->default(config('crm.currencies.0'))
                         ->required(),
+                    // Доля партнёра — суммой из комиссии; поле только у сделки с партнёром.
+                    TextInput::make('partner_share')
+                        ->label(__('gshome.crm.deals.partner_share'))
+                        ->helperText(__('gshome.crm.deals.partner_share_hint'))
+                        ->visible(fn (Deal $record): bool => $record->partner_user_id !== null)
+                        ->required()
+                        ->regex('/^\d{1,12}(\.\d{1,2})?$/')
+                        ->inputMode('decimal'),
                 ])
                 ->action(fn (Deal $record, array $data) => $this->perform($record, 'manage', fn (Deal $deal, User $user) => app(Deals::class)->win(
                     $deal, (string) $data['amount'], (string) $data['currency'], $user,
+                    // Есть ли партнёр, решает сервер по сделке, а не форма.
+                    $deal->partner_user_id === null ? null : (string) ($data['partner_share'] ?? ''),
                 ))),
+            Action::make('editIntake')
+                ->label(__('gshome.crm.intake.edit'))
+                ->visible(fn (Deal $record): bool => $record->isOpen() && $this->can('manage', $record))
+                ->fillForm(fn (Deal $record): array => [
+                    ...($record->intake ?? []),
+                    'price' => $record->price,
+                    'price_currency' => $record->price_currency,
+                ])
+                ->schema(fn (Deal $record): array => self::intakeSchema($record->pin->direction))
+                ->action(fn (Deal $record, array $data) => $this->perform($record, 'manage', function (Deal $deal, User $user) use ($data): void {
+                    $intake = Arr::only($data, DealIntake::fields($deal->pin->direction));
+                    $price = filled($data['price'] ?? null) ? (string) $data['price'] : null;
+                    // Валюта без цены не сохраняется: в базе они идут парой.
+                    $currency = $price === null ? null : (string) ($data['price_currency'] ?? '');
+                    app(Deals::class)->updateIntake($deal, $intake, $price, $currency, $user);
+                })),
+            Action::make('setPartner')
+                ->label(__('gshome.crm.deals.set_partner'))
+                ->color('gray')
+                ->visible(fn (Deal $record): bool => $record->isOpen() && $this->can('manage', $record))
+                ->fillForm(fn (Deal $record): array => ['partner_user_id' => $record->partner_user_id])
+                ->schema(fn (Deal $record): array => [
+                    Select::make('partner_user_id')
+                        ->label(__('gshome.crm.deals.partner'))
+                        ->searchable()
+                        ->getSearchResultsUsing(fn (string $search): array => self::partnerCandidates($record->agent, $search))
+                        ->getOptionLabelUsing(fn ($value): ?string => User::query()->whereKey($value)->value('name')),
+                ])
+                ->action(fn (Deal $record, array $data) => $this->perform($record, 'manage', function (Deal $deal, User $user) use ($data): void {
+                    $partner = filled($data['partner_user_id'] ?? null) ? User::query()->find($data['partner_user_id']) : null;
+                    // Чужого или неподходящего человека отвергает сам сервис (CrmForbidden).
+                    app(Deals::class)->setPartner($deal, $partner, $user);
+                })),
             Action::make('lose')
                 ->label(__('gshome.crm.deals.lost'))
                 ->color('danger')
@@ -92,6 +142,63 @@ class ViewDeal extends ViewRecord
                     // Не владелец после архивации сделку уже не видит.
                     $this->redirect(DealResource::getUrl('index'));
                 }),
+        ];
+    }
+
+    /**
+     * Кандидаты в партнёры: активные люди с командой из круга компаний агента сделки.
+     *
+     * @return array<int, string>
+     */
+    public static function partnerCandidates(User $agent, string $search): array
+    {
+        /** @var array<int, string> $found */
+        $found = User::query()
+            ->whereIn('company_id', OrgAccess::identifiableCompanyIds($agent))
+            ->where('name', 'ilike', '%'.addcslashes($search, '%_\\').'%')
+            ->orderBy('name')
+            ->limit(50)
+            ->get()
+            ->filter(fn (User $u): bool => OrgAccess::canPartner($agent, $u))
+            ->pluck('name', 'id')
+            ->all();
+
+        return $found;
+    }
+
+    /** @return list<Field> поля анкеты направления и цена */
+    public static function intakeSchema(Direction $direction): array
+    {
+        $currencies = array_combine((array) config('crm.currencies'), (array) config('crm.currencies'));
+        $fields = [];
+        foreach (DealIntake::fields($direction) as $key) {
+            $label = DealIntake::label($key);
+            $options = DealIntake::options($key);
+            $ifMortgage = fn (Get $get): bool => $get('payment') === 'mortgage';
+            $fields[] = match (true) {
+                $key === 'down_payment_currency' => Select::make($key)->label($label)->options($currencies)->visible($ifMortgage),
+                $key === 'down_payment' => TextInput::make($key)->label($label)->regex('/^\d{1,12}(\.\d{1,2})?$/')->inputMode('decimal')->visible($ifMortgage),
+                $key === 'bank_help' => Toggle::make($key)->label($label)->visible(fn (Get $get): bool => $get('payment') === 'cash'),
+                $key === 'notes' => Textarea::make($key)->label($label)->maxLength(2000)->columnSpanFull(),
+                $options !== null => Select::make($key)
+                    ->label($label)
+                    ->options(collect($options)->mapWithKeys(fn (string $v): array => [$v => DealIntake::label($key, $v)])->all())
+                    ->live($key === 'payment'),
+                in_array($key, ['pets', 'wants_discount'], true) => Toggle::make($key)->label($label),
+                default => TextInput::make($key)->label($label)->maxLength(255),
+            };
+        }
+
+        return [
+            ...$fields,
+            TextInput::make('price')
+                ->label(__($direction === Direction::Rent ? 'gshome.crm.deals.price_monthly' : 'gshome.crm.deals.price'))
+                ->regex('/^\d{1,12}(\.\d{1,2})?$/')
+                ->inputMode('decimal'),
+            Select::make('price_currency')
+                ->label(__('gshome.crm.deals.currency'))
+                ->options($currencies)
+                ->required(fn (Get $get): bool => filled($get('price'))),
         ];
     }
 

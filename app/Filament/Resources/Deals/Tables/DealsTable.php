@@ -23,7 +23,7 @@ class DealsTable
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with([
-                'pin', 'agent', 'stageChanges',
+                'pin', 'agent', 'partner', 'stageChanges',
                 // @phpstan-ignore method.notFound (SoftDeletes добавляет withTrashed макросом)
                 'client' => fn ($client) => $client->withTrashed(),
             ]))
@@ -37,6 +37,10 @@ class DealsTable
                     ->prefix('№')
                     ->url(fn (Deal $record): ?string => $record->pin === null ? null : ListingView::getUrl(['listing' => $record->pin->listing_id])),
                 TextColumn::make('agent.name')->label(__('gshome.crm.deals.agent')),
+                TextColumn::make('partner.name')
+                    ->label(__('gshome.crm.deals.partner'))
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('stage')
                     ->label(__('gshome.crm.deals.stage'))
                     ->formatStateUsing(fn (string $state): string => DealStages::find($state)?->label() ?? $state),

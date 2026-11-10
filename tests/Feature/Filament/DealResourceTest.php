@@ -109,9 +109,8 @@ class DealResourceTest extends TestCase
         $viewing = app(Viewings::class)->schedule($deal, now()->addDay(), null, $deal->agent);
         $this->actingAs($partner);
 
-        // editIntake и setPartner появятся позже; когда появятся, добавить сюда.
         $page = Livewire::test(ViewDeal::class, ['record' => $deal->id]);
-        foreach (['nextStage', 'win', 'lose', 'archive'] as $name) {
+        foreach (['nextStage', 'win', 'lose', 'archive', 'editIntake', 'setPartner'] as $name) {
             $page->assertActionHidden($name);
         }
         $this->tryCall(fn () => $page->callAction('win', ['amount' => '1000', 'currency' => 'USD']));
@@ -123,6 +122,126 @@ class DealResourceTest extends TestCase
             ->assertActionHidden(TestAction::make('schedule')->table());
         $this->tryCall(fn () => $rm->callTableAction('outcome', $viewing, ['outcome' => ViewingOutcome::Failed->value]));
         $this->assertNull($viewing->refresh()->outcome);
+    }
+
+    /** Сделка аренды: агент берёт пин только в своём направлении, поэтому своя команда. */
+    private function rentDeal(): array
+    {
+        $lead = User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create();
+        $nino = User::factory()->agent($lead)->create();
+        $listing = Listing::fromApi(RealEstateFake::listing([
+            'id' => 61,
+            'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'rent'],
+        ]), 'ru');
+        $pin = app(Pins::class)->take($listing, $nino);
+
+        return [app(Deals::class)->open($pin, Client::factory()->create(), $nino), $nino, $lead];
+    }
+
+    public function test_agent_edits_intake_on_rent_deal(): void
+    {
+        [$deal, $nino] = $this->rentDeal();
+        $this->actingAs($nino);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('editIntake', ['term' => '1y', 'pets' => true, 'price' => '1200', 'price_currency' => 'USD'])
+            ->assertHasNoActionErrors();
+
+        $deal->refresh();
+        $this->assertSame('1y', $deal->intake['term']);
+        $this->assertTrue($deal->intake['pets']);
+        $this->assertSame('1200.00', $deal->price);
+        $this->assertSame('USD', $deal->price_currency);
+    }
+
+    public function test_sale_form_has_no_rent_fields(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 41);
+        $this->actingAs($nino);
+
+        $names = array_map(fn ($field): string => $field->getName(), ViewDeal::intakeSchema(Direction::Sale));
+        $this->assertContains('purpose', $names);
+        $this->assertContains('price', $names);
+        foreach (['term', 'prepay', 'pets', 'deposit_ok', 'occupants'] as $rentField) {
+            $this->assertNotContains($rentField, $names);
+        }
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('editIntake', ['purpose' => 'living', 'payment' => 'mortgage', 'down_payment' => '20000', 'down_payment_currency' => 'USD'])
+            ->assertHasNoActionErrors();
+        $this->assertSame('mortgage', $deal->refresh()->intake['payment']);
+    }
+
+    public function test_set_partner_from_card(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $partner = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 41);
+        $this->actingAs($nino);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('setPartner', ['partner_user_id' => $partner->id])
+            ->assertHasNoActionErrors();
+        $this->assertSame($partner->id, $deal->refresh()->partner_user_id);
+
+        // Пустое значение снимает партнёра.
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('setPartner', ['partner_user_id' => null]);
+        $this->assertNull($deal->refresh()->partner_user_id);
+    }
+
+    public function test_partner_select_excludes_other_company_without_exchange(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $mate = User::factory()->agent($this->lead)->create(['name' => 'Zzz Mate']);
+        $foreignLead = User::factory()->teamLead(Company::factory()->create(), Direction::Sale)->create();
+        $foreign = User::factory()->agent($foreignLead)->create(['name' => 'Zzz Foreign']);
+        $deal = $this->deal($nino, 41);
+        $this->actingAs($nino);
+
+        $this->assertSame([$mate->id => 'Zzz Mate'], ViewDeal::partnerCandidates($nino, 'Zzz'));
+
+        // Подделанный id чужого человека сервер отвергает.
+        $this->tryCall(fn () => Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('setPartner', ['partner_user_id' => $foreign->id]));
+        $this->assertNull($deal->refresh()->partner_user_id);
+    }
+
+    public function test_win_with_partner_share_from_card(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $partner = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 41);
+        app(Deals::class)->setPartner($deal, $partner, $nino);
+        $this->actingAs($nino);
+
+        // Без доли при партнёре форма не проходит.
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('win', ['amount' => '1000', 'currency' => 'USD'])
+            ->assertHasActionErrors(['partner_share']);
+        $this->assertSame(DealStatus::Open, $deal->refresh()->status);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->callAction('win', ['amount' => '1000', 'currency' => 'USD', 'partner_share' => '300'])
+            ->assertHasNoActionErrors();
+        $deal->refresh();
+        $this->assertSame(DealStatus::Won, $deal->status);
+        $this->assertSame('300.00', $deal->partner_share);
+    }
+
+    public function test_card_shows_intake_labels(): void
+    {
+        [$deal, $nino] = $this->rentDeal();
+        app(Deals::class)->updateIntake($deal, ['term' => '1y', 'occupants' => 'Семья с ребёнком'], '1200', 'USD', $nino);
+        $this->actingAs($nino);
+
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->assertSee(__('gshome.crm.intake.title'))
+            ->assertSee(__('gshome.crm.intake.term'))
+            ->assertSee(__('gshome.crm.intake.term_1y'))
+            ->assertSee('Семья с ребёнком')
+            ->assertSee('1200');
     }
 
     public function test_partner_lead_sees_deal(): void

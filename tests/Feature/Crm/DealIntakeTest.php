@@ -173,4 +173,26 @@ class DealIntakeTest extends TestCase
         app(Deals::class)->updateIntake($deal->fresh(), ['term' => '6m'], null, null, $this->nino);
         $this->assertEquals(['term' => '6m'], $deal->fresh()->intake);
     }
+
+    /** Подписи плоские: вложенный массив в переводе сломал бы label(): string. */
+    public function test_every_intake_label_resolves_to_a_string_in_every_locale(): void
+    {
+        foreach (['ru', 'en', 'ka'] as $locale) {
+            app()->setLocale($locale);
+            $this->assertIsString(__('gshome.crm.intake.title'));
+            $this->assertNotSame('gshome.crm.intake.title', __('gshome.crm.intake.title'), $locale);
+            foreach (['yes', 'no'] as $key) {
+                $this->assertNotSame('gshome.crm.intake.'.$key, __('gshome.crm.intake.'.$key), "{$locale} {$key}");
+            }
+            foreach ([Direction::Rent, Direction::Sale] as $direction) {
+                foreach (DealIntake::fields($direction) as $key) {
+                    $this->assertNotSame('gshome.crm.intake.'.$key, DealIntake::label($key), "{$locale} {$key}");
+                    foreach (DealIntake::options($key) ?? [] as $option) {
+                        $label = DealIntake::label($key, $option);
+                        $this->assertStringStartsNotWith('gshome.crm.intake.', $label, "{$locale} {$key}={$option}");
+                    }
+                }
+            }
+        }
+    }
 }

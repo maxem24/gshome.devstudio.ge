@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\Deals\Schemas;
 
+use App\Crm\DealIntake;
 use App\Crm\DealStages;
+use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
@@ -11,6 +13,7 @@ use App\Models\DealStageChange;
 use App\Models\User;
 use Carbon\CarbonInterface;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Auth;
 
@@ -29,6 +32,9 @@ class DealInfolist
                 ->prefix('№')
                 ->url(fn (Deal $record): ?string => $record->pin === null ? null : ListingView::getUrl(['listing' => $record->pin->listing_id])),
             TextEntry::make('agent.name')->label(__('gshome.crm.deals.agent')),
+            TextEntry::make('partner.name')
+                ->label(__('gshome.crm.deals.partner'))
+                ->visible(fn (Deal $record): bool => $record->partner_user_id !== null),
             TextEntry::make('status')->label(__('gshome.crm.deals.status'))->badge(),
             TextEntry::make('stage')
                 ->label(__('gshome.crm.deals.stage'))
@@ -37,13 +43,30 @@ class DealInfolist
                 ->label(__('gshome.crm.deals.time_on_stage'))
                 ->state(fn (Deal $record): ?string => self::timeOnStage($record))
                 ->placeholder('—'),
+            TextEntry::make('price')
+                ->label(fn (Deal $record): string => __($record->pin?->direction === Direction::Rent ? 'gshome.crm.deals.price_monthly' : 'gshome.crm.deals.price'))
+                ->state(fn (Deal $record): string => trim($record->price.' '.$record->price_currency))
+                ->visible(fn (Deal $record): bool => $record->price !== null),
             TextEntry::make('amount')
-                ->label(__('gshome.crm.deals.amount'))
+                ->label(__('gshome.crm.deals.commission'))
                 ->state(fn (Deal $record): string => trim($record->amount.' '.$record->currency))
                 ->visible(fn (Deal $record): bool => $record->amount !== null),
+            TextEntry::make('partner_share')
+                ->label(__('gshome.crm.deals.partner_share'))
+                ->state(fn (Deal $record): string => trim($record->partner_share.' '.$record->currency))
+                ->visible(fn (Deal $record): bool => $record->partner_share !== null),
             TextEntry::make('lost_reason')
                 ->label(__('gshome.crm.deals.reason'))
                 ->visible(fn (Deal $record): bool => $record->lost_reason !== null),
+            Section::make(__('gshome.crm.intake.title'))
+                ->schema([
+                    TextEntry::make('intake')
+                        ->hiddenLabel()
+                        ->state(fn (Deal $record): array => self::intakeLines($record))
+                        ->listWithLineBreaks()
+                        ->placeholder('—'),
+                ])
+                ->columnSpanFull(),
             TextEntry::make('history')
                 ->label(__('gshome.crm.deals.history'))
                 ->state(fn (Deal $record): array => self::history($record))
@@ -54,6 +77,25 @@ class DealInfolist
                 ->dateTime('d.m.Y H:i')
                 ->visible(fn (Deal $record): bool => $record->trashed()),
         ])->columns(2);
+    }
+
+    /** @return list<string> «Срок: 1 год» — вопрос и ответ; старые и неизвестные ключи не роняют карточку */
+    private static function intakeLines(Deal $deal): array
+    {
+        $lines = [];
+        foreach ($deal->intake ?? [] as $key => $value) {
+            $key = (string) $key;
+            if (is_bool($value)) {
+                $answer = DealIntake::label($key, $value);
+            } elseif (is_string($value) && DealIntake::options($key) !== null) {
+                $answer = DealIntake::label($key, $value);
+            } else {
+                $answer = (string) $value;
+            }
+            $lines[] = DealIntake::label($key).': '.$answer;
+        }
+
+        return $lines;
     }
 
     public static function clientName(Deal $deal): string
