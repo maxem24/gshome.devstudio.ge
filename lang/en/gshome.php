@@ -544,6 +544,7 @@ return [
             'deals_opened' => 'Deals opened',
             'viewings_held' => 'Viewings held',
             'won' => 'Won',
+            'won_as_partner' => 'Won as partner',
             'lost' => 'Lost',
             'earnings' => 'Earned',
             'avg_stage' => 'Average time per stage',

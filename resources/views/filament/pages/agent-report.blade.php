@@ -40,6 +40,7 @@
                                 {{ __('gshome.crm.report.viewings_held') }}
                             </th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.won') }}</th>
+                            <th class="p-2 text-end">{{ __('gshome.crm.report.won_as_partner') }}</th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.lost') }}</th>
                             <th class="p-2 text-end">{{ __('gshome.crm.report.earnings') }}</th>
                             @foreach ($stages as $label)
@@ -64,6 +65,7 @@
                                 <td class="p-2 text-end">{{ $row->dealsOpened }}</td>
                                 <td class="p-2 text-end">{{ $row->viewingsHeld }}</td>
                                 <td class="p-2 text-end">{{ $row->dealsWon }}</td>
+                                <td class="p-2 text-end">{{ $row->dealsWonAsPartner }}</td>
                                 <td class="p-2 text-end">{{ $row->dealsLost }}</td>
                                 <td class="p-2 text-end">{{ $this->money($row->earnings) }}</td>
                                 @foreach ($stages as $key => $label)

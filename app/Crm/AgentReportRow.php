@@ -8,7 +8,7 @@ use App\Models\User;
 final readonly class AgentReportRow
 {
     /**
-     * @param  array<string, string>  $earnings  валюта ⇒ сумма
+     * @param  array<string, string>  $earnings  валюта ⇒ сумма (своя часть и доля партнёра)
      * @param  array<string, int>  $avgStageSeconds  ключ этапа ⇒ среднее время на этапе, секунды
      * @param  list<int>  $stalePinIds  id застывших закреплений
      */
@@ -18,6 +18,7 @@ final readonly class AgentReportRow
         public int $dealsOpened,
         public int $viewingsHeld,
         public int $dealsWon,
+        public int $dealsWonAsPartner,
         public int $dealsLost,
         public array $earnings,
         public array $avgStageSeconds,

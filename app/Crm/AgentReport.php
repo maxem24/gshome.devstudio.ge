@@ -46,8 +46,15 @@ final class AgentReport
         $closed = DB::table('deals')->whereNull('deleted_at')->whereIn('user_id', $ids)
             ->whereIn('status', [DealStatus::Won->value, DealStatus::Lost->value])
             ->whereBetween('closed_at', [$from, $to])
-            ->selectRaw('user_id, status, currency, count(*) as n, sum(amount) as total')
+            ->selectRaw('user_id, status, currency, count(*) as n, sum(amount - coalesce(partner_share, 0)) as total')
             ->groupBy('user_id', 'status', 'currency')->get()->groupBy('user_id');
+
+        // Доля партнёра: его выигранные в паре сделки, одним запросом на всех.
+        $asPartner = DB::table('deals')->whereNull('deleted_at')->whereIn('partner_user_id', $ids)
+            ->where('status', DealStatus::Won->value)
+            ->whereBetween('closed_at', [$from, $to])
+            ->selectRaw('partner_user_id, currency, count(*) as n, sum(partner_share) as total')
+            ->groupBy('partner_user_id', 'currency')->get()->groupBy('partner_user_id');
 
         $normalKeys = array_values(array_map(
             fn (DealStage $s): string => $s->key,
@@ -67,12 +74,19 @@ final class AgentReport
                 avg(extract(epoch from (coalesce(s.next_at, deals.closed_at, ?::timestamptz) - s.changed_at))) as secs', [$now])
             ->groupBy('deals.user_id', 's.to_stage')->get()->groupBy('user_id');
 
-        return $users->map(function (User $u) use ($pinsActive, $stale, $opened, $viewings, $closed, $stages): AgentReportRow {
+        return $users->map(function (User $u) use ($pinsActive, $stale, $opened, $viewings, $closed, $asPartner, $stages): AgentReportRow {
             $mine = $closed->get($u->id, collect());
             $earnings = [];
             foreach ($mine->where('status', DealStatus::Won->value) as $r) {
                 if ($r->currency !== null && $r->total !== null) {
                     $earnings[(string) $r->currency] = (string) $r->total;
+                }
+            }
+            $partnerRows = $asPartner->get($u->id, collect());
+            foreach ($partnerRows as $r) {
+                if ($r->currency !== null && $r->total !== null) {
+                    $cur = (string) $r->currency;
+                    $earnings[$cur] = bcadd($earnings[$cur] ?? '0', (string) $r->total, 2);
                 }
             }
             $staleIds = $stale->get($u->id, collect())->pluck('id')->map(fn ($id): int => (int) $id)->all();
@@ -83,6 +97,7 @@ final class AgentReport
                 dealsOpened: (int) ($opened[$u->id] ?? 0),
                 viewingsHeld: (int) ($viewings[$u->id] ?? 0),
                 dealsWon: (int) $mine->where('status', DealStatus::Won->value)->sum('n'),
+                dealsWonAsPartner: (int) $partnerRows->sum('n'),
                 dealsLost: (int) $mine->where('status', DealStatus::Lost->value)->sum('n'),
                 earnings: $earnings,
                 avgStageSeconds: $stages->get($u->id, collect())
