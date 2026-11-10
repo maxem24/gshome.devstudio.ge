@@ -39,6 +39,8 @@ class CrmDemoSeederTest extends TestCase
         foreach ([103, 104, 105, 106, 107, 108] as $id) {
             $listings[] = RealEstateFake::listing(['id' => $id]);
         }
+        // Помесячная аренда: для сценария «анкета аренды» (продажа её пропускает по направлению).
+        $listings[] = RealEstateFake::listing(['id' => 109, 'deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся']]);
         RealEstateFake::fake([RealEstateFake::page($listings)]);
     }
 
@@ -65,6 +67,21 @@ class CrmDemoSeederTest extends TestCase
         // Нино получила задачу от тимлида и напоминание о вчерашнем показе.
         $nino = Deal::query()->where('listing_pin_id', $group->id)->sole()->agent;
         $this->assertSame(2, $nino->notifications()->count());
+    }
+
+    public function test_demo_has_intake_and_partner_deals(): void
+    {
+        app(CrmDemo::class)->seed();
+
+        foreach (['sale', 'rent'] as $direction) {
+            $this->assertGreaterThan(0, Deal::query()->whereHas('pin', fn ($q) => $q->where('direction', $direction))
+                ->whereRaw("intake::text <> '{}'")->count(), "no deal with intake in {$direction}");
+        }
+        $this->assertSame(1, Deal::query()->where('status', DealStatus::Open)->whereNotNull('partner_user_id')->count());
+        $won = Deal::query()->where('status', DealStatus::Won)->whereNotNull('partner_share')->sole();
+        $this->assertNotNull($won->partner_user_id);
+        $this->assertTrue((float) $won->partner_share < (float) $won->amount);
+        $this->assertNotNull(Deal::query()->whereNotNull('price')->first());
     }
 
     public function test_stale_pin_is_eight_days_old_in_journal_and_report(): void
@@ -113,7 +130,7 @@ class CrmDemoSeederTest extends TestCase
         $this->artisan('gshome:crm-demo')->assertSuccessful();
         $this->artisan('gshome:crm-demo')->assertFailed();
         $this->artisan('gshome:crm-demo', ['--fresh' => true])->assertSuccessful();
-        $this->assertSame(6, ListingPin::query()->count());
+        $this->assertSame(7, ListingPin::query()->count());
     }
 
     public function test_real_reminders_and_notifications_survive_seed_and_wipe(): void
@@ -177,9 +194,9 @@ class CrmDemoSeederTest extends TestCase
         $oldClients = Client::query()->pluck('id')->all();
 
         $demo->refresh();
-        $this->assertSame(6, ListingPin::query()->count());
+        $this->assertSame(7, ListingPin::query()->count());
         $this->assertNotSame($oldClients, Client::query()->pluck('id')->all());
-        $this->assertSame(6, Client::query()->count());
+        $this->assertSame(7, Client::query()->count());
 
         // Сбой в середине (сеть объявлений недоступна) — прежнее демо цело.
         RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['id' => 201])])]);
@@ -202,8 +219,8 @@ class CrmDemoSeederTest extends TestCase
 
         $this->assertFalse($demo->exists());
         $this->assertSame(0, CrmSetting::query()->whereKey(CrmDemo::SETTING)->count());
-        $this->assertSame(6, Client::query()->count());
-        $this->assertSame(6, ListingPin::query()->count());
+        $this->assertSame(7, Client::query()->count());
+        $this->assertSame(7, ListingPin::query()->count());
     }
 
     public function test_wipe_keeps_journal_rows_caused_by_real_people_on_demo_subjects(): void

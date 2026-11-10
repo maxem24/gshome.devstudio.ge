@@ -9,7 +9,7 @@ use App\Models\Deal;
 use App\Models\User;
 
 /**
- * Сделки: видит тот, чья сделка попадает в видимых по ступени (OrgAccess); менять — как Deals::canManage.
+ * Сделки: видит тот, у кого владелец или партнёр сделки попадает в видимых по ступени (OrgAccess); менять — как Deals::canManage (партнёр только смотрит).
  * Создания, правки и удаления из интерфейса нет: сделки открываются с карточки объекта.
  */
 class DealPolicy
@@ -21,7 +21,7 @@ class DealPolicy
 
     public function view(User $user, Deal $deal): bool
     {
-        return OrgAccess::visibleUsers($user)->whereKey($deal->user_id)->exists();
+        return OrgAccess::visibleUsers($user)->whereIn('id', array_filter([$deal->user_id, $deal->partner_user_id]))->exists();
     }
 
     public function create(User $user): bool

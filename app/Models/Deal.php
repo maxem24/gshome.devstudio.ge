@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\JsonObject;
 use App\Enums\DealStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -22,8 +23,13 @@ use Spatie\Activitylog\Models\Activity;
  * @property ?string $amount
  * @property ?string $currency
  * @property ?string $lost_reason
+ * @property array<string, string|bool> $intake анкета клиента
+ * @property ?string $price
+ * @property ?string $price_currency
+ * @property ?int $partner_user_id
+ * @property ?string $partner_share
  */
-#[Fillable(['listing_pin_id', 'client_id', 'user_id', 'stage', 'status', 'amount', 'currency', 'lost_reason', 'closed_at'])]
+#[Fillable(['listing_pin_id', 'client_id', 'user_id', 'stage', 'status', 'amount', 'currency', 'lost_reason', 'closed_at', 'intake', 'price', 'price_currency', 'partner_user_id', 'partner_share'])]
 class Deal extends Model
 {
     use SoftDeletes;
@@ -34,6 +40,8 @@ class Deal extends Model
             'listing_pin_id' => 'integer',
             'client_id' => 'integer',
             'user_id' => 'integer',
+            'partner_user_id' => 'integer',
+            'intake' => JsonObject::class,
             'status' => DealStatus::class,
             'closed_at' => 'datetime',
         ];
@@ -55,6 +63,12 @@ class Deal extends Model
     public function agent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function partner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'partner_user_id');
     }
 
     /** @return HasMany<DealStageChange, $this> */

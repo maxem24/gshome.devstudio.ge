@@ -4,6 +4,7 @@ namespace Tests\Feature\Crm;
 
 use App\Crm\AgentReport;
 use App\Crm\AgentReportRow;
+use App\Crm\Deals;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Filament\Pages\AgentReportPage;
@@ -100,6 +101,61 @@ class AgentReportTest extends TestCase
         $earn = $this->row($this->lead, $this->nino)->earnings;
 
         $this->assertEquals(['USD' => 150, 'GEL' => 300], array_map('floatval', $earn));
+    }
+
+    /** Сделка nino с партнёром закрыта: 300 USD, доля партнёра 100. */
+    private function partnerWin(User $partner, User $holder): void
+    {
+        $deal = $this->deal($holder);
+        app(Deals::class)->setPartner($deal, $partner, $holder);
+        app(Deals::class)->win($deal->refresh(), '300', 'USD', $holder, '100');
+    }
+
+    public function test_earnings_split_between_agent_and_partner(): void
+    {
+        $partner = User::factory()->agent($this->lead)->create();
+        $this->partnerWin($partner, $this->nino);
+
+        $this->assertSame(['USD' => '200.00'], $this->row($this->lead, $this->nino)->earnings);
+        $this->assertSame(['USD' => '100.00'], $this->row($this->lead, $partner)->earnings);
+    }
+
+    public function test_partner_counted_separately(): void
+    {
+        $partner = User::factory()->agent($this->lead)->create();
+        $this->partnerWin($partner, $this->nino);
+
+        $this->assertSame(1, $this->row($this->lead, $this->nino)->dealsWon);
+        $this->assertSame(0, $this->row($this->lead, $this->nino)->dealsWonAsPartner);
+        $this->assertSame(1, $this->row($this->lead, $partner)->dealsWonAsPartner);
+        $this->assertSame(0, $this->row($this->lead, $partner)->dealsWon);
+    }
+
+    public function test_lead_seeing_only_partner_gets_only_share(): void
+    {
+        $otherLead = User::factory()->teamLead(Company::query()->findOrFail($this->lead->company_id), Direction::Rent)->create();
+        $holder = User::factory()->agent($otherLead)->create();
+        $partner = User::factory()->agent($this->lead)->create();
+        $this->partnerWin($partner, $holder);
+
+        $rows = (new AgentReport)->rows($this->lead, now()->subDays(30), now());
+        $ids = collect($rows)->map(fn (AgentReportRow $r): int => $r->user->id)->all();
+
+        $this->assertNotContains($holder->id, $ids);
+        $this->assertSame(['USD' => '100.00'], $this->row($this->lead, $partner)->earnings);
+    }
+
+    public function test_partner_with_own_win_sums_same_currency(): void
+    {
+        $partner = User::factory()->agent($this->lead)->create();
+        $this->deal($partner, ['status' => DealStatus::Won, 'closed_at' => now()->subDay(), 'amount' => 50, 'currency' => 'USD']);
+        $this->partnerWin($partner, $this->nino);
+
+        $row = $this->row($this->lead, $partner);
+
+        $this->assertSame(['USD' => '150.00'], $row->earnings);
+        $this->assertSame(1, $row->dealsWon);
+        $this->assertSame(1, $row->dealsWonAsPartner);
     }
 
     public function test_avg_time_per_stage(): void

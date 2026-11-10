@@ -14,6 +14,7 @@ tags: [gshome, crm, access]
 |---|---|
 | закрепление объекта: взять, передать, снять, закрыть | `App\Crm\Pins`; модель `App\Models\ListingPin` |
 | сделки, этапы, итог, «состоялась» / «не состоялась» | `App\Crm\Deals`, `App\Crm\DealStages` (+ `DealStage`); модели `Deal`, `DealStageChange` |
+| анкета клиента по сделке (вопросы по направлению, проверка, подписи); цена, партнёр, «состоялась» с долей | `App\Crm\DealIntake`; `App\Crm\Deals` (`updateIntake`, `setPartner`, `win`) |
 | показы, итог показа, перенос | `App\Crm\Viewings`; модель `Viewing`; enum `App\Enums\ViewingOutcome` |
 | клиенты: поиск и заведение по телефону, перенос номера | `App\Crm\ClientLookup`, `ClientMatch`; модель `Client` |
 | задачи | `App\Crm\Tasks`; модель `Task`; enum статусов — `config/crm.php` (`task_statuses`) |
@@ -24,7 +25,7 @@ tags: [gshome, crm, access]
 | демо-данные | `App\Crm\CrmDemo` |
 | события и реакции на них | `App\Crm\Events\PinClosed`, `PinTransferred`; `App\Listeners\CloseDealsOnPinClosed`, `ReassignDealsOnPinTransferred` |
 | исключения | `App\Crm\Exceptions\CrmForbidden`, `PinTaken` |
-| права «кто кого видит» | `App\Access\OrgAccess`: `canActFor()`, `canSee()`, `handOverScope()`, `visibleUsers()` |
+| права «кто кого видит» | `App\Access\OrgAccess`: `canActFor()`, `canSee()`, `handOverScope()`, `visibleUsers()`, `canPartner()` (кто может быть партнёром по сделке) |
 | политики панели | `App\Policies\DealPolicy`, `TaskPolicy` |
 | модели | `App\Models\Client`, `ListingPin`, `Deal`, `DealStageChange`, `Viewing`, `Task`, `CrmSetting` |
 | ресурсы панели | `App\Filament\Resources\Clients`, `Deals`, `Tasks` |
@@ -65,6 +66,12 @@ tags: [gshome, crm, access]
   (`CrmForbidden`). «Состоялась» (`won`) и «объект недоступен» (`unavailable`) закрывают открытые
   сделки по этому закреплению (`CloseDealsOnPinClosed`); при передаче открытые сделки и показы
   переходят к новому держателю (`ReassignDealsOnPinTransferred`).
+- **Партнёр по сделке только видит.** `Deals::canManage()` партнёра не включает: этапы, показы,
+  анкету и закрытие сервер для него отвергает, кнопки только прячутся. Доля партнёра — суммой
+  в валюте комиссии: `0 < partner_share < amount`, правило держит CHECK в PostgreSQL, а не только
+  форма. Если партнёр при этом руководитель агента сделки (например, его тимлид), управлять он
+  может по этой роли через `canSee`, а не как партнёр. Партнёр не равен агенту сделки (тоже CHECK). Заработок в `AgentReport`: агенту —
+  `amount − partner_share`, партнёру — `partner_share`.
 - **Итог показа и этап сделки — два поля.** Не смешивать: итог меняет показ, этап меняет агент.
 - **Время: в базе — `timestamptz`, сессия БД — в поясе приложения.** `config/database.php`:
   `timezone` для pgsql = `DB_TIMEZONE`, по умолчанию `APP_TIMEZONE` (`Asia/Tbilisi`). Без этого

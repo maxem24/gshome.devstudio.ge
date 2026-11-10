@@ -5,6 +5,7 @@ namespace App\Access;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
 use App\Enums\Role;
+use App\Enums\UserStatus;
 use App\Models\Company;
 use App\Models\CompanyExchange;
 use App\Models\Phone;
@@ -149,6 +150,39 @@ final class OrgAccess
         }
 
         return $active->pluck('id')->map(fn ($id): int => (int) $id)->all();
+    }
+
+    /**
+     * Кандидаты в партнёры: активные люди с командой из круга компаний агента сделки.
+     *
+     * @return array<int, string> id => имя
+     */
+    public static function partnerCandidates(User $agent, string $search, int $limit = 50): array
+    {
+        /** @var array<int, string> $found */
+        $found = User::query()
+            ->whereIn('company_id', self::identifiableCompanyIds($agent))
+            ->where('status', UserStatus::Active)
+            ->whereIn('role', [Role::TeamLead, Role::Agent])
+            ->whereKeyNot($agent->id)
+            ->where('name', 'ilike', '%'.addcslashes($search, '%_\\').'%')
+            ->orderBy('name')
+            ->limit($limit)
+            ->get()
+            ->filter(fn (User $u): bool => self::canPartner($agent, $u))
+            ->pluck('name', 'id')
+            ->all();
+
+        return $found;
+    }
+
+    /** Может ли кандидат быть партнёром по сделке агента: живой человек с командой из круга компаний агента. */
+    public static function canPartner(User $agent, User $candidate): bool
+    {
+        return $candidate->isActive()
+            && $candidate->role->hasTeam()
+            && $candidate->id !== $agent->id
+            && in_array((int) $candidate->company_id, self::identifiableCompanyIds($agent), true);
     }
 
     /** @return list<string> номера этих компаний — для фильтров «наши» / «чужие» */
