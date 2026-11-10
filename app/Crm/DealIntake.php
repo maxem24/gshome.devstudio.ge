@@ -31,6 +31,23 @@ final class DealIntake
         return (bool) preg_match('/^\d{1,12}(\.\d{1,2})?$/', $amount) && (float) $amount > 0;
     }
 
+    /** Сумма в строке с двумя знаками, без float: «300» → «300.00». Только после isMoney. */
+    public static function money(string $v): string
+    {
+        return bcadd($v, '0', 2);
+    }
+
+    /** Сумма для показа: «120000.00» → «120 000», «1200.5» → «1 200.50»; не сумма возвращается как есть. */
+    public static function display(string $v): string
+    {
+        if (! preg_match('/^\d{1,12}(\.\d{1,2})?$/', $v)) {
+            return $v;
+        }
+        [$int, $frac] = explode('.', self::money($v));
+
+        return preg_replace('/\B(?=(\d{3})+$)/', ' ', $int).($frac === '00' ? '' : '.'.$frac);
+    }
+
     /** @return list<string> */
     public static function fields(Direction $direction): array
     {

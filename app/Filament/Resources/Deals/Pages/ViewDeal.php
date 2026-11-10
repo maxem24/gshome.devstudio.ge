@@ -10,8 +10,6 @@ use App\Crm\DealStages;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
 use App\Enums\Direction;
-use App\Enums\Role;
-use App\Enums\UserStatus;
 use App\Filament\Resources\Deals\DealResource;
 use App\Models\Deal;
 use App\Models\User;
@@ -124,7 +122,7 @@ class ViewDeal extends ViewRecord
                     Select::make('partner_user_id')
                         ->label(__('gshome.crm.deals.partner'))
                         ->searchable()
-                        ->getSearchResultsUsing(fn (string $search): array => self::partnerCandidates($record->agent, $search))
+                        ->getSearchResultsUsing(fn (string $search): array => OrgAccess::partnerCandidates($record->agent, $search))
                         // Имя — только текущего партнёра или допустимого кандидата, а не любого id.
                         ->getOptionLabelUsing(fn ($value): ?string => self::partnerLabel($record, $value)),
                 ])
@@ -158,30 +156,6 @@ class ViewDeal extends ViewRecord
                     $this->redirect(DealResource::getUrl('index'));
                 }),
         ];
-    }
-
-    /**
-     * Кандидаты в партнёры: активные люди с командой из круга компаний агента сделки.
-     *
-     * @return array<int, string>
-     */
-    public static function partnerCandidates(User $agent, string $search): array
-    {
-        /** @var array<int, string> $found */
-        $found = User::query()
-            ->whereIn('company_id', OrgAccess::identifiableCompanyIds($agent))
-            ->where('status', UserStatus::Active)
-            ->whereIn('role', [Role::TeamLead, Role::Agent])
-            ->whereKeyNot($agent->id)
-            ->where('name', 'ilike', '%'.addcslashes($search, '%_\\').'%')
-            ->orderBy('name')
-            ->limit(50)
-            ->get()
-            ->filter(fn (User $u): bool => OrgAccess::canPartner($agent, $u))
-            ->pluck('name', 'id')
-            ->all();
-
-        return $found;
     }
 
     /** Имя — только текущего партнёра или допустимого кандидата, а не любого id. */

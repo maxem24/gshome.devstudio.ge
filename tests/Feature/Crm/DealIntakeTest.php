@@ -198,4 +198,34 @@ class DealIntakeTest extends TestCase
             }
         }
     }
+
+    public function test_emptied_intake_is_stored_as_json_object(): void
+    {
+        $deal = $this->deal();
+        $deals = app(Deals::class);
+        $deals->updateIntake($deal, ['term' => '1y'], null, null, $this->nino);
+        $deals->updateIntake($deal->fresh(), [], null, null, $this->nino);
+
+        $this->assertSame('object', DB::table('deals')->where('id', $deal->id)->selectRaw('jsonb_typeof(intake) as t')->value('t'));
+        $this->assertSame([], $deal->fresh()->intake);
+    }
+
+    public function test_win_journal_has_normalised_amounts(): void
+    {
+        $deal = $this->deal();
+        app(Deals::class)->win($deal, '300', 'USD', $this->nino);
+
+        $this->assertSame('300.00', $deal->fresh()->amount);
+        $won = Activity::query()->where('event', Journal::DEAL_WON)->firstOrFail();
+        $this->assertSame('300.00', $won->properties['amount']);
+    }
+
+    public function test_money_helpers(): void
+    {
+        $this->assertSame('300.00', DealIntake::money('300'));
+        $this->assertSame('1200.50', DealIntake::money('1200.5'));
+        $this->assertSame('120 000', DealIntake::display('120000.00'));
+        $this->assertSame('1 200.50', DealIntake::display('1200.5'));
+        $this->assertSame('950', DealIntake::display('950'));
+    }
 }

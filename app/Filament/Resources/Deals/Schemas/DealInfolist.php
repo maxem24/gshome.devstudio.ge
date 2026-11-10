@@ -45,7 +45,7 @@ class DealInfolist
                 ->placeholder('—'),
             TextEntry::make('price')
                 ->label(fn (Deal $record): string => __($record->pin?->direction === Direction::Rent ? 'gshome.crm.deals.price_monthly' : 'gshome.crm.deals.price'))
-                ->state(fn (Deal $record): string => trim($record->price.' '.$record->price_currency))
+                ->state(fn (Deal $record): string => trim(DealIntake::display((string) $record->price).' '.$record->price_currency))
                 ->visible(fn (Deal $record): bool => $record->price !== null),
             TextEntry::make('amount')
                 ->label(__('gshome.crm.deals.commission'))
@@ -83,11 +83,22 @@ class DealInfolist
     private static function intakeLines(Deal $deal): array
     {
         $lines = [];
-        foreach ($deal->intake ?? [] as $key => $value) {
-            $key = (string) $key;
-            if (is_bool($value)) {
+        $intake = $deal->intake;
+        // Порядок — как в анкете направления, а не как лежит в базе; лишние старые ключи — в конец.
+        $direction = $deal->pin?->direction;
+        $order = $direction === null ? [] : DealIntake::fields($direction);
+        $keys = array_values(array_unique([...array_filter($order, fn (string $k): bool => array_key_exists($k, $intake)), ...array_map('strval', array_keys($intake))]));
+        foreach ($keys as $key) {
+            if ($key === 'down_payment_currency') {
+                continue;
+            }
+            $value = $intake[$key];
+            if ($key === 'down_payment') {
+                $cur = $intake['down_payment_currency'] ?? null;
+                $answer = trim(DealIntake::display((string) $value).' '.(is_string($cur) ? $cur : ''));
+            } elseif (is_bool($value)) {
                 $answer = DealIntake::label($key, $value);
-            } elseif (is_string($value) && $key !== 'down_payment_currency' && DealIntake::options($key) !== null) {
+            } elseif (is_string($value) && DealIntake::options($key) !== null) {
                 $answer = DealIntake::label($key, $value);
             } else {
                 $answer = (string) $value;

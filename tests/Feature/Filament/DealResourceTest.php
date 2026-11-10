@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Filament;
 
+use App\Access\OrgAccess;
 use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Crm\Pins;
@@ -200,7 +201,7 @@ class DealResourceTest extends TestCase
         $deal = $this->deal($nino, 41);
         $this->actingAs($nino);
 
-        $this->assertSame([$mate->id => 'Zzz Mate'], ViewDeal::partnerCandidates($nino, 'Zzz'));
+        $this->assertSame([$mate->id => 'Zzz Mate'], OrgAccess::partnerCandidates($nino, 'Zzz'));
 
         // Подделанный id чужого человека сервер отвергает.
         $this->tryCall(fn () => Livewire::test(ViewDeal::class, ['record' => $deal->id])
@@ -241,7 +242,7 @@ class DealResourceTest extends TestCase
             ->assertSee(__('gshome.crm.intake.term'))
             ->assertSee(__('gshome.crm.intake.term_1y'))
             ->assertSee('Семья с ребёнком')
-            ->assertSee('1200');
+            ->assertSee('1 200 USD');
     }
 
     public function test_untouched_tri_state_is_not_stored_and_journal_has_only_term(): void
@@ -510,5 +511,28 @@ class DealResourceTest extends TestCase
             ->assertCanSeeTableRecords($mine);
         $foreign = Activity::query()->where('subject_type', $otherViewing->getMorphClass())->where('subject_id', $otherViewing->id)->pluck('id')->all();
         $test->assertCanNotSeeTableRecords($foreign);
+    }
+
+    public function test_card_orders_answers_by_form_and_joins_down_payment(): void
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $deal = $this->deal($nino, 71);
+        // Порядок хранения намеренно обратный порядку анкеты.
+        app(Deals::class)->updateIntake($deal, [
+            'notes' => 'Заметка',
+            'down_payment_currency' => 'USD',
+            'down_payment' => '20000',
+            'payment' => 'mortgage',
+            'purpose' => 'living',
+        ], '120000.00', 'USD', $nino);
+        $this->actingAs($nino);
+
+        $html = Livewire::test(ViewDeal::class, ['record' => $deal->id])
+            ->assertSee('Первоначальный взнос: 20 000 USD')
+            ->assertDontSee(__('gshome.crm.intake.down_payment_currency'))
+            ->assertSee('120 000 USD')
+            ->html();
+        $this->assertLessThan(strpos($html, __('gshome.crm.intake.payment').':'), strpos($html, __('gshome.crm.intake.purpose').':'));
+        $this->assertLessThan(strpos($html, __('gshome.crm.intake.notes').':'), strpos($html, __('gshome.crm.intake.down_payment').':'));
     }
 }

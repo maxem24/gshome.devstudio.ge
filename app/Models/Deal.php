@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\JsonObject;
 use App\Enums\DealStatus;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
@@ -40,7 +41,7 @@ class Deal extends Model
             'client_id' => 'integer',
             'user_id' => 'integer',
             'partner_user_id' => 'integer',
-            'intake' => 'array',
+            'intake' => JsonObject::class,
             'status' => DealStatus::class,
             'closed_at' => 'datetime',
         ];

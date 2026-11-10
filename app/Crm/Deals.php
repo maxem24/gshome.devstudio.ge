@@ -74,6 +74,7 @@ class Deals
         if (! in_array($currency, config('crm.currencies'), true)) {
             throw new CrmForbidden('Unknown currency.');
         }
+        $amount = DealIntake::money($amount);
         $stage = $this->terminalStage('won');
         $partnerShare = $partnerShare === null ? null : trim($partnerShare);
         $partnerShare = $partnerShare === '' ? null : $partnerShare;
@@ -81,7 +82,7 @@ class Deals
             if (! DealIntake::isMoney($partnerShare) || bccomp($partnerShare, $amount, 2) >= 0) {
                 throw new CrmForbidden('Partner share must be positive and less than the amount.');
             }
-            $partnerShare = number_format((float) $partnerShare, 2, '.', '');
+            $partnerShare = DealIntake::money($partnerShare);
         }
 
         DB::transaction(function () use ($deal, $amount, $currency, $stage, $partnerShare, $by): void {
@@ -151,7 +152,7 @@ class Deals
             if (! in_array($priceCurrency, config('crm.currencies'), true)) {
                 throw new CrmForbidden('Unknown currency.');
             }
-            $price = number_format((float) $price, 2, '.', '');
+            $price = DealIntake::money($price);
         }
 
         DB::transaction(function () use ($deal, $intake, $price, $priceCurrency, $by): void {
@@ -207,7 +208,12 @@ class Deals
         });
     }
 
-    /** Снять партнёра под уже взятой блокировкой; причина: manual | became_holder. */
+    /**
+     * Снять партнёра; причина: manual | became_holder.
+     *
+     * @internal Без блокировки и проверки прав: вызывающий обязан держать блокировку строки сделки
+     *           внутри транзакции (только слушатель и setPartner).
+     */
     public function removePartner(Deal $deal, string $reason, User $by): void
     {
         $previous = $deal->partner_user_id;
