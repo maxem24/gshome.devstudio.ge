@@ -21,6 +21,7 @@ use App\Models\ListingPin;
 use App\Models\User;
 use App\Models\Viewing;
 use App\RealEstate\Listing;
+use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Livewire\Livewire;
 use Spatie\Activitylog\Models\Activity;
@@ -78,6 +79,70 @@ class DealResourceTest extends TestCase
         $this->actingAs($nino);
         $this->get(DealResource::getUrl('view', ['record' => $theirs]))->assertNotFound();
         $this->get(DealResource::getUrl('view', ['record' => $mine]))->assertOk();
+    }
+
+    /** Партнёр: агент другой команды той же компании; сделка видна, управлять ей нельзя. */
+    private function sharedDeal(): array
+    {
+        $nino = User::factory()->agent($this->lead)->create();
+        $otherLead = User::factory()->teamLead($this->lead->company, Direction::Sale)->create();
+        $partner = User::factory()->agent($otherLead)->create();
+        $deal = $this->deal($nino, 41);
+        app(Deals::class)->setPartner($deal, $partner, $nino);
+
+        return [$deal->refresh(), $partner, $otherLead];
+    }
+
+    public function test_partner_sees_deal_in_list_and_card(): void
+    {
+        [$deal, $partner] = $this->sharedDeal();
+        $this->actingAs($partner);
+
+        Livewire::test(ListDeals::class)->assertCanSeeTableRecords([$deal]);
+        $this->get(DealResource::getUrl('view', ['record' => $deal]))->assertOk();
+        Livewire::test(ViewDeal::class, ['record' => $deal->id])->assertSuccessful();
+    }
+
+    public function test_partner_has_no_manage_actions(): void
+    {
+        [$deal, $partner] = $this->sharedDeal();
+        $viewing = app(Viewings::class)->schedule($deal, now()->addDay(), null, $deal->agent);
+        $this->actingAs($partner);
+
+        // editIntake и setPartner появятся позже; когда появятся, добавить сюда.
+        $page = Livewire::test(ViewDeal::class, ['record' => $deal->id]);
+        foreach (['nextStage', 'win', 'lose', 'archive'] as $name) {
+            $page->assertActionHidden($name);
+        }
+        $this->tryCall(fn () => $page->callAction('win', ['amount' => '1000', 'currency' => 'USD']));
+        $this->assertSame(DealStatus::Open, $deal->refresh()->status);
+
+        $rm = Livewire::test(ViewingsRelationManager::class, ['ownerRecord' => $deal, 'pageClass' => ViewDeal::class]);
+        $rm->assertTableActionHidden('reschedule', $viewing)
+            ->assertTableActionHidden('outcome', $viewing)
+            ->assertActionHidden(TestAction::make('schedule')->table());
+        $this->tryCall(fn () => $rm->callTableAction('outcome', $viewing, ['outcome' => ViewingOutcome::Failed->value]));
+        $this->assertNull($viewing->refresh()->outcome);
+    }
+
+    public function test_partner_lead_sees_deal(): void
+    {
+        [$deal, , $otherLead] = $this->sharedDeal();
+        $this->actingAs($otherLead);
+
+        Livewire::test(ListDeals::class)->assertCanSeeTableRecords([$deal]);
+        $this->get(DealResource::getUrl('view', ['record' => $deal]))->assertOk();
+    }
+
+    public function test_unrelated_agent_does_not_see_shared_deal(): void
+    {
+        [$deal] = $this->sharedDeal();
+        $thirdLead = User::factory()->teamLead($this->lead->company, Direction::Sale)->create();
+        $stranger = User::factory()->agent($thirdLead)->create();
+        $this->actingAs($stranger);
+
+        Livewire::test(ListDeals::class)->assertCanNotSeeTableRecords([$deal]);
+        $this->get(DealResource::getUrl('view', ['record' => $deal]))->assertNotFound();
     }
 
     public function test_forged_deal_id_in_action_is_rejected(): void

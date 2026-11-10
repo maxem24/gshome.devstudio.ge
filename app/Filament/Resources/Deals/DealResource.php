@@ -54,7 +54,7 @@ class DealResource extends Resource
         return DealsTable::configure($table);
     }
 
-    /** Сделки видимых по ступени людей; архив — только владельцу с включённым переключателем. */
+    /** Сделки видимых по ступени людей (как владельцев и как партнёров); архив — только владельцу с включённым переключателем. */
     public static function getEloquentQuery(): Builder
     {
         $user = Auth::user();
@@ -64,7 +64,13 @@ class DealResource extends Resource
             return $query->whereRaw('false');
         }
 
-        return Archive::scope($query->whereIn('user_id', OrgAccess::visibleUsers($user)->select('id')), $user);
+        $visible = OrgAccess::visibleUsers($user)->select('id');
+
+        // Владелец или партнёр сделки среди видимых людей.
+        return Archive::scope(
+            $query->where(fn (Builder $q) => $q->whereIn('user_id', $visible)->orWhereIn('partner_user_id', $visible)),
+            $user,
+        );
     }
 
     public static function getRelations(): array
