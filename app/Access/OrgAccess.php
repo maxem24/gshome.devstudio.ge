@@ -151,6 +151,15 @@ final class OrgAccess
         return $active->pluck('id')->map(fn ($id): int => (int) $id)->all();
     }
 
+    /** Может ли кандидат быть партнёром по сделке агента: живой человек с командой из круга компаний агента. */
+    public static function canPartner(User $agent, User $candidate): bool
+    {
+        return $candidate->isActive()
+            && $candidate->role->hasTeam()
+            && $candidate->id !== $agent->id
+            && in_array((int) $candidate->company_id, self::identifiableCompanyIds($agent), true);
+    }
+
     /** @return list<string> номера этих компаний — для фильтров «наши» / «чужие» */
     public static function identifiablePhones(User $viewer): array
     {

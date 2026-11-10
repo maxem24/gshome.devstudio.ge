@@ -169,6 +169,49 @@ class Deals
         });
     }
 
+    /** Партнёр по сделке: зарегистрированный агент круга компаний агента сделки; null снимает. */
+    public function setPartner(Deal $deal, ?User $partner, User $by): void
+    {
+        DB::transaction(function () use ($deal, $partner, $by): void {
+            $this->lockOpen($deal, $by);
+            $previous = $deal->partner_user_id;
+            if ($previous === $partner?->id) {
+                return;
+            }
+
+            if ($partner === null) {
+                $this->removePartner($deal, 'manual', $by);
+
+                return;
+            }
+            if (! OrgAccess::canPartner($deal->agent, $partner)) {
+                throw new CrmForbidden('This user cannot be a partner.');
+            }
+
+            $deal->update(['partner_user_id' => $partner->id]);
+            Journal::record(Journal::DEAL_PARTNER_SET, $deal, $this->props($deal) + ['partner_id' => $partner->id, 'previous_id' => $previous], $by);
+            $this->pins->touch($deal->pin);
+        });
+    }
+
+    /** Снять партнёра под уже взятой блокировкой; причина: manual | became_holder. */
+    public function removePartner(Deal $deal, string $reason, User $by): void
+    {
+        $previous = $deal->partner_user_id;
+        if ($previous === null) {
+            return;
+        }
+
+        $deal->update(['partner_user_id' => null]);
+        Journal::record(Journal::DEAL_PARTNER_REMOVED, $deal, $this->props($deal) + ['partner_id' => $previous, 'reason' => $reason], $by);
+        $this->pins->touch($deal->pin);
+    }
+
+    public function isPartner(Deal $deal, User $user): bool
+    {
+        return $deal->partner_user_id !== null && $deal->partner_user_id === $user->id;
+    }
+
     /** Агент сделки либо тот, кто его видит по ступени (как с закреплениями — и для ушедшего агента). */
     public function canManage(Deal $deal, User $user): bool
     {
