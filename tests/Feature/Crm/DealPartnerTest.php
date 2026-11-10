@@ -166,6 +166,14 @@ class DealPartnerTest extends TestCase
                 $this->assertTrue($this->deal->fresh()->isOpen());
             }
         }
+
+        // «300\n»: без модификатора D «$» пропускал перевод строки, и bcadd падал с ValueError (500).
+        try {
+            app(Deals::class)->win($this->deal->fresh(), "300\n", 'USD', $this->nino, '100');
+            $this->fail('Win with amount "300\n" was accepted.');
+        } catch (CrmForbidden) {
+            $this->assertTrue($this->deal->fresh()->isOpen());
+        }
     }
 
     public function test_win_with_share_saves_it(): void

@@ -28,7 +28,7 @@ final class DealIntake
     /** Денежное правило: положительное число, до 12 цифр и 2 знаков после точки. */
     public static function isMoney(string $amount): bool
     {
-        return (bool) preg_match('/^\d{1,12}(\.\d{1,2})?$/', $amount) && (float) $amount > 0;
+        return (bool) preg_match('/^\d{1,12}(\.\d{1,2})?$/D', $amount) && (float) $amount > 0;
     }
 
     /** Сумма в строке с двумя знаками, без float: «300» → «300.00». Только после isMoney. */
@@ -40,7 +40,7 @@ final class DealIntake
     /** Сумма для показа: «120000.00» → «120 000», «1200.5» → «1 200.50»; не сумма возвращается как есть. */
     public static function display(string $v): string
     {
-        if (! preg_match('/^\d{1,12}(\.\d{1,2})?$/', $v)) {
+        if (! preg_match('/^\d{1,12}(\.\d{1,2})?$/D', $v)) {
             return $v;
         }
         [$int, $frac] = explode('.', self::money($v));
