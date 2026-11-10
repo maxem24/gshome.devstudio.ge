@@ -152,4 +152,52 @@ class DealPartnerTest extends TestCase
 
         app(Deals::class)->setPartner($this->deal->fresh(), $third, $partner);
     }
+
+    public function test_win_with_partner_requires_share(): void
+    {
+        $partner = $this->otherAgent();
+        app(Deals::class)->setPartner($this->deal, $partner, $this->nino);
+
+        foreach ([null, '0', '300', '400', 'abc'] as $share) {
+            try {
+                app(Deals::class)->win($this->deal->fresh(), '300', 'USD', $this->nino, $share);
+                $this->fail('Win with share '.var_export($share, true).' was accepted.');
+            } catch (CrmForbidden) {
+                $this->assertTrue($this->deal->fresh()->isOpen());
+            }
+        }
+    }
+
+    public function test_win_with_share_saves_it(): void
+    {
+        $partner = $this->otherAgent();
+        app(Deals::class)->setPartner($this->deal, $partner, $this->nino);
+
+        app(Deals::class)->win($this->deal, '300', 'USD', $this->nino, '150');
+
+        $this->assertSame('150.00', $this->deal->fresh()->partner_share);
+        $won = Activity::query()->where('event', Journal::DEAL_WON)->first();
+        $this->assertSame('150.00', $won->properties['partner_share']);
+    }
+
+    public function test_share_without_partner_rejected(): void
+    {
+        try {
+            app(Deals::class)->win($this->deal, '300', 'USD', $this->nino, '100');
+            $this->fail('Share without partner was accepted.');
+        } catch (CrmForbidden) {
+            $this->assertTrue($this->deal->fresh()->isOpen());
+        }
+    }
+
+    public function test_set_partner_checks_current_agent_after_transfer(): void
+    {
+        $other = User::factory()->agent($this->lead)->create();
+        $this->deal->load('agent'); // экземпляр держит старого агента
+        app(Pins::class)->transfer($this->deal->pin, $other, $this->lead);
+
+        // Новый агент сделки — сам себе не партнёр; по устаревшему агенту (Нино) проверка бы прошла.
+        $this->expectException(CrmForbidden::class);
+        app(Deals::class)->setPartner($this->deal, $other, $this->lead);
+    }
 }

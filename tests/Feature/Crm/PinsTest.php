@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Crm;
 
+use App\Crm\Deals;
 use App\Crm\Events\PinClosed;
 use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
@@ -10,6 +11,7 @@ use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\Direction;
 use App\Enums\UserStatus;
+use App\Models\Client;
 use App\Models\Company;
 use App\Models\ListingPin;
 use App\Models\User;
@@ -286,5 +288,44 @@ class PinsTest extends TestCase
 
         $this->expectException(CrmForbidden::class);
         $pins->transfer($stale, $this->nino, $this->lead);
+    }
+
+    private function dealWithPartner(): array
+    {
+        $pin = app(Pins::class)->take($this->listing(61), $this->nino);
+        $deals = app(Deals::class);
+        $deal = $deals->open($pin, Client::factory()->create(), $this->nino);
+        $partner = User::factory()->agent($this->lead)->create();
+        $deals->setPartner($deal, $partner, $this->nino);
+
+        return [$pin, $deal, $partner];
+    }
+
+    public function test_transfer_to_partner_removes_partner(): void
+    {
+        [$pin, $deal, $partner] = $this->dealWithPartner();
+
+        app(Pins::class)->transfer($pin, $partner, $this->lead);
+
+        $deal->refresh();
+        $this->assertSame($partner->id, $deal->user_id);
+        $this->assertNull($deal->partner_user_id);
+        $this->assertSame($partner->id, $pin->fresh()->user_id);
+        $removed = Activity::query()->where('event', Journal::DEAL_PARTNER_REMOVED)->first();
+        $this->assertSame('became_holder', $removed->properties['reason']);
+        $this->assertSame($this->lead->id, $removed->causer_id);
+    }
+
+    public function test_transfer_to_third_agent_keeps_partner(): void
+    {
+        [$pin, $deal, $partner] = $this->dealWithPartner();
+        $third = User::factory()->agent($this->lead)->create();
+
+        app(Pins::class)->transfer($pin, $third, $this->lead);
+
+        $deal->refresh();
+        $this->assertSame($third->id, $deal->user_id);
+        $this->assertSame($partner->id, $deal->partner_user_id);
+        $this->assertSame(0, Activity::query()->where('event', Journal::DEAL_PARTNER_REMOVED)->count());
     }
 }

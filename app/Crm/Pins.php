@@ -88,7 +88,7 @@ class Pins
             $this->lockActive($pin);
             $pin->update(['user_id' => $to->id, 'last_activity_at' => now()]);
             Journal::record(Journal::PIN_TRANSFERRED, $pin, ['listing_id' => $pin->listing_id, 'from_user_id' => $from->id, 'to_user_id' => $to->id], $by);
-            PinTransferred::dispatch($pin, $from, $to);
+            PinTransferred::dispatch($pin, $from, $to, $by);
         });
     }
 

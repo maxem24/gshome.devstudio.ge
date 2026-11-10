@@ -10,5 +10,5 @@ final class PinTransferred
 {
     use Dispatchable;
 
-    public function __construct(public readonly ListingPin $pin, public readonly User $from, public readonly User $to) {}
+    public function __construct(public readonly ListingPin $pin, public readonly User $from, public readonly User $to, public readonly User $by) {}
 }

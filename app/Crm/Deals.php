@@ -66,7 +66,7 @@ class Deals
         });
     }
 
-    public function win(Deal $deal, string $amount, string $currency, User $by): void
+    public function win(Deal $deal, string $amount, string $currency, User $by, ?string $partnerShare = null): void
     {
         if (! DealIntake::isMoney($amount)) {
             throw new CrmForbidden('Amount must be a positive number.');
@@ -75,19 +75,32 @@ class Deals
             throw new CrmForbidden('Unknown currency.');
         }
         $stage = $this->terminalStage('won');
+        $partnerShare = $partnerShare === null ? null : trim($partnerShare);
+        $partnerShare = $partnerShare === '' ? null : $partnerShare;
+        if ($partnerShare !== null) {
+            if (! DealIntake::isMoney($partnerShare) || bccomp($partnerShare, $amount, 2) >= 0) {
+                throw new CrmForbidden('Partner share must be positive and less than the amount.');
+            }
+            $partnerShare = number_format((float) $partnerShare, 2, '.', '');
+        }
 
-        DB::transaction(function () use ($deal, $amount, $currency, $stage, $by): void {
+        DB::transaction(function () use ($deal, $amount, $currency, $stage, $partnerShare, $by): void {
             $this->lockOpen($deal, $by);
+            // Партнёр читается из строки под блокировкой: его могли снять или назначить за это время.
+            if (($deal->partner_user_id === null) !== ($partnerShare === null)) {
+                throw new CrmForbidden('Partner share is required with a partner and forbidden without one.');
+            }
             $from = $deal->stage;
             $deal->update([
                 'stage' => $stage,
                 'status' => DealStatus::Won,
                 'amount' => $amount,
                 'currency' => $currency,
+                'partner_share' => $partnerShare,
                 'closed_at' => now(),
             ]);
             $this->logStage($deal, $from, $stage, $by);
-            Journal::record(Journal::DEAL_WON, $deal, $this->props($deal) + ['amount' => $amount, 'currency' => $currency], $by);
+            Journal::record(Journal::DEAL_WON, $deal, $this->props($deal) + ['amount' => $amount, 'currency' => $currency, 'partner_share' => $partnerShare], $by);
             $this->pins->touch($deal->pin);
             // Остальные открытые сделки пина закроет слушатель PinClosed('won').
             $this->pins->close($deal->pin, 'won', Journal::PIN_WON, $by);
@@ -238,6 +251,7 @@ class Deals
             throw new CrmForbidden('Cannot change this deal.');
         }
         $deal->setRawAttributes($fresh->getAttributes(), true);
+        $deal->unsetRelations(); // агент, партнёр и пин могли смениться при передаче пина
     }
 
     /** Права проверялись по модели до блокировки: пин мог закрыться или сменить держателя. */
