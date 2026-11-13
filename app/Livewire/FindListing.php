@@ -319,7 +319,7 @@ class FindListing extends Component implements HasActions, HasSchemas
     }
 
     /** @param  list<Direction>  $directions */
-    private static function inOwnDirections(?Direction $deal, array $directions): bool
+    public static function inOwnDirections(?Direction $deal, array $directions): bool
     {
         return $deal === null || in_array($deal, $directions, true);
     }

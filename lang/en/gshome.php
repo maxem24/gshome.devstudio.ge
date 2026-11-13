@@ -673,5 +673,14 @@ return [
 
     'quick_search' => [
         'title' => 'Find an apartment',
+        'mode' => 'Search mode',
+        'mode_fresh' => 'Fresh from sites',
+        'mode_base' => 'From the database',
+        'bedrooms' => 'Bedrooms',
+        'collectors_offline' => 'Collectors are offline right now: fresh results from sites will not be found.',
+        'use_base' => 'Search the database',
+        'ss_skip' => 'Pick a type and a city or district, otherwise the site search will skip this query.',
+        'submit_fresh' => 'Search sites',
+        'submit_base' => 'Show in database',
     ],
 ];
