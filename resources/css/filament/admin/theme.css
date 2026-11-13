@@ -2,6 +2,9 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/livewire/**/*';
+@source '../../../../resources/views/components/**/*';
+@source '../../../../app/Livewire/**/*';
 
 /* Колокольчик: пока есть непрочитанное, бейдж мигает. Бейдж есть только при непрочитанных. */
 .fi-topbar-database-notifications-btn .fi-badge {
@@ -27,4 +30,35 @@ html.dark {
     --primary-500: oklch(0.443 0.156 266.258);
     --primary-600: oklch(0.413 0.142 266.28);
     --primary-700: oklch(0.366 0.122 266.15);
+}
+
+/* Быстрый поиск: лист снизу выезжает, выпадающая от sm — проявляется. */
+.quick-search [role='dialog'] {
+    animation: gshome-sheet-up 0.2s ease-out;
+}
+
+@media (min-width: 40rem) {
+    .quick-search [role='dialog'] {
+        animation-name: gshome-fade-in;
+        animation-duration: 0.12s;
+    }
+}
+
+@keyframes gshome-sheet-up {
+    from {
+        transform: translateY(100%);
+    }
+}
+
+@keyframes gshome-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-0.25rem);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quick-search [role='dialog'] {
+        animation: none;
+    }
 }

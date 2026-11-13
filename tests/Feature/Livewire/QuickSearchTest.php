@@ -77,13 +77,18 @@ class QuickSearchTest extends TestCase
     public function test_base_mode_other_direction_blocked(): void
     {
         RealEstateFake::fake();
-        $this->actingAs($this->seller());
+        $user = $this->seller();
+        $this->actingAs($user);
 
-        Livewire::test(QuickSearch::class)
-            ->set('mode', 'base')->set('deal', 'rent')->set('city_id', 1)
-            ->call('submit')
+        // Форма открыта по своей сделке, а направление человека сменили до нажатия: проверка — на сервере, при submit.
+        $component = Livewire::test(QuickSearch::class)
+            ->set('mode', 'base')->set('deal', 'sale')->set('city_id', 1);
+        $user->direction = Direction::Rent;
+
+        $component->call('submit')
             ->assertNotified(__('gshome.search.base_own_only'))
             ->assertNoRedirect();
+        Http::assertNotSent(fn (Request $r): bool => $r->method() === 'POST');
     }
 
     public function test_single_direction_hides_deal_switch(): void
@@ -186,10 +191,10 @@ class QuickSearchTest extends TestCase
         $this->actingAs($this->seller());
 
         Livewire::test(QuickSearch::class)
-            ->assertDontSee(__('gshome.quick_search.base_own_only'))
+            ->assertDontSee(__('gshome.search.base_own_only'))
             ->set('deal', 'rent')
             ->assertSeeHtml('value="base" disabled')
-            ->assertSee(__('gshome.quick_search.base_own_only'));
+            ->assertSee(__('gshome.search.base_own_only'));
     }
 
     public function test_city_change_resets_districts(): void
@@ -211,5 +216,86 @@ class QuickSearchTest extends TestCase
         Livewire::test(QuickSearch::class)
             ->assertDontSee(__('gshome.quick_search.collectors_offline'))
             ->assertDontSeeHtml('<button type="submit" disabled');
+    }
+
+    public function test_base_mode_falls_back_to_fresh_when_deal_leaves_own_directions(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('mode', 'base')->assertSet('mode', 'base')
+            ->set('deal', 'rent')
+            ->assertSet('mode', 'fresh');
+    }
+
+    public function test_base_mode_from_session_falls_back_to_fresh_for_foreign_deal(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+        session(['quick_search.last' => ['mode' => 'base', 'deal' => 'rent', 'city_id' => 1]]);
+
+        Livewire::test(QuickSearch::class)->assertSet('deal', 'rent')->assertSet('mode', 'fresh');
+    }
+
+    public function test_place_options_search_each_level(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        $component = Livewire::test(QuickSearch::class)->instance();
+        $this->assertInstanceOf(QuickSearch::class, $component);
+        $this->assertSame([[1, 'Тбилиси']], $component->placeOptions('cities', 'tbil'));
+        $this->assertSame([], $component->placeOptions('cities', 'zzz'));
+        $this->assertSame([[1, 'Тбилиси']], $component->placeOptions('districts', 'თბ', [1]));
+        $this->assertSame([], $component->placeOptions('districts', '', []));
+        $this->assertSame([[1, 'Тбилиси', 1]], $component->placeOptions('subdistricts', '', [1, 2]));
+        $this->assertSame([], $component->placeOptions('regions', ''));
+    }
+
+    public function test_apply_place_sets_city_and_keeps_new_districts(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('city_id', 2)->set('district_id', [9])
+            ->call('applyPlace', 1, ['3', 4], [5])
+            ->assertSet('city_id', 1)->assertSet('district_id', [3, 4])->assertSet('subdistrict_id', [5])
+            ->call('applyPlace', null, [3], [5])
+            ->assertSet('city_id', null)->assertSet('district_id', [])->assertSet('subdistrict_id', []);
+    }
+
+    public function test_filled_chips_show_values(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('price_usd_max', 90000)->set('area_min', 50)->set('area_max', 90)->set('bedrooms', ['2', '3'])
+            ->assertSee(__('gshome.quick_search.up_to', ['value' => "\$90\u{00A0}000"]))
+            ->assertSee("50–90\u{00A0}м²")
+            ->assertSee(__('gshome.quick_search.bedrooms_short', ['list' => '2, 3']));
+    }
+
+    public function test_price_presets_follow_deal(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(QuickSearch::class)
+            ->set('deal', 'sale')->assertSeeHtml('data-preset="150000"')->assertDontSeeHtml('data-preset="1200"')
+            ->set('deal', 'rent')->assertSeeHtml('data-preset="1200"')->assertDontSeeHtml('data-preset="150000"');
+    }
+
+    public function test_compact_mode_shows_summary(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class, ['compact' => true])
+            ->set('city_id', 1)->set('price_usd_max', 90000)
+            ->assertSeeHtml('data-quick-search-summary')
+            ->assertSee('Тбилиси');
     }
 }

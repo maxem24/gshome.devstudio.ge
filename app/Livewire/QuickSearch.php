@@ -16,12 +16,25 @@ use App\Search\SiteSearches;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
 /** Быстрый поиск на главной и над «Объектами»: «Свежее с сайтов» (фоновый поиск) или «По базе» (экран объектов с фильтрами). */
 final class QuickSearch extends Component
 {
     private const SESSION_KEY = 'quick_search.last';
+
+    /** Быстрые суммы «до …» в панели цены, по сделке. */
+    private const PRICE_PRESETS = ['sale' => [50000, 100000, 150000], 'rent' => [500, 800, 1200]];
+
+    /** Быстрые диапазоны площади [от, до]. */
+    private const AREA_PRESETS = [[null, 50], [50, 80], [80, 120], [120, null]];
+
+    /** Подрайоны ищем не больше чем в стольких районах сразу — как в FindListing. */
+    private const SUBDISTRICT_DISTRICTS = 5;
+
+    /** Неразрывный пробел: «90 000» и «50 м²» не рвутся на телефоне. */
+    private const NBSP = "\u{00A0}";
 
     /** 'fresh' | 'base' */
     public string $mode = 'fresh';
@@ -68,6 +81,7 @@ final class QuickSearch extends Component
                 $this->{$key} = filled($last[$key] ?? null) ? (int) $last[$key] : null;
             }
             $this->bedrooms = array_values(array_map('strval', (array) ($last['bedrooms'] ?? [])));
+            $this->keepModeAllowed();
 
             return;
         }
@@ -75,6 +89,62 @@ final class QuickSearch extends Component
         $this->deal = FindListing::normalizeDeal([], $directions)['deal'] ?? null;
         $this->property_type_id = $this->dictionaryId('property-types', 'apartment');
         $this->city_id = $this->dictionaryId('cities', 'tbilisi');
+    }
+
+    public function updatedDeal(): void
+    {
+        $this->keepModeAllowed();
+    }
+
+    public function updatedMode(): void
+    {
+        $this->keepModeAllowed();
+    }
+
+    /**
+     * Поиск места для панели «Город → район → подрайон» — тот же серверный поиск, что в FindListing.
+     * Пары [id, подпись], а не объект: числовые ключи в JS переупорядочились бы. У подрайона третьим — его район,
+     * чтобы снятый район уносил свои подрайоны.
+     *
+     * @param  array<int, mixed>  $parents  город (для районов) или районы (для подрайонов)
+     * @return list<array{0: int, 1: string, 2?: int}>
+     */
+    #[Renderless]
+    public function placeOptions(string $level, string $term = '', array $parents = []): array
+    {
+        $parents = array_values(array_filter(array_map('intval', $parents)));
+
+        if ($level === 'subdistricts') {
+            $out = [];
+            foreach (array_slice($parents, 0, self::SUBDISTRICT_DISTRICTS) as $district) {
+                foreach (DictionaryOptions::search('subdistricts', ['district_id' => $district], $term) as $id => $label) {
+                    $out[$id] ??= [$id, $label, $district];
+                }
+            }
+
+            return array_values($out);
+        }
+
+        $found = match (true) {
+            $level === 'cities' => DictionaryOptions::search('cities', [], $term),
+            $level === 'districts' && $parents !== [] => DictionaryOptions::search('districts', ['city_id' => $parents[0]], $term),
+            default => [],
+        };
+
+        return array_map(fn (int $id, string $label): array => [$id, $label], array_keys($found), array_values($found));
+    }
+
+    /**
+     * «Готово» в панели места: одно обновление на всё место. Без города районов нет.
+     *
+     * @param  array<int, mixed>  $districts
+     * @param  array<int, mixed>  $subdistricts
+     */
+    public function applyPlace(?int $city, array $districts = [], array $subdistricts = []): void
+    {
+        $this->city_id = $city;
+        $this->district_id = $city !== null ? array_values(array_unique(array_map('intval', $districts))) : [];
+        $this->subdistrict_id = $this->district_id !== [] ? array_values(array_unique(array_map('intval', $subdistricts))) : [];
     }
 
     /** Смена города уносит районы и микрорайоны прежнего. */
@@ -100,6 +170,20 @@ final class QuickSearch extends Component
     public function useBase(): void
     {
         $this->mode = 'base';
+        $this->keepModeAllowed();
+    }
+
+    /** «По базе» — только по своему направлению: сменили сделку или вернули чужую из сессии — назад к «Свежему». */
+    private function keepModeAllowed(): void
+    {
+        if ($this->mode === 'base' && ! $this->baseAllowed()) {
+            $this->mode = 'fresh';
+        }
+    }
+
+    private function baseAllowed(): bool
+    {
+        return FindListing::inOwnDirections(Direction::tryFrom((string) ($this->deal ?? '')), OrgAccess::directions($this->viewer()));
     }
 
     /** @return array<string, mixed> */
@@ -185,16 +269,92 @@ final class QuickSearch extends Component
     {
         $directions = OrgAccess::directions($this->viewer());
         $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
+        $cities = $dictionary('cities');
+        $types = $dictionary('property-types');
+        $districts = $this->city_id !== null ? $dictionary('districts', ['city_id' => $this->city_id]) : [];
+        $place = $this->placeState($cities, $districts);
+        $chips = [
+            'price' => self::rangeLabel($this->price_usd_min, $this->price_usd_max, '$'),
+            'area' => self::rangeLabel($this->area_min, $this->area_max, '', self::NBSP.__('gshome.quick_search.sqm')),
+            'bedrooms' => $this->bedrooms !== []
+                ? __('gshome.quick_search.bedrooms_short', ['list' => collect($this->bedrooms)->sort()->map(fn (string $n): string => $n === '5' ? '5+' : $n)->implode(', ')])
+                : null,
+        ];
 
         return view('livewire.quick-search', [
-            'baseAllowed' => FindListing::inOwnDirections(Direction::tryFrom((string) ($this->deal ?? '')), $directions),
+            'baseAllowed' => $this->baseAllowed(),
             'dealOptions' => count($directions) > 1
                 ? collect($directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all()
                 : [],
-            'cities' => $dictionary('cities'),
-            'types' => $dictionary('property-types'),
-            'districts' => $this->city_id !== null ? $dictionary('districts', ['city_id' => $this->city_id]) : [],
+            'types' => $types,
+            'place' => $place,
+            'placeLabel' => $this->placeLabel($place),
+            'chips' => $chips,
+            'pricePresets' => array_map(fn (int $v): array => [$v, __('gshome.quick_search.up_to', ['value' => '$'.self::number($v)])], self::PRICE_PRESETS[$this->deal === 'rent' ? 'rent' : 'sale']),
+            'areaPresets' => array_map(fn (array $r): array => [$r[0], $r[1], (string) self::rangeLabel($r[0], $r[1])], self::AREA_PRESETS),
+            'summary' => collect([$this->placeLabel($place, short: true), $types[$this->property_type_id] ?? null, $chips['price'], $chips['bedrooms']])->filter()->implode(' · '),
             'collectorsOffline' => $this->mode === 'fresh' && app(RealEstateClient::class)->collectorsOnline() === false,
         ]);
+    }
+
+    private static function number(int $v): string
+    {
+        return number_format($v, 0, '', self::NBSP);
+    }
+
+    /** «до $90 000», «от 50 м²», «50–90 м²» — подпись заполненного фильтра; пусто — null. */
+    private static function rangeLabel(?int $min, ?int $max, string $prefix = '', string $suffix = ''): ?string
+    {
+        $one = fn (int $v): string => $prefix.self::number($v).$suffix;
+
+        return match (true) {
+            $min !== null && $max !== null => $prefix.self::number($min).'–'.self::number($max).$suffix,
+            $max !== null => __('gshome.quick_search.up_to', ['value' => $one($max)]),
+            $min !== null => __('gshome.quick_search.from', ['value' => $one($min)]),
+            default => null,
+        };
+    }
+
+    /**
+     * Выбранное место с подписями — начальное состояние панели места.
+     *
+     * @param  array<int, string>  $cities
+     * @param  array<int, string>  $districts
+     * @return array{city: array{0: int, 1: string}|null, districts: list<array{0: int, 1: string}>, subdistricts: list<array{0: int, 1: string, 2: int}>}
+     */
+    private function placeState(array $cities, array $districts): array
+    {
+        $chosen = array_flip(array_map('intval', $this->subdistrict_id));
+        $subdistricts = [];
+        foreach (array_slice($this->district_id, 0, self::SUBDISTRICT_DISTRICTS) as $district) {
+            foreach (array_intersect_key(DictionaryOptions::options('subdistricts', ['district_id' => (int) $district]), $chosen) as $id => $label) {
+                $subdistricts[$id] ??= [$id, $label, (int) $district];
+            }
+        }
+
+        return [
+            'city' => $this->city_id !== null ? [$this->city_id, $cities[$this->city_id] ?? '#'.$this->city_id] : null,
+            'districts' => array_map(fn (int $id): array => [$id, $districts[$id] ?? '#'.$id], array_map('intval', $this->district_id)),
+            'subdistricts' => array_values($subdistricts),
+        ];
+    }
+
+    /**
+     * «Тбилиси · Ваке, Сабуртало»; кратко — только самое узкое место.
+     *
+     * @param  array{city: array{0: int, 1: string}|null, districts: list<array{0: int, 1: string}>, subdistricts: list<array{0: int, 1: string, 2: int}>}  $place
+     */
+    private function placeLabel(array $place, bool $short = false): ?string
+    {
+        // Район с выбранными подрайонами называют подрайоны, остальные районы — целиком.
+        $covered = array_column($place['subdistricts'], 2);
+        $narrow = collect($place['districts'])->reject(fn (array $d): bool => in_array($d[0], $covered, true))
+            ->concat($place['subdistricts'])->map(fn (array $p): string => $p[1])->implode(', ');
+        $city = $place['city'][1] ?? null;
+        if ($short) {
+            return $narrow !== '' ? $narrow : $city;
+        }
+
+        return collect([$city, $narrow])->filter()->implode(' · ') ?: null;
     }
 }
