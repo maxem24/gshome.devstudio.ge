@@ -259,7 +259,7 @@ return [
         'timed_out' => 'The collectors did not finish in time',
         'lost' => 'The search was lost on the Real Estate side',
         'open' => 'Open',
-        'filters_required' => 'Narrow the search: specify a city, district, property type or price',
+        'filters_required' => 'To search the sites, specify a city or district',
         'find' => 'Find a flat',
         'show_in_base' => 'Show in database',
         'run' => 'Search the sites',
