@@ -211,13 +211,17 @@
                 <select
                     wire:model.live="property_type_id"
                     name="property_type_id"
-                    class="{{ $field }} ps-10"
+                    class="{{ $field }} appearance-none ps-10 pe-10"
                 >
                     <option value="">{{ __('gshome.listings.all') }}</option>
                     @foreach ($types as $id => $label)
                         <option value="{{ $id }}">{{ $label }}</option>
                     @endforeach
                 </select>
+                <x-filament::icon
+                    :icon="Heroicon::ChevronDown"
+                    class="pointer-events-none absolute end-3 top-3.5 size-4 text-gray-400"
+                />
             </label>
 
             <div class="relative md:min-w-48 md:flex-1">
