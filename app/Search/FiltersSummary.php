@@ -48,6 +48,11 @@ class FiltersSummary
         if (filled($filters['rooms'] ?? null)) {
             $parts[] = implode(', ', (array) $filters['rooms']).' '.__('gshome.search.rooms', [], $locale);
         }
+        if (filled($filters['bedrooms'] ?? null)) {
+            $beds = collect((array) $filters['bedrooms'])->map(fn (mixed $b): int => (int) $b)->unique()->sort()
+                ->map(fn (int $b): string => $b >= 5 ? '5+' : (string) $b)->implode(', ');
+            $parts[] = $beds.' '.__('gshome.search.bedrooms', [], $locale);
+        }
         if (filled($filters['district_id'] ?? null)) {
             $parts[] = count((array) $filters['district_id']).' '.__('gshome.search.districts', [], $locale);
         }

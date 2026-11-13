@@ -215,9 +215,9 @@ class QuickSearchTest extends TestCase
         $this->fakeDictionariesAndMe(['client' => 'GS Home', 'imports' => []]);
         $this->actingAs($this->seller());
 
-        Livewire::test(QuickSearch::class)
-            ->assertDontSee(__('gshome.quick_search.collectors_offline'))
-            ->assertDontSeeHtml('<button type="submit" disabled');
+        $component = Livewire::test(QuickSearch::class)
+            ->assertDontSee(__('gshome.quick_search.collectors_offline'));
+        $this->assertDoesNotMatchRegularExpression('/<button\s+type="submit"\s+disabled/', $component->html());
     }
 
     public function test_base_mode_falls_back_to_fresh_when_deal_leaves_own_directions(): void
@@ -257,14 +257,14 @@ class QuickSearchTest extends TestCase
 
     public function test_apply_place_sets_city_and_keeps_new_districts(): void
     {
-        RealEstateFake::fake();
+        $this->fakePlaces();
         $this->actingAs($this->seller());
 
         Livewire::test(QuickSearch::class)
             ->set('city_id', 2)->set('district_id', [9])
-            ->call('applyPlace', 1, ['3', 4], [5])
-            ->assertSet('city_id', 1)->assertSet('district_id', [3, 4])->assertSet('subdistrict_id', [5])
-            ->call('applyPlace', null, [3], [5])
+            ->call('applyPlace', 1, ['10', 20], [201])
+            ->assertSet('city_id', 1)->assertSet('district_id', [10, 20])->assertSet('subdistrict_id', [201])
+            ->call('applyPlace', null, [10], [101])
             ->assertSet('city_id', null)->assertSet('district_id', [])->assertSet('subdistrict_id', []);
     }
 
@@ -299,5 +299,94 @@ class QuickSearchTest extends TestCase
             ->set('city_id', 1)->set('price_usd_max', 90000)
             ->assertSeeHtml('data-quick-search-summary')
             ->assertSee('Тбилиси');
+    }
+
+    /** Тбилиси (1): Ваке (10) с Ваке-центром (101), Исани-Самгори (20) с Самгори (201). */
+    private function fakePlaces(array $searchPosts = []): void
+    {
+        $row = fn (int $id, string $ru): array => ['id' => $id, 'slug' => (string) $id, 'title_ka' => $ru, 'title_en' => $ru, 'title_ru' => $ru];
+        Http::fake(function (Request $request) use ($row): mixed {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $q);
+
+            return match (true) {
+                $path === '/api/v1/dictionaries/districts' => Http::response(['data' => [$row(10, 'Ваке'), $row(20, 'Исани-Самгори')]]),
+                $path === '/api/v1/dictionaries/subdistricts' && ($q['district_id'] ?? null) === '10' => Http::response(['data' => [$row(101, 'Ваке-центр')]]),
+                $path === '/api/v1/dictionaries/subdistricts' && ($q['district_id'] ?? null) === '20' => Http::response(['data' => [$row(201, 'Самгори')]]),
+                default => null,
+            };
+        });
+        RealEstateFake::fake(searchPosts: $searchPosts);
+    }
+
+    public function test_whole_district_beside_foreign_subdistricts_is_refused_before_the_api(): void
+    {
+        $this->fakePlaces([Http::response(['data' => RealEstateFake::searchJob()], 202)]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('property_type_id', 1)->set('city_id', 1)->set('district_id', [10, 20])->set('subdistrict_id', [201])
+            ->call('submit')
+            ->assertNotified(__('gshome.search.district_whole_beside_subdistricts', ['district' => 'Ваке']));
+
+        Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/search-jobs'));
+        $this->assertSame(0, ListingSearch::query()->count());
+    }
+
+    public function test_apply_place_drops_subdistricts_of_other_districts(): void
+    {
+        $this->fakePlaces();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->call('applyPlace', 1, [10], [101, 201])
+            ->assertSet('city_id', 1)->assertSet('district_id', [10])->assertSet('subdistrict_id', [101]);
+    }
+
+    public function test_apply_place_survives_garbage(): void
+    {
+        $this->fakePlaces();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->call('applyPlace', 'abc', 'x', [['y']])
+            ->assertSet('city_id', null)->assertSet('district_id', [])->assertSet('subdistrict_id', [])
+            ->call('applyPlace', '1', [10, 'z', ['q']], null)
+            ->assertSet('city_id', 1)->assertSet('district_id', [10])->assertSet('subdistrict_id', []);
+    }
+
+    public function test_forged_bedrooms_are_normalised(): void
+    {
+        $this->fakePlaces();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('bedrooms', [2, ['x'], '9', '5'])
+            ->assertSet('bedrooms', ['2', '5'])
+            ->assertOk();
+    }
+
+    public function test_base_mode_hints_when_place_is_wider_than_selected(): void
+    {
+        $this->fakePlaces();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('mode', 'base')->set('city_id', 1)->set('district_id', [10])
+            ->assertDontSee(__('gshome.quick_search.base_place_wider'))
+            ->set('district_id', [10, 20])
+            ->assertSee(__('gshome.quick_search.base_place_wider'))
+            ->set('district_id', [10])->set('subdistrict_id', [101])
+            ->assertSee(__('gshome.quick_search.base_place_wider'))
+            ->set('mode', 'fresh')
+            ->assertDontSee(__('gshome.quick_search.base_place_wider'));
+    }
+
+    public function test_two_directions_default_to_sale_on_fresh_mount(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(QuickSearch::class)->assertSet('deal', 'sale');
     }
 }

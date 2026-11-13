@@ -330,6 +330,7 @@ return [
         'result_empty' => 'No matching listings',
         'back' => 'My searches',
         'rooms' => 'rooms',
+        'bedrooms' => 'bd',
         'districts' => 'districts',
     ],
     'link' => [
@@ -683,6 +684,8 @@ return [
         'collectors_offline' => 'Collectors are offline right now: fresh results from sites will not be found.',
         'use_base' => 'Search the database',
         'ss_skip' => 'Pick a type and a city or district, otherwise the site search will skip this query.',
+        'base_place_wider' => 'In the database the search covers the whole city/district: the Listings screen does not tell several districts or sub-districts apart',
+        'place_mixed_hint' => 'Districts without sub-districts (:districts) are selected whole beside sub-districts of other districts: this cannot be searched. Pick their sub-districts or remove the district.',
         'submit_fresh' => 'Search sites',
         'submit_base' => 'Show in database',
         'deal' => 'Deal',

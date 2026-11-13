@@ -94,6 +94,12 @@
                 this.place.subdistricts = this.place.subdistricts.filter(s => kept.includes(s[2]))
             }
         },
+        // Район без выбранных микрорайонов рядом с микрорайонами другого района: Real Estate такое отклоняет.
+        mixedDistricts() {
+            if (this.place.districts.length < 2 || ! this.place.subdistricts.length) return []
+            const covered = this.place.subdistricts.map(s => s[2])
+            return this.place.districts.filter(d => ! covered.includes(d[0])).map(d => d[1])
+        },
         viewport() {
             const v = window.visualViewport
             if (! v) return
@@ -301,6 +307,12 @@
                             </template>
                         </div>
                     </div>
+
+                    <p
+                        x-show="mixedDistricts().length"
+                        x-text="@js(__('gshome.quick_search.place_mixed_hint')).replace(':districts', mixedDistricts().join(', '))"
+                        class="bg-warning-50 text-warning-800 dark:bg-warning-400/10 dark:text-warning-300 mb-2 rounded-lg p-3 text-sm"
+                    ></p>
 
                     <ul class="space-y-0.5" x-bind:aria-busy="loading">
                         <template x-for="row in results" x-bind:key="row[0]">
@@ -519,6 +531,11 @@
                 <p class="mt-1.5 text-center text-xs text-gray-500 md:text-end dark:text-gray-400">
                     {{ $mode === 'base' ? __('gshome.quick_search.caption_base') : __('gshome.quick_search.caption_fresh') }}
                 </p>
+                @if ($basePlaceWider)
+                    <p class="mt-1 text-center text-xs text-gray-500 md:text-end dark:text-gray-400">
+                        {{ __('gshome.quick_search.base_place_wider') }}
+                    </p>
+                @endif
             </div>
         </div>
 

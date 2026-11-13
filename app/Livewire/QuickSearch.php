@@ -86,7 +86,8 @@ final class QuickSearch extends Component
             return;
         }
 
-        $this->deal = FindListing::normalizeDeal([], $directions)['deal'] ?? null;
+        // Два направления и сделки в сессии нет: «Продажа» явно, чтобы пресеты и поиск шли по одной сделке.
+        $this->deal = FindListing::normalizeDeal([], $directions)['deal'] ?? (count($directions) > 1 ? Direction::Sale->value : null);
         $this->property_type_id = $this->dictionaryId('property-types', 'apartment');
         $this->city_id = $this->dictionaryId('cities', 'tbilisi');
     }
@@ -94,6 +95,20 @@ final class QuickSearch extends Component
     public function updatedDeal(): void
     {
         $this->keepModeAllowed();
+    }
+
+    /** Спальни приходят из браузера: оставляем только «1»…«5», подделка не должна ронять экран. */
+    public function updatedBedrooms(): void
+    {
+        $this->normalizeBedrooms();
+    }
+
+    private function normalizeBedrooms(): void
+    {
+        $this->bedrooms = array_values(array_unique(array_map('strval', array_filter(
+            (array) $this->bedrooms,
+            fn (mixed $b): bool => (is_string($b) || is_int($b)) && in_array((string) $b, ['1', '2', '3', '4', '5'], true),
+        ))));
     }
 
     public function updatedMode(): void
@@ -135,16 +150,24 @@ final class QuickSearch extends Component
     }
 
     /**
-     * «Готово» в панели места: одно обновление на всё место. Без города районов нет.
-     *
-     * @param  array<int, mixed>  $districts
-     * @param  array<int, mixed>  $subdistricts
+     * «Готово» в панели места: одно обновление на всё место. Без города районов нет. Приходит из браузера, поэтому
+     * принимает что угодно: мусор отбрасывается, а подрайоны чужих районов — тоже.
      */
-    public function applyPlace(?int $city, array $districts = [], array $subdistricts = []): void
+    public function applyPlace(mixed $city = null, mixed $districts = [], mixed $subdistricts = []): void
     {
-        $this->city_id = $city;
-        $this->district_id = $city !== null ? array_values(array_unique(array_map('intval', $districts))) : [];
-        $this->subdistrict_id = $this->district_id !== [] ? array_values(array_unique(array_map('intval', $subdistricts))) : [];
+        $ids = fn (mixed $v): array => array_values(array_unique(array_map('intval', array_filter(
+            is_array($v) ? $v : [],
+            fn (mixed $i): bool => (is_int($i) || is_string($i)) && ctype_digit((string) $i) && (int) $i > 0,
+        ))));
+
+        $this->city_id = is_scalar($city) && ctype_digit((string) $city) && (int) $city > 0 ? (int) $city : null;
+        $this->district_id = $this->city_id !== null ? $ids($districts) : [];
+
+        $own = [];
+        foreach (array_slice($this->district_id, 0, self::SUBDISTRICT_DISTRICTS) as $district) {
+            $own += DictionaryOptions::options('subdistricts', ['district_id' => $district]);
+        }
+        $this->subdistrict_id = $this->district_id !== [] ? array_values(array_filter($ids($subdistricts), fn (int $s): bool => isset($own[$s]))) : [];
     }
 
     /** Смена города уносит районы и микрорайоны прежнего. */
@@ -203,8 +226,19 @@ final class QuickSearch extends Component
         ];
     }
 
+    /**
+     * Районы, выбранные целиком рядом с микрорайонами других районов: Real Estate такое отклоняет (422).
+     *
+     * @return list<string>
+     */
+    private function wholeDistrictsBeside(): array
+    {
+        return FindListing::wholeDistrictsBesideSubdistricts($this->city_id !== null ? [$this->city_id] : [], $this->district_id, $this->subdistrict_id);
+    }
+
     public function submit(): void
     {
+        $this->normalizeBedrooms();
         if (! $this->canSubmit()) {
             return;
         }
@@ -222,6 +256,12 @@ final class QuickSearch extends Component
                 return;
             }
             $this->redirect(Listings::getUrl(['filters' => FindListing::baseFilters($data)]));
+
+            return;
+        }
+
+        if (($names = $this->wholeDistrictsBeside()) !== []) {
+            Notification::make()->warning()->title(__('gshome.search.district_whole_beside_subdistricts', ['district' => implode(', ', $names)]))->send();
 
             return;
         }
@@ -267,6 +307,7 @@ final class QuickSearch extends Component
 
     public function render(): View
     {
+        $this->normalizeBedrooms();
         $directions = OrgAccess::directions($this->viewer());
         $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
         $cities = $dictionary('cities');
@@ -293,6 +334,8 @@ final class QuickSearch extends Component
             'pricePresets' => array_map(fn (int $v): array => [$v, __('gshome.quick_search.up_to', ['value' => '$'.self::number($v)])], self::PRICE_PRESETS[$this->deal === 'rent' ? 'rent' : 'sale']),
             'areaPresets' => array_map(fn (array $r): array => [$r[0], $r[1], (string) self::rangeLabel($r[0], $r[1])], self::AREA_PRESETS),
             'summary' => collect([$this->placeLabel($place, short: true), $types[$this->property_type_id] ?? null, $chips['price'], $chips['bedrooms']])->filter()->implode(' · '),
+            // «По базе» знает один район и не знает микрорайонов (решение 27.10): место сужается до города/района.
+            'basePlaceWider' => $this->mode === 'base' && (count($this->district_id) > 1 || $this->subdistrict_id !== []),
             'collectorsOffline' => $this->mode === 'fresh' && app(RealEstateClient::class)->collectorsOnline() === false,
         ]);
     }
@@ -346,7 +389,7 @@ final class QuickSearch extends Component
      */
     private function placeLabel(array $place, bool $short = false): ?string
     {
-        // Район с выбранными подрайонами называют подрайоны, остальные районы — целиком.
+        // Район с выбранными подрайонами называют подрайоны, остальные районы — целиком (рядом с чужими подрайонами такой район поиск отклонит, см. submit).
         $covered = array_column($place['subdistricts'], 2);
         $narrow = collect($place['districts'])->reject(fn (array $d): bool => in_array($d[0], $covered, true))
             ->concat($place['subdistricts'])->map(fn (array $p): string => $p[1])->implode(', ');
