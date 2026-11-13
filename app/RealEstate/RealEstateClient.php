@@ -212,6 +212,34 @@ class RealEstateClient
         return $sources;
     }
 
+    /**
+     * Есть ли сейчас сборщик на связи (GET /me → refresh_sources непуст). null — не знаем (сбой или нет поля).
+     * Кэш 60 с, сбой тоже кэшируется как null.
+     *
+     * @phpstan-impure
+     */
+    public function collectorsOnline(): ?bool
+    {
+        $key = 'real-estate:me:collectors';
+        if (Cache::has($key)) {
+            $cached = Cache::get($key);
+
+            return is_array($cached) ? ($cached[0] ?? null) : null;
+        }
+
+        try {
+            $sources = $this->get('/me', [])?->json('data.refresh_sources');
+            $online = is_array($sources) ? $sources !== [] : null;
+        } catch (\Throwable $e) {
+            Log::warning('Real Estate: GET /me не ответил для сигнала сборщиков', ['error' => $e->getMessage()]);
+            $online = null;
+        }
+        // Массив-обёртка: Cache::get не отличает сохранённый null от «нет записи».
+        Cache::put($key, [$online], 60);
+
+        return $online;
+    }
+
     private function importFrom(string $path, Response $response): LinkImport
     {
         $json = $response->json('data');
