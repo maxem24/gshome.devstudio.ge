@@ -357,7 +357,7 @@ class ListingsPageTest extends TestCase
         Livewire::withQueryParams(['search' => ['x']])->test(Listings::class)->assertSet('tableSearch', '');
         Livewire::test(Listings::class)->set('tableSearch', ['x'])->assertOk();
         // Быстрый поиск над таблицей сам просит районы города по умолчанию (city_id=1); чужих городов из адреса быть не должно.
-        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts') && ! str_contains($r->url(), 'city_id=1'));
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts') && ($this->apiQuery($r)['city_id'] ?? null) !== '1');
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
     }
 

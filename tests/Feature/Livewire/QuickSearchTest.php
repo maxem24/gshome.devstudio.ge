@@ -120,10 +120,11 @@ class QuickSearchTest extends TestCase
         RealEstateFake::fake();
         $this->actingAs($this->seller());
 
-        Livewire::test(QuickSearch::class)
-            ->set('property_type_id', null)->set('city_id', null)
-            ->assertSeeHtml('<button type="submit" disabled')
-            ->call('submit');
+        $component = Livewire::test(QuickSearch::class)
+            ->set('property_type_id', null)->set('city_id', null);
+
+        $this->assertMatchesRegularExpression('/<button\s+type="submit"\s+disabled/', $component->html());
+        $component->call('submit');
 
         Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/search-jobs'));
     }
@@ -190,11 +191,12 @@ class QuickSearchTest extends TestCase
         RealEstateFake::fake();
         $this->actingAs($this->seller());
 
-        Livewire::test(QuickSearch::class)
+        $component = Livewire::test(QuickSearch::class)
             ->assertDontSee(__('gshome.search.base_own_only'))
             ->set('deal', 'rent')
-            ->assertSeeHtml('value="base" disabled')
             ->assertSee(__('gshome.search.base_own_only'));
+
+        $this->assertMatchesRegularExpression('/value="base"\s+disabled/', $component->html());
     }
 
     public function test_city_change_resets_districts(): void
