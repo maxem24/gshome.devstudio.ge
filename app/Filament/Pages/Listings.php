@@ -526,6 +526,8 @@ class Listings extends Page implements HasTable
             ])->columns(2),
             SelectFilter::make('rooms')->label(__('gshome.listings.rooms'))->multiple()
                 ->options(['1' => '1', '2' => '2', '3' => '3', '4' => '4', '5+' => '5+']),
+            SelectFilter::make('bedrooms')->label(__('gshome.listings.bedrooms'))->multiple()
+                ->options(['1' => '1', '2' => '2', '3' => '3', '4' => '4', '5+' => '5+']),
             SelectFilter::make('property_type')->label(__('gshome.listings.property_type'))->options(fn (): array => $dictionary('property-types'))
                 ->searchable()
                 ->getSearchResultsUsing(fn (string $search): array => DictionaryOptions::search('property-types', [], $search)),

@@ -19,7 +19,7 @@ final class SiteSearchRequest
 
     /**
      * @param  array<string, mixed>  $form  deal (sale|rent|null), city_id, district_id[], subdistrict_id[],
-     *                                      property_type_id, price_usd_min/max, rooms[], area_min/max
+     *                                      property_type_id, price_usd_min/max, rooms[], bedrooms[], area_min/max
      * @return array<string, mixed>
      */
     public static function build(User $viewer, array $form): array
@@ -35,8 +35,10 @@ final class SiteSearchRequest
             $ids = self::list($form[$key] ?? null, self::id(...));
             $body += $ids !== [] ? [$key => $ids] : [];
         }
-        $rooms = self::list($form['rooms'] ?? null, fn (mixed $v): ?int => ($n = self::id($v)) !== null && $n <= 20 ? $n : null);
-        $body += self::rooms($rooms);
+        foreach (['rooms', 'bedrooms'] as $key) {
+            $counts = self::list($form[$key] ?? null, fn (mixed $v): ?int => ($n = self::id($v)) !== null && $n <= 20 ? $n : null);
+            $body += self::counts($key, $counts);
+        }
 
         foreach (['price_usd_min', 'price_usd_max', 'area_min', 'area_max'] as $key) {
             $n = self::number($form[$key] ?? null);
@@ -48,19 +50,20 @@ final class SiteSearchRequest
 
     /**
      * В форме «5» значит «5+». API «5+» не принимает: одна «5+» — `rooms_min: 5`,
-     * вместе с другими — точные значения, а хвост 5…10 перечислен.
+     * вместе с другими — точные значения, а хвост 5…10 перечислен. То же для спален
+     * (`bedrooms` / `bedrooms_min`).
      *
-     * @param  list<int>  $rooms
+     * @param  list<int>  $counts
      * @return array<string, mixed>
      */
-    private static function rooms(array $rooms): array
+    private static function counts(string $key, array $counts): array
     {
-        $exact = array_values(array_filter($rooms, fn (int $n): bool => $n < 5));
-        if (count($exact) === count($rooms)) {
-            return $rooms !== [] ? ['rooms' => $rooms] : [];
+        $exact = array_values(array_filter($counts, fn (int $n): bool => $n < 5));
+        if (count($exact) === count($counts)) {
+            return $counts !== [] ? [$key => $counts] : [];
         }
 
-        return $exact === [] ? ['rooms_min' => 5] : ['rooms' => [...$exact, 5, 6, 7, 8, 9, 10]];
+        return $exact === [] ? ["{$key}_min" => 5] : [$key => [...$exact, 5, 6, 7, 8, 9, 10]];
     }
 
     /** @return list<int> */

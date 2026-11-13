@@ -166,6 +166,16 @@ class ListingsPageTest extends TestCase
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['rooms'] ?? null) === '2,3');
     }
 
+    public function test_bedrooms_filter_reaches_api(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->filterTable('bedrooms', ['2', '5+']);
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && str_contains($r->url(), 'bedrooms=2%2C5%2B'));
+    }
+
     public function test_url_filters_win_over_the_session(): void
     {
         RealEstateFake::fake();

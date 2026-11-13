@@ -65,6 +65,24 @@ class SiteSearchClientTest extends TestCase
         $this->assertArrayNotHasKey('rooms_min', $mixed);
     }
 
+    public function test_bedrooms_five_plus_becomes_bedrooms_min(): void
+    {
+        RealEstateFake::fake();
+        $body = SiteSearchRequest::build(User::factory()->owner()->create(), ['deal' => 'sale', 'bedrooms' => ['5']]);
+
+        $this->assertSame(5, $body['bedrooms_min']);
+        $this->assertArrayNotHasKey('bedrooms', $body);
+    }
+
+    public function test_bedrooms_mixed(): void
+    {
+        RealEstateFake::fake();
+        $body = SiteSearchRequest::build(User::factory()->owner()->create(), ['deal' => 'sale', 'bedrooms' => ['2', '5']]);
+
+        $this->assertSame([2, 5, 6, 7, 8, 9, 10], $body['bedrooms']);
+        $this->assertArrayNotHasKey('bedrooms_min', $body);
+    }
+
     public function test_sale_agent_is_limited_to_sale(): void
     {
         RealEstateFake::fake();

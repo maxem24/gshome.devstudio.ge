@@ -41,7 +41,7 @@ final class ListingQuery
     /** Предел API на длину поиска `q`. */
     private const MAX_SEARCH = 100;
 
-    /** Допустимые значения фильтра «Комнаты» — всё прочее из адреса отбрасывается. */
+    /** Допустимые значения фильтров «Комнаты» и «Спальни» — всё прочее из адреса отбрасывается. */
     private const ROOMS = ['1', '2', '3', '4', '5+'];
 
     /** Допустимые значения фильтра «Источник». */
@@ -73,6 +73,7 @@ final class ListingQuery
         $set('area_min', self::number(self::scalar($filters, 'area', 'min')));
         $set('area_max', self::number(self::scalar($filters, 'area', 'max')));
         $set('rooms', implode(',', self::rooms($filters)));
+        $set('bedrooms', implode(',', self::rooms($filters, 'bedrooms')));
         $set('property_type_id', self::id(self::scalar($filters, 'property_type', 'value')));
         $set('source', in_array($source = self::scalar($filters, 'source', 'value'), self::SOURCES, true) ? $source : null);
         $set('is_owner', self::scalar($filters, 'owners_only', 'isActive') ? '1' : null);
@@ -134,9 +135,9 @@ final class ListingQuery
      * @param  array<string, mixed>  $filters
      * @return list<string>
      */
-    private static function rooms(array $filters): array
+    private static function rooms(array $filters, string $key = 'rooms'): array
     {
-        $values = is_array($filters['rooms'] ?? null) ? ($filters['rooms']['values'] ?? null) : null;
+        $values = is_array($filters[$key] ?? null) ? ($filters[$key]['values'] ?? null) : null;
 
         return is_array($values)
             ? array_values(array_filter(array_unique(array_filter($values, 'is_string')), fn (string $v): bool => in_array($v, self::ROOMS, true)))
