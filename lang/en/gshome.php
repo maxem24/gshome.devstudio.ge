@@ -670,4 +670,8 @@ return [
             ],
         ],
     ],
+
+    'quick_search' => [
+        'title' => 'Find an apartment',
+    ],
 ];
