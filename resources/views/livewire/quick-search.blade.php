@@ -27,6 +27,7 @@
         term: '',
         results: [],
         loading: false,
+        requests: 0,
         num(v) { return v === '' || v === null || v === undefined || isNaN(+v) ? null : Math.max(0, Math.round(+v)) },
         show(name) {
             if (name === 'price') this.price = { min: $wire.price_usd_min, max: $wire.price_usd_max }
@@ -66,9 +67,15 @@
         go(level) { this.level = level; this.term = ''; this.load() },
         async load() {
             const parents = this.level === 'districts' ? [this.place.city?.[0]] : this.place.districts.map(d => d[0])
+            // Ответы могут прийти не по порядку: показываем только ответ на последний запрос.
+            const ticket = ++this.requests
             this.loading = true
-            this.results = await $wire.placeOptions(this.level, this.term, parents)
-            this.loading = false
+            try {
+                const rows = await $wire.placeOptions(this.level, this.term, parents)
+                if (ticket === this.requests) this.results = rows
+            } finally {
+                if (ticket === this.requests) this.loading = false
+            }
         },
         chosen(row) {
             if (this.level === 'cities') return this.place.city?.[0] === row[0]
@@ -124,8 +131,8 @@
         <div class="flex flex-col gap-2 md:flex-row md:items-start">
             <div>
                 <div role="radiogroup" aria-label="{{ __('gshome.quick_search.mode') }}" class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 md:w-80 dark:bg-white/5">
-                    <label class="{{ $segment }}"><input class="sr-only" type="radio" wire:model.live="mode" value="fresh">{{ __('gshome.quick_search.mode_fresh') }}</label>
-                    <label class="{{ $segment }}"><input class="sr-only" type="radio" wire:model.live="mode" value="base" @disabled(! $baseAllowed)>{{ __('gshome.quick_search.mode_base') }}</label>
+                    <label class="{{ $segment }}"><input class="sr-only" type="radio" wire:model.live="mode" name="mode" value="fresh">{{ __('gshome.quick_search.mode_fresh') }}</label>
+                    <label class="{{ $segment }}"><input class="sr-only" type="radio" wire:model.live="mode" name="mode" value="base" @disabled(! $baseAllowed)>{{ __('gshome.quick_search.mode_base') }}</label>
                 </div>
                 @if (! $baseAllowed)
                     <p class="mt-1.5 px-1 text-xs text-gray-500 dark:text-gray-400">{{ __('gshome.search.base_own_only') }}</p>
@@ -157,6 +164,7 @@
                 <button
                     type="button"
                     x-on:click="show('place')"
+                    x-bind:aria-expanded="panel === 'place'"
                     aria-haspopup="dialog"
                     class="{{ $field }} flex items-center gap-2 px-3 text-start"
                 >
@@ -190,6 +198,7 @@
                                 type="search"
                                 x-model="term"
                                 x-on:input.debounce.250ms="load()"
+                                x-on:keydown.enter.prevent="load()"
                                 enterkeyhint="search"
                                 autocomplete="off"
                                 placeholder="{{ __('gshome.quick_search.place_search') }}"
@@ -198,7 +207,7 @@
                         </label>
                         <div x-show="level !== 'cities' && place[level].length" class="flex flex-wrap gap-1.5">
                             <template x-for="row in (level === 'cities' ? [] : place[level])" x-bind:key="row[0]">
-                                <button type="button" x-on:click="pick(row)" class="inline-flex h-8 items-center gap-1 rounded-full bg-primary-50 ps-3 pe-2 text-xs font-medium text-primary-700 dark:bg-primary-400/10 dark:text-primary-300">
+                                <button type="button" x-on:click="pick(row)" class="inline-flex min-h-11 items-center gap-1.5 rounded-full bg-primary-50 ps-3.5 pe-3 text-sm font-medium text-primary-700 dark:bg-primary-400/10 dark:text-primary-300">
                                     <span x-text="row[1]"></span>
                                     <x-filament::icon :icon="Heroicon::XMark" class="size-3.5" />
                                 </button>
@@ -222,17 +231,18 @@
 
             <div class="flex flex-wrap gap-2 md:shrink-0">
                 <div class="relative">
-                    <button type="button" x-on:click="show('price')" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['price'] ? $chipFilled : $chipEmpty }}">
+                    <button type="button" x-on:click="show('price')"
+                    x-bind:aria-expanded="panel === 'price'" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['price'] ? $chipFilled : $chipEmpty }}">
                         <span class="truncate">{{ $chips['price'] ?? __('gshome.quick_search.price') }}</span>
                         <x-filament::icon :icon="Heroicon::ChevronDown" class="size-4 shrink-0 opacity-60" />
                     </button>
                     <x-quick-search.sheet name="price" :title="__('gshome.quick_search.price_title')">
                         <div class="grid grid-cols-2 gap-3">
                             <label class="block text-sm text-gray-600 dark:text-gray-300">{{ __('gshome.quick_search.min') }}
-                                <input type="number" inputmode="numeric" min="0" step="1" x-model="price.min" class="{{ $field }} mt-1 px-3">
+                                <input type="number" inputmode="numeric" min="0" step="1" x-model="price.min" x-on:keydown.enter.prevent="apply()" class="{{ $field }} mt-1 px-3">
                             </label>
                             <label class="block text-sm text-gray-600 dark:text-gray-300">{{ __('gshome.quick_search.max') }}
-                                <input type="number" inputmode="numeric" min="0" step="1" x-model="price.max" class="{{ $field }} mt-1 px-3">
+                                <input type="number" inputmode="numeric" min="0" step="1" x-model="price.max" x-on:keydown.enter.prevent="apply()" class="{{ $field }} mt-1 px-3">
                             </label>
                         </div>
                         <div class="mt-3 flex flex-wrap gap-2">
@@ -250,17 +260,18 @@
                 </div>
 
                 <div class="relative">
-                    <button type="button" x-on:click="show('area')" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['area'] ? $chipFilled : $chipEmpty }}">
+                    <button type="button" x-on:click="show('area')"
+                    x-bind:aria-expanded="panel === 'area'" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['area'] ? $chipFilled : $chipEmpty }}">
                         <span class="truncate">{{ $chips['area'] ?? __('gshome.quick_search.area') }}</span>
                         <x-filament::icon :icon="Heroicon::ChevronDown" class="size-4 shrink-0 opacity-60" />
                     </button>
                     <x-quick-search.sheet name="area" :title="__('gshome.quick_search.area_title')">
                         <div class="grid grid-cols-2 gap-3">
                             <label class="block text-sm text-gray-600 dark:text-gray-300">{{ __('gshome.quick_search.min') }}
-                                <input type="number" inputmode="numeric" min="0" step="1" x-model="area.min" class="{{ $field }} mt-1 px-3">
+                                <input type="number" inputmode="numeric" min="0" step="1" x-model="area.min" x-on:keydown.enter.prevent="apply()" class="{{ $field }} mt-1 px-3">
                             </label>
                             <label class="block text-sm text-gray-600 dark:text-gray-300">{{ __('gshome.quick_search.max') }}
-                                <input type="number" inputmode="numeric" min="0" step="1" x-model="area.max" class="{{ $field }} mt-1 px-3">
+                                <input type="number" inputmode="numeric" min="0" step="1" x-model="area.max" x-on:keydown.enter.prevent="apply()" class="{{ $field }} mt-1 px-3">
                             </label>
                         </div>
                         <div class="mt-3 flex flex-wrap gap-2">
@@ -278,7 +289,8 @@
                 </div>
 
                 <div class="relative">
-                    <button type="button" x-on:click="show('beds')" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['bedrooms'] ? $chipFilled : $chipEmpty }}">
+                    <button type="button" x-on:click="show('beds')"
+                    x-bind:aria-expanded="panel === 'beds'" aria-haspopup="dialog" class="{{ $chipBase }} {{ $chips['bedrooms'] ? $chipFilled : $chipEmpty }}">
                         <span class="truncate">{{ $chips['bedrooms'] ?? __('gshome.quick_search.bedrooms') }}</span>
                         <x-filament::icon :icon="Heroicon::ChevronDown" class="size-4 shrink-0 opacity-60" />
                     </button>
