@@ -674,6 +674,9 @@ return [
     ],
 
     'quick_search' => [
+        'recent_title' => 'ბოლო ძიებები',
+        'recent_running' => 'ვეძებთ…',
+        'recent_shown' => ':count განცხადება',
         'title' => 'ბინის მოძებნა',
         'mode' => 'ძიების რეჟიმი',
         'mode_fresh' => 'ახალი საიტებიდან',

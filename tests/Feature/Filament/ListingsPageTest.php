@@ -49,6 +49,16 @@ class ListingsPageTest extends TestCase
         }
     }
 
+    public function test_listings_page_has_compact_quick_search(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing()])]);
+        $lead = User::factory()->teamLead()->create();
+
+        $this->actingAs(User::factory()->agent($lead)->create())
+            ->get('/admin/listings')
+            ->assertSee('data-place', false);
+    }
+
     public function test_list_shows_listing_with_label(): void
     {
         RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['title' => ['ru' => 'Светлая квартира']])])]);
@@ -346,7 +356,8 @@ class ListingsPageTest extends TestCase
         }
         Livewire::withQueryParams(['search' => ['x']])->test(Listings::class)->assertSet('tableSearch', '');
         Livewire::test(Listings::class)->set('tableSearch', ['x'])->assertOk();
-        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts'));
+        // Быстрый поиск над таблицей сам просит районы города по умолчанию (city_id=1); чужих городов из адреса быть не должно.
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts') && ! str_contains($r->url(), 'city_id=1'));
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
     }
 
@@ -374,7 +385,8 @@ class ListingsPageTest extends TestCase
                 str_contains($r->url(), '/dictionaries/deal-types') => Http::response(['data' => RealEstateFake::dealTypes()]),
                 str_contains($r->url(), '/dictionaries/') => Http::response(['data' => [['id' => 1, 'slug' => 'tbilisi', 'title_ru' => 'Тбилиси']]]),
                 isset($this->apiQuery($r)['cursor']) => $stale,
-                default => $plain++ === 0 ? Http::response($first) : Http::response($restart),
+                str_contains($r->url(), '/listings?') => $plain++ === 0 ? Http::response($first) : Http::response($restart),
+                default => Http::response(['data' => []]),
             };
         });
 

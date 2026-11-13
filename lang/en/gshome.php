@@ -672,6 +672,9 @@ return [
     ],
 
     'quick_search' => [
+        'recent_title' => 'Recent searches',
+        'recent_running' => 'searching…',
+        'recent_shown' => ':count listings',
         'title' => 'Find an apartment',
         'mode' => 'Search mode',
         'mode_fresh' => 'Fresh from sites',

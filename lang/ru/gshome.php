@@ -672,6 +672,9 @@ return [
     ],
 
     'quick_search' => [
+        'recent_title' => 'Недавние поиски',
+        'recent_running' => 'ищем…',
+        'recent_shown' => ':count объявл.',
         'title' => 'Найти квартиру',
         'mode' => 'Режим поиска',
         'mode_fresh' => 'Свежее с сайтов',
