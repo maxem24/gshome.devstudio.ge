@@ -76,6 +76,12 @@ class FindListingTest extends TestCase
         $this->assertSame('2,5+', $params['rooms']);
     }
 
+    public function test_base_filters_copy_bedrooms(): void
+    {
+        $this->assertSame(['1', '5+'], FindListing::baseFilters(['bedrooms' => ['1', '5']])['bedrooms']['values']);
+        $this->assertArrayNotHasKey('bedrooms', FindListing::baseFilters(['bedrooms' => []]));
+    }
+
     public function test_search_starts_and_shows_notice(): void
     {
         RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
@@ -99,7 +105,7 @@ class FindListingTest extends TestCase
             ->assertNotified(__('gshome.search.filters_required'))
             ->assertActionMounted('find');
 
-        $this->assertStringContainsString('Сузьте поиск', __('gshome.search.filters_required'));
+        $this->assertStringContainsString('город или район', __('gshome.search.filters_required'));
         $this->assertSame(0, ListingSearch::query()->count());
     }
 

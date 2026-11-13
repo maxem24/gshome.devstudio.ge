@@ -156,12 +156,13 @@ class FindListing extends Component implements HasActions, HasSchemas
             $set('location.district_id', $districts[0]);
         }
 
-        // Экран знает «5+»: пятая и дальше комнаты — одно значение.
-        $rooms = array_values(array_unique(array_map(
-            fn (mixed $r): string => (int) $r >= 5 ? '5+' : (string) (int) $r,
-            array_filter((array) ($data['rooms'] ?? [])),
-        )));
-        $set('rooms.values', $rooms);
+        // Экран знает «5+»: пятая и дальше комнаты (спальни) — одно значение.
+        foreach (['rooms', 'bedrooms'] as $key) {
+            $set("{$key}.values", array_values(array_unique(array_map(
+                fn (mixed $r): string => (int) $r >= 5 ? '5+' : (string) (int) $r,
+                array_filter((array) ($data[$key] ?? [])),
+            ))));
+        }
 
         return $filters;
     }
@@ -318,7 +319,7 @@ class FindListing extends Component implements HasActions, HasSchemas
     }
 
     /** @param  list<Direction>  $directions */
-    private static function inOwnDirections(?Direction $deal, array $directions): bool
+    public static function inOwnDirections(?Direction $deal, array $directions): bool
     {
         return $deal === null || in_array($deal, $directions, true);
     }

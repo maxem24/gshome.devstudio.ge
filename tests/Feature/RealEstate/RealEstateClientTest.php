@@ -485,4 +485,30 @@ class RealEstateClientTest extends TestCase
             }
         }
     }
+
+    public function test_collectors_online_true_false(): void
+    {
+        Http::fake(['*/me' => Http::sequence()
+            ->push(['data' => ['refresh_sources' => ['myhome.ge']]])
+            ->push(['data' => ['refresh_sources' => []]])
+            ->push(['data' => []])]);
+        $this->assertTrue($this->client()->collectorsOnline());
+
+        Cache::forget('real-estate:me:collectors');
+        $this->assertFalse($this->client()->collectorsOnline());
+
+        Cache::forget('real-estate:me:collectors');
+        $this->assertNull($this->client()->collectorsOnline());
+    }
+
+    public function test_me_failure_returns_null(): void
+    {
+        Cache::forget('real-estate:me:collectors');
+        Http::fake(['*' => Http::response([], 500)]);
+
+        $this->assertNull($this->client()->collectorsOnline());
+        $sent = count(Http::recorded());
+        $this->assertNull($this->client()->collectorsOnline());
+        Http::assertSentCount($sent);
+    }
 }

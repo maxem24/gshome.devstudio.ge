@@ -3,6 +3,8 @@
         <p class="mb-4 text-sm font-medium">{{ __('gshome.listings.represents', ['name' => $company]) }}</p>
     @endif
 
+    @livewire (\App\Livewire\QuickSearch::class, ['compact' => true])
+
     <div class="mb-4 flex flex-wrap gap-2">
         @foreach ($this->scopes() as $scope)
             <x-filament::button

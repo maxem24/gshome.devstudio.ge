@@ -49,6 +49,16 @@ class ListingsPageTest extends TestCase
         }
     }
 
+    public function test_listings_page_has_compact_quick_search(): void
+    {
+        RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing()])]);
+        $lead = User::factory()->teamLead()->create();
+
+        $this->actingAs(User::factory()->agent($lead)->create())
+            ->get('/admin/listings')
+            ->assertSee('data-place', false);
+    }
+
     public function test_list_shows_listing_with_label(): void
     {
         RealEstateFake::fake([RealEstateFake::page([RealEstateFake::listing(['title' => ['ru' => 'Светлая квартира']])])]);
@@ -164,6 +174,16 @@ class ListingsPageTest extends TestCase
         Livewire::test(Listings::class)->assertSet('tableFilters.rooms.values', ['2', '3']);
 
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && ($this->apiQuery($r)['rooms'] ?? null) === '2,3');
+    }
+
+    public function test_bedrooms_filter_reaches_api(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(Listings::class)->filterTable('bedrooms', ['2', '5+']);
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/listings?') && str_contains($r->url(), 'bedrooms=2%2C5%2B'));
     }
 
     public function test_url_filters_win_over_the_session(): void
@@ -336,7 +356,8 @@ class ListingsPageTest extends TestCase
         }
         Livewire::withQueryParams(['search' => ['x']])->test(Listings::class)->assertSet('tableSearch', '');
         Livewire::test(Listings::class)->set('tableSearch', ['x'])->assertOk();
-        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts'));
+        // Быстрый поиск над таблицей сам просит районы города по умолчанию (city_id=1); чужих городов из адреса быть не должно.
+        Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/dictionaries/districts') && ($this->apiQuery($r)['city_id'] ?? null) !== '1');
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/listings?') && isset($this->apiQuery($r)['q']));
     }
 
@@ -364,7 +385,8 @@ class ListingsPageTest extends TestCase
                 str_contains($r->url(), '/dictionaries/deal-types') => Http::response(['data' => RealEstateFake::dealTypes()]),
                 str_contains($r->url(), '/dictionaries/') => Http::response(['data' => [['id' => 1, 'slug' => 'tbilisi', 'title_ru' => 'Тбилиси']]]),
                 isset($this->apiQuery($r)['cursor']) => $stale,
-                default => $plain++ === 0 ? Http::response($first) : Http::response($restart),
+                str_contains($r->url(), '/listings?') => $plain++ === 0 ? Http::response($first) : Http::response($restart),
+                default => Http::response(['data' => []]),
             };
         });
 
