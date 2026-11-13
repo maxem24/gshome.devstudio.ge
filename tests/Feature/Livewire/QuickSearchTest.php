@@ -54,9 +54,9 @@ class QuickSearchTest extends TestCase
             }
             $b = $r->data();
 
-            return isset($b['bedrooms']) || isset($b['bedrooms_min'])
-                ? ($b['area_min'] ?? null) === 40 && ($b['price_usd_max'] ?? null) === 90000 && isset($b['district_id'])
-                : false;
+            return ($b['bedrooms'] ?? null) === [2, 5, 6, 7, 8, 9, 10]
+                && ($b['area_min'] ?? null) === 40 && ($b['price_usd_max'] ?? null) === 90000
+                && ($b['district_id'] ?? null) === [1];
         });
     }
 
@@ -117,7 +117,7 @@ class QuickSearchTest extends TestCase
 
         Livewire::test(QuickSearch::class)
             ->set('property_type_id', null)->set('city_id', null)
-            ->assertSeeHtml('disabled')
+            ->assertSeeHtml('<button type="submit" disabled')
             ->call('submit');
 
         Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/search-jobs'));
@@ -143,5 +143,73 @@ class QuickSearchTest extends TestCase
 
         Livewire::test(QuickSearch::class)->assertSee(__('gshome.quick_search.collectors_offline'))
             ->call('useBase')->assertSet('mode', 'base')->assertDontSee(__('gshome.quick_search.collectors_offline'));
+    }
+
+    private function fakeDictionariesAndMe(?array $me): void
+    {
+        Http::fake(function (Request $r) use ($me): mixed {
+            $path = (string) parse_url($r->url(), PHP_URL_PATH);
+
+            return match (true) {
+                $path === '/api/v1/dictionaries/property-types' => Http::response(['data' => [
+                    ['id' => 7, 'slug' => 'apartment', 'title_ka' => 'ბინა', 'title_en' => 'Apartment', 'title_ru' => 'Квартира'],
+                ]]),
+                $me !== null && $path === '/api/v1/me' => Http::response(['data' => $me]),
+                default => null,
+            };
+        });
+        RealEstateFake::fake();
+    }
+
+    public function test_defaults_on_fresh_mount(): void
+    {
+        $this->fakeDictionariesAndMe(null);
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->assertSet('property_type_id', 7)->assertSet('city_id', 1)->assertSet('deal', 'sale')->assertSet('mode', 'fresh');
+    }
+
+    public function test_session_values_win_over_defaults(): void
+    {
+        $this->fakeDictionariesAndMe(null);
+        $this->actingAs($this->seller());
+        session(['quick_search.last' => ['mode' => 'base', 'deal' => 'sale', 'property_type_id' => 3, 'city_id' => 2, 'bedrooms' => ['4']]]);
+
+        Livewire::test(QuickSearch::class)
+            ->assertSet('property_type_id', 3)->assertSet('city_id', 2)->assertSet('mode', 'base')->assertSet('bedrooms', ['4']);
+    }
+
+    public function test_base_radio_disabled_with_hint_for_foreign_deal(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->assertDontSee(__('gshome.quick_search.base_own_only'))
+            ->set('deal', 'rent')
+            ->assertSeeHtml('value="base" disabled')
+            ->assertSee(__('gshome.quick_search.base_own_only'));
+    }
+
+    public function test_city_change_resets_districts(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('district_id', [1])->set('subdistrict_id', [5])
+            ->set('city_id', 2)
+            ->assertSet('district_id', [])->assertSet('subdistrict_id', []);
+    }
+
+    public function test_unknown_collector_state_shows_no_warning(): void
+    {
+        $this->fakeDictionariesAndMe(['client' => 'GS Home', 'imports' => []]);
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->assertDontSee(__('gshome.quick_search.collectors_offline'))
+            ->assertDontSeeHtml('<button type="submit" disabled');
     }
 }

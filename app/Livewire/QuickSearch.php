@@ -77,6 +77,13 @@ final class QuickSearch extends Component
         $this->city_id = $this->dictionaryId('cities', 'tbilisi');
     }
 
+    /** Смена города уносит районы и микрорайоны прежнего. */
+    public function updatedCityId(): void
+    {
+        $this->district_id = [];
+        $this->subdistrict_id = [];
+    }
+
     public function canSubmit(): bool
     {
         return $this->city_id !== null || $this->district_id !== []
@@ -180,6 +187,7 @@ final class QuickSearch extends Component
         $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
 
         return view('livewire.quick-search', [
+            'baseAllowed' => FindListing::inOwnDirections(Direction::tryFrom((string) ($this->deal ?? '')), $directions),
             'dealOptions' => count($directions) > 1
                 ? collect($directions)->mapWithKeys(fn (Direction $d): array => [$d->value => $d->getLabel()])->all()
                 : [],

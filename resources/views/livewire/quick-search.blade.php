@@ -1,12 +1,15 @@
 <form wire:submit="submit" class="quick-search" role="search">
     <div role="group" aria-label="{{ __('gshome.quick_search.mode') }}">
         <label><input type="radio" wire:model.live="mode" value="fresh"> {{ __('gshome.quick_search.mode_fresh') }}</label>
-        <label><input type="radio" wire:model.live="mode" value="base"> {{ __('gshome.quick_search.mode_base') }}</label>
+        <label><input type="radio" wire:model.live="mode" value="base" @disabled(! $baseAllowed)> {{ __('gshome.quick_search.mode_base') }}</label>
+        @if (! $baseAllowed)
+            <p>{{ __('gshome.quick_search.base_own_only') }}</p>
+        @endif
     </div>
 
     @if ($dealOptions !== [])
         <label>{{ __('gshome.search.deal') }}
-            <select wire:model="deal" name="deal">
+            <select wire:model.live="deal" name="deal">
                 @foreach ($dealOptions as $value => $label)
                     <option value="{{ $value }}">{{ $label }}</option>
                 @endforeach
@@ -15,7 +18,7 @@
     @endif
 
     <label>{{ __('gshome.listings.property_type') }}
-        <select wire:model="property_type_id" name="property_type_id">
+        <select wire:model.live="property_type_id" name="property_type_id">
             <option value="">{{ __('gshome.listings.all') }}</option>
             @foreach ($types as $id => $label)
                 <option value="{{ $id }}">{{ $label }}</option>

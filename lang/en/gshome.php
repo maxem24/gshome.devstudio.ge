@@ -672,6 +672,7 @@ return [
     ],
 
     'quick_search' => [
+        'base_own_only' => 'The database is available only for your own directions.',
         'title' => 'Find an apartment',
         'mode' => 'Search mode',
         'mode_fresh' => 'Fresh from sites',
