@@ -105,7 +105,7 @@ class FindListingTest extends TestCase
             ->assertNotified(__('gshome.search.filters_required'))
             ->assertActionMounted('find');
 
-        $this->assertStringContainsString('Сузьте поиск', __('gshome.search.filters_required'));
+        $this->assertStringContainsString('город или район', __('gshome.search.filters_required'));
         $this->assertSame(0, ListingSearch::query()->count());
     }
 
