@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Clients\Schemas;
 
+use App\Crm\ClientProfile;
+use App\Enums\ClientHousing;
 use App\Enums\ClientTag;
 use App\Models\Client;
 use App\Support\PhoneNumber;
@@ -34,11 +36,22 @@ class ClientForm
                 ->label(__('gshome.crm.clients.tags'))
                 ->options(ClientTag::class)
                 ->columns(2),
+            Select::make('housing')
+                ->label(__('gshome.crm.clients.housing_label'))
+                ->options(ClientHousing::class)
+                ->required(),
             Select::make('reliability')
                 ->label(__('gshome.crm.clients.reliability'))
                 ->options(self::reliabilityOptions())
                 ->default('unverified')
                 ->required(),
+            TextInput::make('occupants')->label(__('gshome.crm.clients.profile.occupants'))->maxLength(255),
+            TextInput::make('people')->label(__('gshome.crm.clients.profile.people'))->numeric()->minValue(1)->maxValue(30),
+            TextInput::make('home')->label(__('gshome.crm.clients.profile.home'))->maxLength(255),
+            TextInput::make('rooms')->label(__('gshome.crm.clients.profile.rooms'))->maxLength(32),
+            TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
+            TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
+            TextInput::make('place')->label(__('gshome.crm.clients.profile.place'))->maxLength(255),
         ]);
     }
 
@@ -57,6 +70,16 @@ class ClientForm
                 ->label(__('gshome.crm.clients.reliability'))
                 ->badge()
                 ->formatStateUsing(fn (?string $state): string => self::reliabilityLabel($state)),
+            TextEntry::make('housing')
+                ->label(__('gshome.crm.clients.housing_label'))
+                ->badge()
+                ->placeholder('—'),
+            TextEntry::make('profile')
+                ->label(__('gshome.crm.clients.profile_title'))
+                ->state(fn (Client $record): array => ClientProfile::lines($record))
+                ->listWithLineBreaks()
+                ->placeholder('—')
+                ->columnSpanFull(),
             TextEntry::make('creator.name')->label(__('gshome.crm.clients.created_by'))->placeholder('—'),
             TextEntry::make('deleted_at')
                 ->label(__('gshome.crm.clients.archived'))

@@ -57,7 +57,7 @@ class DealIntakeTest extends TestCase
     public function test_saves_rent_answers_and_price(): void
     {
         $deal = $this->deal();
-        $intake = ['occupants' => 'семья с ребёнком', 'term' => '1y', 'prepay' => 'first_last', 'pets' => true, 'deposit_ok' => 'yes'];
+        $intake = ['term' => '1y', 'prepay' => 'first_last', 'pets' => true, 'deposit_ok' => 'yes'];
 
         app(Deals::class)->updateIntake($deal, $intake, '1200', 'USD', $this->nino);
 

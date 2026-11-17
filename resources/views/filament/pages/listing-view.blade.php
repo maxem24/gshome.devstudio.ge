@@ -105,24 +105,178 @@
             </div>
         </x-filament::section>
 
-        <div class="grid gap-6 lg:grid-cols-3">
-            <div class="space-y-6 lg:col-span-2">
-                @if ($card['images'])
-                    <x-filament::section :heading="__('gshome.listings.photos')">
-                        <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
-                            @foreach ($card['images'] as $image)
-                                <a href="{{ $image['url'] }}" target="_blank" rel="noopener">
+        {{-- Телефон: цена, фото, факты. Компьютер: фото слева, цена и факты справа. --}}
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(18rem,24rem)] lg:items-start">
+            <div
+                class="rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-950/5 lg:col-start-2 lg:row-start-1 dark:bg-gray-900 dark:ring-white/10"
+            >
+                <p class="text-3xl font-bold tracking-tight text-gray-950 dark:text-white">
+                    {{ $card['price'] }}
+                </p>
+                @if ($card['price_gel'])
+                    <p class="text-gray-500 dark:text-gray-400">{{ $card['price_gel'] }}</p>
+                @endif
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <span
+                        class="inline-flex h-8 items-center rounded-full bg-gray-100 px-3 text-sm font-medium text-gray-700 dark:bg-white/10 dark:text-gray-200"
+                        >{{ $card['direction'] }}</span
+                    >
+                    @if ($card['negotiable'])
+                        <span
+                            class="text-sm text-gray-500 dark:text-gray-400"
+                            >{{ __('gshome.listings.bargain') }}</span
+                        >
+                    @endif
+                </div>
+                @if ($card['call_href'])
+                    <a
+                        href="{{ $card['call_href'] }}"
+                        class="bg-primary-600 hover:bg-primary-500 focus-visible:outline-primary-600 dark:bg-primary-500 dark:hover:bg-primary-400 mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-xl text-base font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2"
+                    >
+                        {{ __('gshome.listings.call') }}
+                        @if ($card['contact_phone'])
+                            <span class="font-medium">{{ $card['contact_phone'] }}</span>
+                        @endif
+                    </a>
+                @endif
+                <p class="mt-3 text-sm text-gray-700 dark:text-gray-200">
+                    {{ $card['seller'] }}
+                    @if ($card['contact_name'])
+                        · {{ $card['contact_name'] }}
+                    @endif
+                    @if ($card['viber']) · Viber @endif
+                    @if ($card['whatsapp']) · WhatsApp @endif
+                </p>
+            </div>
+
+            @if ($card['images'])
+                <div
+                    data-listing-carousel
+                    x-data="{
+                        i: 0,
+                        n: {{ count($card['images']) }},
+                        startX: null,
+                        prev() { this.i = (this.i - 1 + this.n) % this.n },
+                        next() { this.i = (this.i + 1) % this.n },
+                    }"
+                    role="region"
+                    aria-roledescription="carousel"
+                    aria-label="{{ __('gshome.listings.photos') }}"
+                    tabindex="0"
+                    x-on:keydown.arrow-left.prevent="prev()"
+                    x-on:keydown.arrow-right.prevent="next()"
+                    x-on:touchstart.passive="startX = $event.changedTouches[0].clientX"
+                    x-on:touchend.passive="
+                        if (startX === null) return;
+                        const dx = $event.changedTouches[0].clientX - startX;
+                        if (dx > 40) prev();
+                        if (dx < -40) next();
+                        startX = null;
+                    "
+                    class="lg:col-start-1 lg:row-span-2 lg:row-start-1"
+                >
+                    <div
+                        class="relative overflow-hidden rounded-xl bg-gray-100 ring-1 ring-gray-950/5 dark:bg-white/5 dark:ring-white/10"
+                    >
+                    @foreach ($card['images'] as $index => $image)
+                        <a
+                            href="{{ $image['url'] }}"
+                            target="_blank"
+                            rel="noopener"
+                            x-show="i === {{ $index }}"
+                            @if ($index !== 0) x-cloak @endif
+                        >
+                            <img
+                                src="{{ $image['url'] }}"
+                                alt=""
+                                class="aspect-[4/3] w-full object-cover lg:aspect-auto lg:h-[min(32rem,calc(100vh-10rem))]"
+                                @if ($index === 0) loading="eager" @else loading="lazy" @endif
+                            />
+                        </a>
+                    @endforeach
+                    @if (count($card['images']) > 1)
+                        <button
+                            type="button"
+                            x-on:click="prev()"
+                            class="focus-visible:outline-primary-600 absolute start-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
+                        >
+                            <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
+                            <x-filament::icon icon="heroicon-o-chevron-left" class="size-5" />
+                        </button>
+                        <button
+                            type="button"
+                            x-on:click="next()"
+                            class="focus-visible:outline-primary-600 absolute end-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
+                        >
+                            <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
+                            <x-filament::icon icon="heroicon-o-chevron-right" class="size-5" />
+                        </button>
+                        <p
+                            class="absolute end-2 bottom-2 rounded-full bg-gray-950/70 px-3 py-1 text-sm font-medium text-white"
+                            x-text="@js(__('gshome.listings.photo_position')).replace(':current', i + 1).replace(':total', n)"
+                        >
+                            {{ __('gshome.listings.photo_position', ['current' => 1, 'total' => count($card['images'])]) }}
+                        </p>
+                    @endif
+                    </div>
+                    @if (count($card['images']) > 1)
+                        <div class="mt-2 hidden gap-2 overflow-x-auto lg:flex">
+                            @foreach ($card['images'] as $index => $image)
+                                <button
+                                    type="button"
+                                    x-on:click="i = {{ $index }}"
+                                    x-bind:class="i === {{ $index }} ? 'ring-primary-600 dark:ring-primary-400' : 'ring-transparent'"
+                                    class="h-16 w-20 shrink-0 overflow-hidden rounded-lg ring-2"
+                                >
                                     <img
                                         src="{{ $image['url_thumb'] ?? $image['url'] }}"
                                         alt=""
-                                        class="h-40 w-full rounded-lg object-cover"
-                                        loading="lazy"
+                                        class="h-full w-full object-cover"
                                     />
-                                </a>
+                                </button>
                             @endforeach
                         </div>
-                    </x-filament::section>
-                @endif
+                    @endif
+                </div>
+            @endif
+
+            <div class="lg:col-start-2">
+            <x-filament::section :heading="__('gshome.listings.characteristics')">
+                <dl class="space-y-2 text-sm">
+                    @foreach ([
+                        __('gshome.listings.rooms') => $card['rooms'],
+                        __('gshome.listings.area') => $card['area'],
+                        __('gshome.listings.floor') => $card['floor'],
+                        __('gshome.listings.property_type') => $card['property_type'],
+                    ] as $label => $value)
+                        <div class="flex justify-between gap-3">
+                            <dt class="text-gray-500">{{ $label }}</dt>
+                            <dd class="text-right">{{ filled($value) ? $value : '—' }}</dd>
+                        </div>
+                    @endforeach
+                    <div>
+                        <dt class="text-gray-500">{{ __('gshome.listings.address') }}</dt>
+                        <dd>
+                            {{ collect([$card['district'], $card['address']])->filter()->implode(', ') ?: '—' }}
+                            @if ($card['map'])
+                                <a
+                                    href="{{ $card['map'] }}"
+                                    target="_blank"
+                                    rel="noopener"
+                                    class="text-primary-600"
+                                    >{{ __('gshome.listings.on_map') }}</a
+                                >
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
+                    </div>
+                </dl>
+            </x-filament::section>
+            </div>
+
+            <div class="space-y-4 lg:col-span-2">
                 @if ($card['description'])
                     <x-filament::section :heading="__('gshome.listings.description')">
                         <p class="whitespace-pre-line">{{ $card['description'] }}</p>
@@ -202,78 +356,20 @@
                     </x-filament::section>
                 @endif
             </div>
-            <div class="space-y-6">
-                <x-filament::section>
-                    <p class="text-2xl font-bold">{{ $card['price'] }}</p>
-                    @if ($card['price_gel'])
-                        <p class="text-gray-500">{{ $card['price_gel'] }}</p>
-                    @endif
-                    @if ($card['negotiable'])
-                        <p class="text-sm text-gray-500">{{ __('gshome.listings.bargain') }}</p>
-                    @endif
-                    <p class="mt-2"><x-filament::badge>{{ $card['direction'] }}</x-filament::badge></p>
-                </x-filament::section>
-                <x-filament::section :heading="__('gshome.listings.characteristics')">
-                    <dl class="space-y-2 text-sm">
-                        @foreach ([
-                            __('gshome.listings.rooms') => $card['rooms'],
-                            __('gshome.listings.area') => $card['area'],
-                            __('gshome.listings.floor') => $card['floor'],
-                            __('gshome.listings.property_type') => $card['property_type'],
-                        ] as $label => $value)
-                            <div class="flex justify-between gap-3">
-                                <dt class="text-gray-500">{{ $label }}</dt>
-                                <dd class="text-right">{{ filled($value) ? $value : '—' }}</dd>
-                            </div>
-                        @endforeach
-                        <div>
-                            <dt class="text-gray-500">{{ __('gshome.listings.address') }}</dt>
-                            <dd>
-                                {{ collect([$card['district'], $card['address']])->filter()->implode(', ') ?: '—' }}
-                                @if ($card['map'])
-                                    <a
-                                        href="{{ $card['map'] }}"
-                                        target="_blank"
-                                        rel="noopener"
-                                        class="text-primary-600"
-                                        >{{ __('gshome.listings.on_map') }}</a
-                                    >
-                                @endif
-                            </dd>
-                        </div>
-                        <div>
-                            {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
-                        </div>
-                    </dl>
-                </x-filament::section>
+            @if ($card['additional'] !== [])
                 <x-filament::section :heading="__('gshome.listings.additional')">
-                    <ul class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <ul class="flex flex-wrap gap-2">
                         @foreach ($card['additional'] as $item)
                             <li
-                                @class ([
-                                'flex items-center gap-2 text-sm',
-                                'text-green-600' => $item['active'],
-                                'text-gray-400' => ! $item['active'],
-                            ])
+                                class="inline-flex min-h-11 items-center gap-2 rounded-full bg-gray-100 px-3 text-sm text-gray-800 dark:bg-white/10 dark:text-gray-100"
                             >
-                                <x-filament::icon :icon="$item['icon']" class="h-5 w-5 shrink-0" />
+                                <x-filament::icon :icon="$item['icon']" class="size-4 shrink-0" />
                                 <span>{{ $item['label'] }}</span>
                             </li>
                         @endforeach
                     </ul>
                 </x-filament::section>
-                <x-filament::section :heading="__('gshome.listings.seller')">
-                    <dl class="space-y-1 text-sm">
-                        <div>{{ $card['seller'] }}</div>
-                        <div>{{ $card['contact_name'] }}</div>
-                        <div>
-                            {{ $card['contact_phone'] }}
-                            @if ($card['viber']) · Viber @endif
-                            @if ($card['whatsapp']) · WhatsApp @endif
-                        </div>
-                    </dl>
-                </x-filament::section>
-            </div>
+            @endif
         </div>
     @endif
 </x-filament-panels::page>

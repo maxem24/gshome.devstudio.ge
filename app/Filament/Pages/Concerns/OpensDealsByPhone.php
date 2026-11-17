@@ -8,6 +8,7 @@ use App\Crm\Deals;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
 use App\Crm\Pins;
+use App\Enums\ClientHousing;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
 use App\Models\ListingPin;
@@ -15,8 +16,10 @@ use App\Models\User;
 use App\Support\PhoneNumber;
 use Closure;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Exceptions\Halt;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -46,17 +49,42 @@ trait OpensDealsByPhone
             ->visible(fn (): bool => $this->canManageDealPin())
             ->modalHeading(__('gshome.crm.pins.open_deal'))
             ->schema([
+                Select::make('client_id')
+                    ->label(__('gshome.crm.clients.looking_pick'))
+                    ->options(fn (): array => $this->lookingClients())
+                    ->searchable()
+                    ->live(),
                 TextInput::make('phone')
-                    ->label(__('gshome.crm.clients.phone'))->tel()->required()->maxLength(32)
+                    ->label(__('gshome.crm.clients.phone'))->tel()->maxLength(32)
+                    ->required(fn (Get $get): bool => blank($get('client_id')))
                     ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
-                        if (PhoneNumber::tryNormalize((string) $value) === null) {
+                        if (filled($value) && PhoneNumber::tryNormalize((string) $value) === null) {
                             $fail(__('gshome.crm.clients.phone_invalid'));
                         }
                     }),
-                TextInput::make('first_name')->label(__('gshome.crm.clients.first_name'))->required()->maxLength(255),
+                TextInput::make('first_name')
+                    ->label(__('gshome.crm.clients.first_name'))
+                    ->maxLength(255)
+                    ->required(fn (Get $get): bool => blank($get('client_id'))),
                 TextInput::make('last_name')->label(__('gshome.crm.clients.last_name'))->maxLength(255),
+                Select::make('housing')
+                    ->label(__('gshome.crm.clients.housing_label'))
+                    ->options(ClientHousing::class)
+                    ->default(ClientHousing::Looking->value)
+                    ->visible(fn (Get $get): bool => blank($get('client_id'))),
             ])
             ->action(function (array $data): void {
+                $picked = $this->lookingClient($data['client_id'] ?? null);
+                if ($picked !== null) {
+                    $this->dealOn($picked);
+
+                    return;
+                }
+                if (filled($data['client_id'] ?? null)) {
+                    Notification::make()->title(__('gshome.crm.clients.looking_only'))->warning()->send();
+
+                    return;
+                }
                 $match = $this->matchClient($data);
                 if ($this->hiddenMatch($match)) {
                     return;
@@ -163,6 +191,38 @@ trait OpensDealsByPhone
         $this->replaceMountedAction('resolveDealConflict');
     }
 
+    /**
+     * Клиенты, которые не арендуют и ищут квартиру: им можно перезвонить и открыть сделку.
+     *
+     * @return array<int, string>
+     */
+    private function lookingClients(): array
+    {
+        return Client::query()
+            ->visibleTo($this->viewer())
+            ->where('housing', ClientHousing::Looking->value)
+            ->orderBy('first_name')
+            ->get()
+            ->mapWithKeys(fn (Client $client): array => [
+                $client->id => trim($client->first_name.' '.$client->last_name).' · '.($client->phone_e164 ?? '—'),
+            ])
+            ->all();
+    }
+
+    private function lookingClient(mixed $id): ?Client
+    {
+        if (! is_numeric($id) || (int) $id <= 0) {
+            return null;
+        }
+
+        $client = Client::query()
+            ->visibleTo($this->viewer())
+            ->where('housing', ClientHousing::Looking->value)
+            ->find((int) $id);
+
+        return $client instanceof Client ? $client : null;
+    }
+
     /** @param array<string, mixed> $data */
     private function matchClient(array $data): ClientMatch
     {
@@ -249,7 +309,19 @@ trait OpensDealsByPhone
             'last_name' => filled($data['last_name'] ?? null) ? $data['last_name'] : null,
             'tags' => [],
             'reliability' => 'unverified',
+            'housing' => self::housingValue($data['housing'] ?? null),
         ];
+    }
+
+    private static function housingValue(mixed $value): string
+    {
+        if ($value instanceof ClientHousing) {
+            return $value->value;
+        }
+
+        $found = ClientHousing::tryFrom(is_string($value) ? $value : '');
+
+        return $found === null ? ClientHousing::Looking->value : $found->value;
     }
 
     /** Активное закрепление, которым смотрящий вправе управлять; иначе null. */

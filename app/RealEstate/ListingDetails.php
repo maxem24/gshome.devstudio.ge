@@ -3,8 +3,7 @@
 namespace App\RealEstate;
 
 /**
- * Дополнительная карточка объявления: каждый известный пункт виден всегда.
- * Есть значение — подпись с ним, нет — только название пункта.
+ * Дополнительная карточка объявления: только то, что в объявлении заполнено.
  */
 final class ListingDetails
 {
@@ -121,7 +120,22 @@ final class ListingDetails
             $items[] = self::row(self::AMENITY_ICONS[$slug] ?? 'heroicon-o-check', $title, $title);
         }
 
-        return $items;
+        return array_values(array_filter($items, fn (array $item): bool => $item['active']));
+    }
+
+    /** Текст объявления с площадки: переносы вместо <br>, без тегов. */
+    public static function plainText(?string $text): ?string
+    {
+        if ($text === null) {
+            return null;
+        }
+
+        $text = preg_replace('/<\s*br\s*\/?\s*>/i', "\n", $text) ?? $text;
+        $text = html_entity_decode(strip_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = trim((string) preg_replace("/[ \t]*\n[ \t]*/", "\n", $text));
+        $text = trim((string) preg_replace("/\n{3,}/", "\n\n", $text));
+
+        return $text === '' ? null : $text;
     }
 
     /** @return array{icon: string, label: string, active: bool} */

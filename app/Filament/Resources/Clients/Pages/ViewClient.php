@@ -3,10 +3,12 @@
 namespace App\Filament\Resources\Clients\Pages;
 
 use App\Crm\Journal;
+use App\Enums\ClientHousing;
 use App\Enums\DealStatus;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Facades\Auth;
@@ -26,6 +28,24 @@ class ViewClient extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('housing')
+                ->label(__('gshome.crm.clients.housing_label'))
+                ->visible(fn (Client $record): bool => ! $record->trashed())
+                ->fillForm(fn (Client $record): array => ['housing' => $record->housing?->value])
+                ->schema([
+                    Select::make('housing')
+                        ->label(__('gshome.crm.clients.housing_label'))
+                        ->options(ClientHousing::class)
+                        ->required(),
+                ])
+                ->action(function (Client $record, array $data): void {
+                    // Select с options(enum) отдаёт сам enum, не строку. (string) на нём — 500.
+                    $housing = $data['housing'];
+                    $record->housing = $housing instanceof ClientHousing
+                        ? $housing
+                        : ClientHousing::from((string) $housing);
+                    $record->save();
+                }),
             Action::make('archive')
                 ->label(__('gshome.crm.clients.to_archive'))
                 ->color('danger')

@@ -164,7 +164,7 @@ class DealResourceTest extends TestCase
         $names = array_map(fn ($field): string => $field->getName(), ViewDeal::intakeSchema(Direction::Sale));
         $this->assertContains('purpose', $names);
         $this->assertContains('price', $names);
-        foreach (['term', 'prepay', 'pets', 'deposit_ok', 'occupants'] as $rentField) {
+        foreach (['term', 'prepay', 'pets', 'deposit_ok'] as $rentField) {
             $this->assertNotContains($rentField, $names);
         }
 
@@ -234,7 +234,9 @@ class DealResourceTest extends TestCase
     public function test_card_shows_intake_labels(): void
     {
         [$deal, $nino] = $this->rentDeal();
-        app(Deals::class)->updateIntake($deal, ['term' => '1y', 'occupants' => 'Семья с ребёнком'], '1200', 'USD', $nino);
+        $deal->client->profile = ['occupants' => 'Семья с ребёнком', 'people' => 3, 'rooms' => '2'];
+        $deal->client->save();
+        app(Deals::class)->updateIntake($deal, ['term' => '1y'], '1200', 'USD', $nino);
         $this->actingAs($nino);
 
         Livewire::test(ViewDeal::class, ['record' => $deal->id])

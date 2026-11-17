@@ -5,6 +5,7 @@ namespace Tests\Feature\Filament;
 use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Crm\Pins;
+use App\Enums\ClientHousing;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
@@ -261,10 +262,15 @@ class ListingViewTest extends TestCase
         $this->get('/admin/listings/13')->assertOk()->assertSee('Real Estate недоступен, попробуйте позже.');
     }
 
-    public function test_detail_splits_characteristics_and_marks_missing_extras(): void
+    public function test_detail_shows_filled_facts_and_hides_empty_extras(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing([
             'bedrooms' => 2,
+            'description' => ['ru' => 'Цена 51000$<br />Тел: 510102767'],
+            'images' => [
+                ['url' => 'https://re.test/storage/1.webp', 'url_thumb' => 'https://re.test/storage/1_t.webp', 'is_main' => true, 'order' => 1],
+                ['url' => 'https://re.test/storage/2.webp', 'url_thumb' => 'https://re.test/storage/2_t.webp', 'is_main' => false, 'order' => 2],
+            ],
             'amenities' => [['id' => 1, 'slug' => 'elevator', 'title' => 'Лифт']],
         ])]);
         $this->actingAs(User::factory()->owner()->create());
@@ -276,11 +282,16 @@ class ListingViewTest extends TestCase
             ->assertSee('Квартира')
             ->assertSee('Дополнительно')
             ->assertSee('Спальни: 2')
-            ->assertSee('Санузлы')
+            ->assertDontSee('Санузлы')
             ->assertSee('Лифт')
-            ->assertSee('Газ')
-            ->assertSeeHtml('text-green-600')
-            ->assertSeeHtml('text-gray-400');
+            ->assertDontSee('Газ')
+            ->assertSee('Цена 51000$')
+            ->assertSee('Тел: 510102767')
+            ->assertDontSee('<br')
+            ->assertDontSee('&lt;br')
+            ->assertSeeHtml('data-listing-carousel')
+            ->assertSeeHtml('tel:555123456')
+            ->assertSee('Позвонить');
     }
 
     public function test_card_saves_for_later_and_removes_only_this_users_row(): void
@@ -486,6 +497,27 @@ class ListingViewTest extends TestCase
 
         $client = Client::query()->where('phone_e164', '+995555123456')->sole();
         $this->assertSame($client->id, $pin->deals()->sole()->client_id);
+        $this->assertSame(ClientHousing::Looking, $client->housing);
+    }
+
+    public function test_open_deal_picks_a_client_who_is_looking_and_refuses_one_who_rents(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $pin = $this->pinFor($nino);
+        $looking = Client::factory()->create(['housing' => ClientHousing::Looking, 'first_name' => 'Нино', 'phone_e164' => '+995555111111']);
+        $renting = Client::factory()->create(['housing' => ClientHousing::Renting, 'first_name' => 'Гиви', 'phone_e164' => '+995555222222']);
+        $this->actingAs($nino);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('openDeal', ['client_id' => $renting->id])
+            ->assertHasFormErrors(['client_id']);
+        $this->assertSame(0, $pin->deals()->count());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('openDeal', ['client_id' => $looking->id])
+            ->assertNotified(__('gshome.crm.pins.deal_opened'));
+        $this->assertSame($looking->id, $pin->deals()->sole()->client_id);
     }
 
     public function test_open_deal_reuses_same_client_and_rejects_duplicate(): void

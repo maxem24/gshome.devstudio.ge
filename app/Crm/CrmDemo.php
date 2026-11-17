@@ -318,9 +318,12 @@ class CrmDemo
             [$renter, $rentListing] = $rent;
             $at('-4 days');
             $pinRent = $this->pin($rentListing, $renter);
-            $dealRent = $this->deal($pinRent, $this->client($renter, '+995555100107', 'Элене', 'Беридзе', ['tenant']), $renter);
+            $tenant = $this->client($renter, '+995555100107', 'Элене', 'Беридзе', ['tenant']);
+            $tenant->profile = ['occupants' => 'Мать с ребёнком', 'people' => 2, 'home' => 'Квартира', 'rooms' => '2', 'price_max' => 900];
+            $tenant->save();
+            $dealRent = $this->deal($pinRent, $tenant, $renter);
             $this->deals->updateIntake($dealRent, [
-                'occupants' => 'Мать с ребёнком', 'term' => '1y', 'prepay' => '2', 'pets' => false, 'deposit_ok' => 'yes',
+                'term' => '1y', 'prepay' => '2', 'pets' => false, 'deposit_ok' => 'yes',
             ], '900', 'USD', $renter);
             $rentNote = "Аренда: сделка №{$dealRent->id} у {$renter->name} — анкета аренды и цена в месяц.";
         }

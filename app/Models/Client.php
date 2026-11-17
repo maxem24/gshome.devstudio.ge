@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Crm\Archive;
+use App\Enums\ClientHousing;
 use App\Enums\ClientTag;
 use Database\Factories\ClientFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -15,7 +16,7 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Models\Activity;
 
-#[Fillable(['phone_e164', 'first_name', 'last_name', 'tags', 'reliability', 'created_by'])]
+#[Fillable(['phone_e164', 'first_name', 'last_name', 'tags', 'reliability', 'created_by', 'profile', 'housing'])]
 class Client extends Model
 {
     /** @use HasFactory<ClientFactory> */
@@ -27,6 +28,8 @@ class Client extends Model
     {
         return [
             'tags' => 'array',
+            'profile' => 'array',
+            'housing' => ClientHousing::class,
         ];
     }
 

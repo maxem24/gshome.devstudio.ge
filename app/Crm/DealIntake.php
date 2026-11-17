@@ -9,7 +9,7 @@ use App\Enums\Direction;
 final class DealIntake
 {
     private const FIELDS = [
-        'rent' => ['occupants', 'term', 'prepay', 'pets', 'deposit_ok', 'notes'],
+        'rent' => ['term', 'prepay', 'pets', 'deposit_ok', 'notes'],
         'sale' => ['purpose', 'payment', 'bank_help', 'down_payment', 'down_payment_currency', 'wants_discount', 'notes'],
     ];
 
@@ -23,7 +23,7 @@ final class DealIntake
 
     private const BOOLEANS = ['pets', 'bank_help', 'wants_discount'];
 
-    private const MAX_LENGTH = ['occupants' => 255, 'notes' => 2000];
+    private const MAX_LENGTH = ['notes' => 2000];
 
     /** Денежное правило: положительное число, до 12 цифр и 2 знаков после точки. */
     public static function isMoney(string $amount): bool

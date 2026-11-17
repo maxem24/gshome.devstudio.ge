@@ -5,6 +5,7 @@ namespace App\Livewire;
 use App\Access\OrgAccess;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\Direction;
+use App\Enums\ListingScope;
 use App\Filament\Pages\Listings;
 use App\Filament\Pages\MySearches;
 use App\Models\User;
@@ -16,6 +17,7 @@ use App\Search\SiteSearches;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Reactive;
 use Livewire\Attributes\Renderless;
 use Livewire\Component;
 
@@ -42,6 +44,10 @@ final class QuickSearch extends Component
     /** true над «Объектами» */
     public bool $compact = false;
 
+    /** Текущая из пяти кнопок списка. Пусто — поиск не над «Объектами». */
+    #[Reactive]
+    public string $scope = '';
+
     public ?string $deal = null;
 
     public ?int $property_type_id = null;
@@ -65,6 +71,9 @@ final class QuickSearch extends Component
     /** @var list<string> */
     public array $bedrooms = [];
 
+    /** @var list<string> */
+    public array $rooms = [];
+
     public function mount(): void
     {
         $directions = OrgAccess::directions($this->viewer());
@@ -81,6 +90,7 @@ final class QuickSearch extends Component
                 $this->{$key} = filled($last[$key] ?? null) ? (int) $last[$key] : null;
             }
             $this->bedrooms = array_values(array_map('strval', (array) ($last['bedrooms'] ?? [])));
+            $this->rooms = array_values(array_map('strval', (array) ($last['rooms'] ?? [])));
             $this->keepModeAllowed();
 
             return;
@@ -100,15 +110,31 @@ final class QuickSearch extends Component
     /** Спальни приходят из браузера: оставляем только «1»…«5», подделка не должна ронять экран. */
     public function updatedBedrooms(): void
     {
-        $this->normalizeBedrooms();
+        $this->bedrooms = $this->counts($this->bedrooms);
     }
 
-    private function normalizeBedrooms(): void
+    public function updatedRooms(): void
     {
-        $this->bedrooms = array_values(array_unique(array_map('strval', array_filter(
-            (array) $this->bedrooms,
+        $this->rooms = $this->counts($this->rooms);
+    }
+
+    /**
+     * «1»…«5». Подделка из браузера не должна ронять экран.
+     *
+     * @param  array<mixed>  $values
+     * @return list<string>
+     */
+    private function counts(array $values): array
+    {
+        return array_values(array_unique(array_map('strval', array_filter(
+            $values,
             fn (mixed $b): bool => (is_string($b) || is_int($b)) && in_array((string) $b, ['1', '2', '3', '4', '5'], true),
         ))));
+    }
+
+    public function pickScope(string $scope): void
+    {
+        $this->dispatch('listings-scope', scope: $scope)->to(Listings::class);
     }
 
     public function updatedMode(): void
@@ -223,6 +249,7 @@ final class QuickSearch extends Component
             'area_min' => $this->area_min,
             'area_max' => $this->area_max,
             'bedrooms' => $this->bedrooms,
+            'rooms' => $this->rooms,
         ];
     }
 
@@ -238,7 +265,8 @@ final class QuickSearch extends Component
 
     public function submit(): void
     {
-        $this->normalizeBedrooms();
+        $this->bedrooms = $this->counts($this->bedrooms);
+        $this->rooms = $this->counts($this->rooms);
         if (! $this->canSubmit()) {
             return;
         }
@@ -307,7 +335,8 @@ final class QuickSearch extends Component
 
     public function render(): View
     {
-        $this->normalizeBedrooms();
+        $this->bedrooms = $this->counts($this->bedrooms);
+        $this->rooms = $this->counts($this->rooms);
         $directions = OrgAccess::directions($this->viewer());
         $dictionary = fn (string $name, array $params = []): array => DictionaryOptions::options($name, $params);
         $cities = $dictionary('cities');
@@ -317,9 +346,8 @@ final class QuickSearch extends Component
         $chips = [
             'price' => self::rangeLabel($this->price_usd_min, $this->price_usd_max, '$'),
             'area' => self::rangeLabel($this->area_min, $this->area_max, '', self::NBSP.__('gshome.quick_search.sqm')),
-            'bedrooms' => $this->bedrooms !== []
-                ? __('gshome.quick_search.bedrooms_short', ['list' => collect($this->bedrooms)->sort()->map(fn (string $n): string => $n === '5' ? '5+' : $n)->implode(', ')])
-                : null,
+            'bedrooms' => $this->countLabel($this->bedrooms, 'bedrooms_short'),
+            'rooms' => $this->countLabel($this->rooms, 'rooms_short'),
         ];
 
         return view('livewire.quick-search', [
@@ -333,11 +361,24 @@ final class QuickSearch extends Component
             'chips' => $chips,
             'pricePresets' => array_map(fn (int $v): array => [$v, __('gshome.quick_search.up_to', ['value' => '$'.self::number($v)])], self::PRICE_PRESETS[$this->deal === 'rent' ? 'rent' : 'sale']),
             'areaPresets' => array_map(fn (array $r): array => [$r[0], $r[1], (string) self::rangeLabel($r[0], $r[1])], self::AREA_PRESETS),
-            'summary' => collect([$this->placeLabel($place, short: true), $types[$this->property_type_id] ?? null, $chips['price'], $chips['bedrooms']])->filter()->implode(' · '),
+            'scopes' => $this->compact ? ListingScope::visible(app(RealEstateClient::class)->phoneFiltersEnabled()) : [],
+            'summary' => collect([$this->placeLabel($place, short: true), $types[$this->property_type_id] ?? null, $chips['price'], $chips['bedrooms'], $chips['rooms']])->filter()->implode(' · '),
             // «По базе» знает один район и не знает микрорайонов (решение 27.10): место сужается до города/района.
             'basePlaceWider' => $this->mode === 'base' && (count($this->district_id) > 1 || $this->subdistrict_id !== []),
             'collectorsOffline' => $this->mode === 'fresh' && app(RealEstateClient::class)->collectorsOnline() === false,
         ]);
+    }
+
+    /** @param  list<string>  $values */
+    private function countLabel(array $values, string $key): ?string
+    {
+        if ($values === []) {
+            return null;
+        }
+
+        $list = collect($values)->sort()->map(fn (string $n): string => $n === '5' ? '5+' : $n)->implode(', ');
+
+        return __('gshome.quick_search.'.$key, ['list' => $list]);
     }
 
     private static function number(int $v): string

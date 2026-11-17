@@ -389,4 +389,34 @@ class QuickSearchTest extends TestCase
 
         Livewire::test(QuickSearch::class)->assertSet('deal', 'sale');
     }
+
+    public function test_scopes_sit_in_the_search_row_only_above_listings(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->assertDontSee(__('gshome.listings.scope_owners'));
+
+        Livewire::test(QuickSearch::class, ['compact' => true, 'scope' => 'all'])
+            ->assertSee(__('gshome.listings.scope_all'))
+            ->assertSee(__('gshome.listings.scope_owners'))
+            ->call('pickScope', 'owners')
+            ->assertDispatched('listings-scope');
+    }
+
+    public function test_rooms_chip_reaches_the_database_search(): void
+    {
+        RealEstateFake::fake();
+        $this->actingAs($this->seller());
+
+        Livewire::test(QuickSearch::class)
+            ->set('rooms', ['2', '5'])
+            ->assertSee(__('gshome.quick_search.rooms_short', ['list' => '2, 5+']))
+            ->set('mode', 'base')->set('property_type_id', 1)->set('city_id', 1)
+            ->call('submit')
+            ->assertRedirect(Listings::getUrl(['filters' => FindListing::baseFilters([
+                'deal' => 'sale', 'property_type_id' => 1, 'city_id' => 1, 'rooms' => ['2', '5'],
+            ])]));
+    }
 }

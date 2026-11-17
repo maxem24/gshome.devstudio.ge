@@ -3,20 +3,7 @@
         <p class="mb-4 text-sm font-medium">{{ __('gshome.listings.represents', ['name' => $company]) }}</p>
     @endif
 
-    @livewire (\App\Livewire\QuickSearch::class, ['compact' => true])
-
-    <div class="mb-4 flex flex-wrap gap-2">
-        @foreach ($this->scopes() as $scope)
-            <x-filament::button
-                size="sm"
-                :color="$this->scope === $scope->value ? 'primary' : 'gray'"
-                wire:click="setScope('{{ $scope->value }}')"
-                aria-pressed="{{ $this->scope === $scope->value ? 'true' : 'false' }}"
-            >
-                {{ $scope->getLabel() }}
-            </x-filament::button>
-        @endforeach
-    </div>
+    @livewire (\App\Livewire\QuickSearch::class, ['compact' => true, 'scope' => $this->scope])
 
     {{ $this->table }}
 

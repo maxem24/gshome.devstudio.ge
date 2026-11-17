@@ -22,6 +22,7 @@
         price: { min: null, max: null },
         area: { min: null, max: null },
         beds: [],
+        rooms: [],
         place: { city: null, districts: [], subdistricts: [] },
         level: 'cities',
         term: '',
@@ -33,6 +34,7 @@
             if (name === 'price') this.price = { min: $wire.price_usd_min, max: $wire.price_usd_max }
             if (name === 'area') this.area = { min: $wire.area_min, max: $wire.area_max }
             if (name === 'beds') this.beds = [...$wire.bedrooms]
+            if (name === 'rooms') this.rooms = [...$wire.rooms]
             if (name === 'place') {
                 this.place = JSON.parse(this.$root.dataset.place)
                 this.go(this.place.city ? 'districts' : 'cities')
@@ -49,6 +51,7 @@
             if (this.panel === 'price') this.price = { min: null, max: null }
             if (this.panel === 'area') this.area = { min: null, max: null }
             if (this.panel === 'beds') this.beds = []
+            if (this.panel === 'rooms') this.rooms = []
             if (this.panel === 'place') { this.place.districts = []; this.place.subdistricts = []; this.go(this.place.city ? 'districts' : 'cities') }
         },
         apply() {
@@ -61,9 +64,11 @@
             if (p === 'price') { $wire.price_usd_min = this.num(this.price.min); $wire.price_usd_max = this.num(this.price.max) }
             if (p === 'area') { $wire.area_min = this.num(this.area.min); $wire.area_max = this.num(this.area.max) }
             if (p === 'beds') $wire.bedrooms = [...this.beds].sort()
+            if (p === 'rooms') $wire.rooms = [...this.rooms].sort()
             $wire.$commit()
         },
         toggleBed(n) { this.beds = this.beds.includes(n) ? this.beds.filter(b => b !== n) : [...this.beds, n] },
+        toggleRoom(n) { this.rooms = this.rooms.includes(n) ? this.rooms.filter(b => b !== n) : [...this.rooms, n] },
         go(level) { this.level = level; this.term = ''; this.load() },
         async load() {
             const parents = this.level === 'districts' ? [this.place.city?.[0]] : this.place.districts.map(d => d[0])
@@ -196,6 +201,29 @@
                                 value="{{ $value }}"
                             />{{ $label }}</label
                         >
+                    @endforeach
+                </div>
+            @endif
+
+            @if ($scopes !== [])
+                <div
+                    role="radiogroup"
+                    aria-label="{{ __('gshome.listings.ownership') }}"
+                    class="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1 md:ms-auto dark:bg-white/5"
+                >
+                    @foreach ($scopes as $item)
+                        <button
+                            type="button"
+                            wire:click="pickScope('{{ $item->value }}')"
+                            aria-pressed="{{ $scope === $item->value ? 'true' : 'false' }}"
+                            @class ([
+                                'flex min-h-11 items-center justify-center rounded-md px-3 text-sm font-medium',
+                                'bg-white text-gray-950 shadow-sm dark:bg-gray-700 dark:text-white' => $scope === $item->value,
+                                'text-gray-600 dark:text-gray-400' => $scope !== $item->value,
+                            ])
+                        >
+                            {{ $item->getLabel() }}
+                        </button>
                     @endforeach
                 </div>
             @endif
@@ -501,6 +529,45 @@
                                     x-on:click="toggleBed('{{ $n }}')"
                                     x-bind:aria-pressed="beds.includes('{{ $n }}')"
                                     x-bind:class="beds.includes('{{ $n }}') ? presetOn : ''"
+                                    class="h-12 rounded-full text-base font-semibold ring-1 {{ $chipEmpty }}"
+                                >
+                                    {{ $n === '5' ? '5+' : $n }}
+                                </button>
+                            @endforeach
+                        </div>
+                    </x-quick-search.sheet>
+                </div>
+
+                <div class="relative">
+                    <button
+                        type="button"
+                        x-on:click="show('rooms')"
+                        x-bind:aria-expanded="panel === 'rooms'"
+                        aria-haspopup="dialog"
+                        class="{{ $chipBase }} {{ $chips['rooms'] ? $chipFilled : $chipEmpty }}"
+                    >
+                        <span class="truncate">{{ $chips['rooms'] ?? __('gshome.quick_search.rooms') }}</span>
+                        <x-filament::icon
+                            :icon="Heroicon::ChevronDown"
+                            class="size-4 shrink-0 opacity-60"
+                        />
+                    </button>
+                    <x-quick-search.sheet
+                        name="rooms"
+                        :title="__('gshome.quick_search.rooms')"
+                        align="end"
+                    >
+                        <div
+                            class="grid grid-cols-5 gap-2"
+                            role="group"
+                            aria-label="{{ __('gshome.quick_search.rooms') }}"
+                        >
+                            @foreach (['1', '2', '3', '4', '5'] as $n)
+                                <button
+                                    type="button"
+                                    x-on:click="toggleRoom('{{ $n }}')"
+                                    x-bind:aria-pressed="rooms.includes('{{ $n }}')"
+                                    x-bind:class="rooms.includes('{{ $n }}') ? presetOn : ''"
                                     class="h-12 rounded-full text-base font-semibold ring-1 {{ $chipEmpty }}"
                                 >
                                     {{ $n === '5' ? '5+' : $n }}

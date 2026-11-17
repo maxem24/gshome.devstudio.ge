@@ -153,12 +153,13 @@ class ListingView extends Page
             'address' => $l->address,
             'district' => collect([$l->city, $l->district])->filter()->implode(', '),
             'map' => $l->lat !== null && $l->lng !== null ? "https://maps.google.com/?q={$l->lat},{$l->lng}" : null,
-            'description' => $l->description,
+            'description' => ListingDetails::plainText($l->description),
             'images' => $l->images,
             'additional' => ListingDetails::additional($l, $this->amenityCatalog()),
             'seller' => $l->sellerCategory->getLabel().($l->agencyName ? " · {$l->agencyName}" : ''),
             'contact_name' => $l->contactName,
             'contact_phone' => $l->contactPhone,
+            'call_href' => self::telHref($l->contactPhone),
             'viber' => $l->hasViber,
             'whatsapp' => $l->hasWhatsapp,
             'source' => $l->source === 'myhome_ge' ? 'myhome.ge' : 'ss.ge',
@@ -182,6 +183,17 @@ class ListingView extends Page
             ], $l->clusterListings),
             'soft_match' => self::softMatch($l->match),
         ];
+    }
+
+    private static function telHref(?string $phone): ?string
+    {
+        if ($phone === null || trim($phone) === '') {
+            return null;
+        }
+
+        $digits = preg_replace('/[^\d+]/', '', $phone);
+
+        return is_string($digits) && $digits !== '' && $digits !== '+' ? 'tel:'.$digits : null;
     }
 
     /**

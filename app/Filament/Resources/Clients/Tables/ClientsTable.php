@@ -2,11 +2,13 @@
 
 namespace App\Filament\Resources\Clients\Tables;
 
+use App\Enums\ClientHousing;
 use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Models\Client;
 use App\Support\PhoneNumber;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -28,6 +30,10 @@ class ClientsTable
                     ->label(__('gshome.crm.clients.phone'))
                     ->placeholder('—')
                     ->searchable(query: fn (Builder $query, string $search): Builder => self::searchPhone($query, $search)),
+                TextColumn::make('housing')
+                    ->label(__('gshome.crm.clients.housing_label'))
+                    ->badge()
+                    ->placeholder('—'),
                 TextColumn::make('reliability')
                     ->label(__('gshome.crm.clients.reliability'))
                     ->badge()
@@ -47,6 +53,11 @@ class ClientsTable
                     ->dateTime('d.m.Y')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->filters([
+                SelectFilter::make('housing')
+                    ->label(__('gshome.crm.clients.housing_label'))
+                    ->options(ClientHousing::class),
             ])
             ->recordActions([ViewAction::make()]);
     }

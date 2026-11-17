@@ -7,6 +7,7 @@ use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Crm\Viewings;
+use App\Enums\ClientHousing;
 use App\Enums\Direction;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Filament\Resources\Clients\Pages\CreateClient;
@@ -39,7 +40,7 @@ class ClientResourceTest extends TestCase
     /** @return array<string, mixed> */
     private function form(string $phone = '555 12 34 56', string $first = 'Нино', ?string $last = 'Беридзе'): array
     {
-        return ['phone' => $phone, 'first_name' => $first, 'last_name' => $last, 'tags' => ['buyer'], 'reliability' => 'unverified'];
+        return ['phone' => $phone, 'first_name' => $first, 'last_name' => $last, 'tags' => ['buyer'], 'reliability' => 'unverified', 'housing' => ClientHousing::Looking->value];
     }
 
     public function test_create_new_client(): void
@@ -54,8 +55,36 @@ class ClientResourceTest extends TestCase
 
         $client = Client::query()->where('phone_e164', '+995555123456')->firstOrFail();
         $this->assertSame(['buyer'], $client->tags);
+        $this->assertSame([], $client->profile);
         $this->assertSame($agent->id, $client->created_by);
         $this->assertSame(1, Activity::query()->where('event', Journal::CLIENT_CREATED)->count());
+    }
+
+    public function test_create_stores_who_will_live_and_what_they_want(): void
+    {
+        $this->actingAs(User::factory()->agent($this->lead)->create());
+
+        Livewire::test(CreateClient::class)
+            ->fillForm($this->form() + [
+                'occupants' => 'Мать с ребёнком',
+                'people' => 2,
+                'home' => 'Квартира',
+                'rooms' => '2',
+                'price_max' => 800,
+                'place' => 'Ваке',
+            ])
+            ->call('create')
+            ->assertHasNoFormErrors();
+
+        $client = Client::query()->where('phone_e164', '+995555123456')->firstOrFail();
+        $this->assertEquals([
+            'occupants' => 'Мать с ребёнком',
+            'people' => 2,
+            'home' => 'Квартира',
+            'rooms' => '2',
+            'price_max' => 800,
+            'place' => 'Ваке',
+        ], $client->profile);
     }
 
     public function test_bad_phone_and_bad_tag_rejected(): void
@@ -246,6 +275,18 @@ class ClientResourceTest extends TestCase
                 ->assertCanSeeTableRecords([$nino])
                 ->assertCanNotSeeTableRecords([$other]);
         }
+    }
+
+    public function test_housing_mark_accepts_the_enum_filament_returns(): void
+    {
+        $agent = User::factory()->agent($this->lead)->create();
+        $client = Client::factory()->create(['created_by' => $agent->id, 'housing' => null]);
+        $this->actingAs($agent);
+
+        Livewire::test(ViewClient::class, ['record' => $client->id])
+            ->callAction('housing', ['housing' => ClientHousing::Looking]);
+
+        $this->assertSame(ClientHousing::Looking, $client->refresh()->housing);
     }
 
     public function test_archive_by_creator_and_owner_restore_only_owner(): void

@@ -42,6 +42,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 
 /**
@@ -176,6 +177,7 @@ class Listings extends Page implements HasTable
         return is_scalar($this->tableSearch) && filled($this->tableSearch) ? Str::trim((string) $this->tableSearch) : null;
     }
 
+    #[On('listings-scope')]
     public function setScope(string $scope): void
     {
         abort_unless(in_array(ListingScope::tryFrom($scope), $this->scopes(), true), 404);
@@ -183,18 +185,13 @@ class Listings extends Page implements HasTable
     }
 
     /**
-     * Кнопки над списком. «Наше агентство» и «Мои» — фильтр по номерам: без него в API они всегда пусты.
+     * Кнопки в строке быстрого поиска. «Наше агентство» и «Мои» — фильтр по номерам: без него в API они всегда пусты.
      *
      * @return list<ListingScope>
      */
     public function scopes(): array
     {
-        $phones = app(RealEstateClient::class)->phoneFiltersEnabled();
-
-        return array_values(array_filter(
-            ListingScope::cases(),
-            fn (ListingScope $scope): bool => $phones || ! in_array($scope, [ListingScope::OurAgency, ListingScope::Mine], true),
-        ));
+        return ListingScope::visible(app(RealEstateClient::class)->phoneFiltersEnabled());
     }
 
     /** Компания, которую администратор представляет. У остальных ролей строки нет. */

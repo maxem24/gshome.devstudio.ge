@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Clients\Pages;
 
 use App\Crm\ClientLookup;
 use App\Crm\ClientMatch;
+use App\Crm\ClientProfile;
 use App\Crm\Journal;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
@@ -123,6 +124,8 @@ class CreateClient extends CreateRecord
             'last_name' => filled($data['last_name'] ?? null) ? $data['last_name'] : null,
             'tags' => array_values($data['tags'] ?? []),
             'reliability' => $data['reliability'],
+            'housing' => $data['housing'] ?? null,
+            'profile' => ClientProfile::clean($data),
         ];
     }
 

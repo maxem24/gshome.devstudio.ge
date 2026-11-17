@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Deals\Schemas;
 
+use App\Crm\ClientProfile;
 use App\Crm\DealIntake;
 use App\Crm\DealStages;
 use App\Enums\Direction;
@@ -58,6 +59,15 @@ class DealInfolist
             TextEntry::make('lost_reason')
                 ->label(__('gshome.crm.deals.reason'))
                 ->visible(fn (Deal $record): bool => $record->lost_reason !== null),
+            Section::make(__('gshome.crm.clients.profile_title'))
+                ->schema([
+                    TextEntry::make('client_profile')
+                        ->hiddenLabel()
+                        ->state(fn (Deal $record): array => ClientProfile::lines($record->client))
+                        ->listWithLineBreaks()
+                        ->placeholder('—'),
+                ])
+                ->columnSpanFull(),
             Section::make(__('gshome.crm.intake.title'))
                 ->schema([
                     TextEntry::make('intake')
