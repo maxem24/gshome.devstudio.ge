@@ -234,7 +234,7 @@ class DealResourceTest extends TestCase
     public function test_card_shows_intake_labels(): void
     {
         [$deal, $nino] = $this->rentDeal();
-        $deal->client->profile = ['occupants' => 'Семья с ребёнком', 'people' => 3, 'rooms' => '2'];
+        $deal->client->profile = ['occupants' => 'mother_child', 'people' => 3, 'rooms' => '2'];
         $deal->client->save();
         app(Deals::class)->updateIntake($deal, ['term' => '1y'], '1200', 'USD', $nino);
         $this->actingAs($nino);
@@ -243,7 +243,7 @@ class DealResourceTest extends TestCase
             ->assertSee(__('gshome.crm.intake.title'))
             ->assertSee(__('gshome.crm.intake.term'))
             ->assertSee(__('gshome.crm.intake.term_1y'))
-            ->assertSee('Семья с ребёнком')
+            ->assertSee(__('gshome.crm.clients.occupant.mother_child'))
             ->assertSee('1 200 USD');
     }
 

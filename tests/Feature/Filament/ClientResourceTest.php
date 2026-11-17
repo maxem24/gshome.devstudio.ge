@@ -3,6 +3,7 @@
 namespace Tests\Feature\Filament;
 
 use App\Crm\ClientMatch;
+use App\Crm\ClientProfile;
 use App\Crm\Deals;
 use App\Crm\Journal;
 use App\Crm\Pins;
@@ -66,25 +67,26 @@ class ClientResourceTest extends TestCase
 
         Livewire::test(CreateClient::class)
             ->fillForm($this->form() + [
-                'occupants' => 'Мать с ребёнком',
+                'occupants' => 'mother_child',
                 'people' => 2,
-                'home' => 'Квартира',
+                'home' => ['new_build', 'pets'],
                 'rooms' => '2',
                 'price_max' => 800,
-                'place' => 'Ваке',
+                'note' => 'После 18:00',
             ])
             ->call('create')
             ->assertHasNoFormErrors();
 
         $client = Client::query()->where('phone_e164', '+995555123456')->firstOrFail();
         $this->assertEquals([
-            'occupants' => 'Мать с ребёнком',
+            'occupants' => 'mother_child',
             'people' => 2,
-            'home' => 'Квартира',
+            'home' => ['new_build', 'pets'],
             'rooms' => '2',
             'price_max' => 800,
-            'place' => 'Ваке',
+            'note' => 'После 18:00',
         ], $client->profile);
+        $this->assertSame([101, 102], ClientProfile::clean(['subdistrict_ids' => [101, '102', 0, 'нет']])['subdistrict_ids']);
     }
 
     public function test_bad_phone_and_bad_tag_rejected(): void

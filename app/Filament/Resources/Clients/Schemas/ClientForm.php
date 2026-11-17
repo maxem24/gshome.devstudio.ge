@@ -2,14 +2,18 @@
 
 namespace App\Filament\Resources\Clients\Schemas;
 
+use App\Crm\ClientPlaces;
 use App\Crm\ClientProfile;
+use App\Enums\ClientHome;
 use App\Enums\ClientHousing;
+use App\Enums\ClientOccupant;
 use App\Enums\ClientTag;
 use App\Models\Client;
 use App\Support\PhoneNumber;
 use Closure;
 use Filament\Forms\Components\CheckboxList;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Schema;
@@ -45,13 +49,28 @@ class ClientForm
                 ->options(self::reliabilityOptions())
                 ->default('unverified')
                 ->required(),
-            TextInput::make('occupants')->label(__('gshome.crm.clients.profile.occupants'))->maxLength(255),
+            Select::make('occupants')
+                ->label(__('gshome.crm.clients.profile.occupants'))
+                ->options(ClientOccupant::class)
+                ->native(false)
+                ->searchable(),
             TextInput::make('people')->label(__('gshome.crm.clients.profile.people'))->numeric()->minValue(1)->maxValue(30),
-            TextInput::make('home')->label(__('gshome.crm.clients.profile.home'))->maxLength(255),
+            Select::make('home')
+                ->label(__('gshome.crm.clients.profile.home'))
+                ->options(ClientHome::class)
+                ->multiple()
+                ->native(false)
+                ->searchable(),
+            Select::make('subdistrict_ids')
+                ->label(__('gshome.crm.clients.profile.place'))
+                ->options(fn (): array => ClientPlaces::options())
+                ->multiple()
+                ->native(false)
+                ->searchable(),
             TextInput::make('rooms')->label(__('gshome.crm.clients.profile.rooms'))->maxLength(32),
             TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
             TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
-            TextInput::make('place')->label(__('gshome.crm.clients.profile.place'))->maxLength(255),
+            Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull(),
         ]);
     }
 
