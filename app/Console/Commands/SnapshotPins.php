@@ -6,6 +6,7 @@ use App\Crm\Pins;
 use App\Enums\Direction;
 use App\Models\ListingPin;
 use App\RealEstate\Exceptions\RealEstateException;
+use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\RealEstateClient;
 use Illuminate\Console\Command;
 
@@ -30,13 +31,17 @@ class SnapshotPins extends Command
         foreach ($query->orderBy('id')->cursor() as $pin) {
             try {
                 $listing = $client->listing($pin->listing_id);
+            } catch (RealEstateRateLimited $e) {
+                // Квота кончилась: остальные дождутся следующего запуска, а не получат по 429.
+                $this->warn("Лимит API, остановлено на {$pin->listing_id}");
+                break;
             } catch (RealEstateException $e) {
                 $listing = null;
                 $this->warn("{$pin->listing_id}: {$e->getMessage()}");
             }
             if ($listing === null) {
                 $this->warn("Объявление {$pin->listing_id} недоступно, пропущено");
-            } elseif ($pins->snapshot($pin, $listing)) {
+            } elseif ($pins->snapshot($pin, $listing, touch: true)) {
                 $updated++;
             }
             // Квота API: не больше трёх запросов в секунду.

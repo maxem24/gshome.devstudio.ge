@@ -28,12 +28,16 @@ class ClientPolicy
         return true;
     }
 
-    /** Править — владелец, тот, кто завёл, и тот, у кого есть сделка с клиентом. Номер правкой не меняется. */
+    /** Править — не в архиве: владелец, тот, кто завёл, и агент или партнёр сделки с клиентом. Номер правкой не меняется. */
     public function update(User $user, Client $client): bool
     {
+        if ($client->trashed()) {
+            return false;
+        }
+
         return $user->role === Role::Owner
             || $client->created_by === $user->id
-            || $client->deals()->where('user_id', $user->id)->exists();
+            || $client->deals()->where(fn ($q) => $q->where('user_id', $user->id)->orWhere('partner_user_id', $user->id))->exists();
     }
 
     public function delete(User $user, Client $client): bool

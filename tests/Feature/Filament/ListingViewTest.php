@@ -22,6 +22,7 @@ use App\RealEstate\RealEstateClient;
 use App\Search\LinkImports;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -442,6 +443,25 @@ class ListingViewTest extends TestCase
         RealEstateFake::fake(cards: [14 => RealEstateFake::listing(['id' => 14])]);
         $this->actingAs($nino);
         Livewire::test(ListingView::class, ['listing' => 14])->assertDontSee(__('gshome.crm.matching.clients_title'));
+    }
+
+    /** Опрос актуализации идёт раз в 2 секунды: подбор не должен считаться заново на каждом. */
+    public function test_matches_are_not_recomputed_on_every_render(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101]]]);
+        $this->actingAs($agent);
+        $runs = 0;
+        DB::listen(function ($q) use (&$runs): void {
+            if (str_contains($q->sql, 'CROSS JOIN listing_pins')) {
+                $runs++;
+            }
+        });
+
+        Livewire::test(ListingView::class, ['listing' => 13])->call('$refresh')->call('$refresh');
+
+        $this->assertSame(1, $runs);
     }
 
     public function test_probable_clients_empty_state(): void

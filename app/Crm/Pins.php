@@ -163,9 +163,10 @@ class Pins
      * Пишет, только если что-то из этого изменилось; заголовок зависит от языка смотрящего,
      * поэтому сам по себе запись не вызывает.
      *
+     * @param  bool  $touch  ночная проверка: отметить снимок свежим и без изменений, чтобы --stale его пропускал
      * @return bool true — снимок записан
      */
-    public function snapshot(ListingPin $pin, Listing $listing): bool
+    public function snapshot(ListingPin $pin, Listing $listing, bool $touch = false): bool
     {
         $price = $listing->priceUsd === null ? null : number_format($listing->priceUsd, 2, '.', '');
         $changed = $pin->snapshot_at === null
@@ -173,6 +174,10 @@ class Pins
             || $pin->rooms !== $listing->rooms
             || $pin->subdistrict_id !== $listing->subdistrictId;
         if (! $changed) {
+            if ($touch) {
+                $pin->update(['snapshot_at' => now()]);
+            }
+
             return false;
         }
 

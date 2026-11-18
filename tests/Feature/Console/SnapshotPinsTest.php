@@ -7,6 +7,7 @@ use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -50,5 +51,32 @@ class SnapshotPinsTest extends TestCase
         $this->artisan('pins:snapshot', ['--stale' => 24])->assertSuccessful();
 
         Http::assertNotSent(fn (Request $r): bool => str_contains($r->url(), '/listings/31'));
+    }
+
+    /** Ночная проверка без изменений тоже считается свежей: иначе --stale опрашивал бы всех каждую ночь. */
+    public function test_unchanged_pin_is_not_requested_again_the_same_day(): void
+    {
+        $card = RealEstateFake::listing(['id' => 41, 'price' => ['usd' => 600.0], 'rooms' => 2, 'subdistrict' => ['id' => 5, 'title' => 'X']]);
+        $pin = $this->pin(41, Direction::Rent, now()->subHours(30)->toIso8601String());
+        $pin->update(['price_usd' => 600, 'rooms' => 2, 'subdistrict_id' => 5]);
+        RealEstateFake::fake(cards: [41 => $card]);
+
+        $this->artisan('pins:snapshot', ['--stale' => 24])->assertSuccessful();
+        Cache::flush(); // карточка кешируется клиентом API — второй запуск должен решать сам, а не по кешу
+        $this->artisan('pins:snapshot', ['--stale' => 24])->assertSuccessful();
+
+        $this->assertCount(1, array_filter(Http::recorded()->all(), fn (array $pair): bool => str_contains($pair[0]->url(), '/listings/41')));
+    }
+
+    public function test_stops_on_rate_limit(): void
+    {
+        $this->pin(51, Direction::Rent);
+        $this->pin(52, Direction::Rent);
+        RealEstateFake::configure();
+        Http::fake(['*' => Http::response(['error' => ['code' => 'rate_limited']], 429, ['Retry-After' => '60'])]);
+
+        $this->artisan('pins:snapshot')->assertSuccessful();
+
+        Http::assertSentCount(1);
     }
 }

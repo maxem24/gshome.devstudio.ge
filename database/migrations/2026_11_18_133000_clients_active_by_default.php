@@ -12,6 +12,7 @@ return new class extends Migration
         DB::statement("ALTER TABLE clients ALTER COLUMN housing SET DEFAULT 'looking'");
     }
 
+    /** Необратимо по данным: кто был без отметки, после up() неотличим от активных — NULL не вернуть. */
     public function down(): void
     {
         DB::statement('ALTER TABLE clients ALTER COLUMN housing DROP DEFAULT');

@@ -61,4 +61,16 @@ class ClientProfileTest extends TestCase
         $this->assertEquals(['rooms_min' => 1, 'rooms_max' => 1], $got[4]);
         $this->assertEquals(['note' => "a\nКомнат: много"], $got[5]);
     }
+
+    /** Откат и повторный накат не превращают «до 3» в «ровно 3». */
+    public function test_rooms_migration_round_trip_keeps_upper_bound_only(): void
+    {
+        $client = Client::factory()->create(['profile' => ['rooms_max' => 3]]);
+        $migration = require database_path('migrations/2026_11_18_131000_split_client_rooms.php');
+
+        $migration->down();
+        $migration->up();
+
+        $this->assertEquals(['rooms_min' => 1, 'rooms_max' => 3], $client->fresh()?->profile);
+    }
 }

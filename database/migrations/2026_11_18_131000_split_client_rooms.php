@@ -38,9 +38,11 @@ return new class extends Migration
             $min = $profile['rooms_min'] ?? null;
             $max = $profile['rooms_max'] ?? null;
             unset($profile['rooms_min'], $profile['rooms_max']);
+            // «До N» строкой не записать — откатываем как «1-N», повторный накат даст тот же смысл.
             $profile['rooms'] = match (true) {
                 $max === null => $min.'+',
-                $min === null || $min === $max => (string) $max,
+                $min === null => '1-'.$max,
+                $min === $max => (string) $max,
                 default => $min.'-'.$max,
             };
             DB::table('clients')->where('id', $row->id)->update(['profile' => json_encode($profile, JSON_UNESCAPED_UNICODE)]);

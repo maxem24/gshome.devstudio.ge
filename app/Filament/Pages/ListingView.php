@@ -39,6 +39,7 @@ use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -540,7 +541,9 @@ class ListingView extends Page
             return null;
         }
 
-        return MatchRows::forPin($pin);
+        // Опрос актуализации перерисовывает страницу раз в 2 секунды — подбор не пересчитываем на каждом.
+        // updated_at в ключе: после правки предпочтений список обновится сразу.
+        return Cache::remember('matches:pin:'.$pin->id.':'.$pin->updated_at?->timestamp, 30, fn (): array => MatchRows::forPin($pin));
     }
 
     protected function dealPin(): ?ListingPin

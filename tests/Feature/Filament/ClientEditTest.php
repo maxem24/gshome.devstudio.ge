@@ -115,6 +115,33 @@ class ClientEditTest extends TestCase
         $this->assertSame($stranger->id, $entry->causer_id);
     }
 
+    public function test_archived_client_is_not_editable(): void
+    {
+        $client = Client::factory()->create();
+        $client->delete();
+        $owner = User::factory()->owner()->create();
+        $this->actingAs($owner);
+
+        $this->assertFalse($owner->can('update', $client));
+        $this->get(ClientResource::getUrl('edit', ['record' => $client]))->assertNotFound();
+    }
+
+    public function test_deal_partner_can_edit(): void
+    {
+        $partner = $this->agent();
+        $client = Client::factory()->create();
+        $pin = ListingPin::query()->create([
+            'listing_id' => 88, 'pin_key' => 'l88', 'direction' => Direction::Rent, 'user_id' => $this->agent()->id,
+            'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
+        ]);
+        DB::table('deals')->insert([
+            'listing_pin_id' => $pin->id, 'client_id' => $client->id, 'user_id' => $pin->user_id, 'partner_user_id' => $partner->id,
+            'stage' => 'call', 'status' => 'open', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertTrue($partner->can('update', $client));
+    }
+
     public function test_status_labels_say_active_or_not(): void
     {
         $this->assertSame('Активен — ищет квартиру', ClientHousing::Looking->getLabel());
