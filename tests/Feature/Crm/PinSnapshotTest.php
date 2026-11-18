@@ -69,4 +69,18 @@ class PinSnapshotTest extends TestCase
         $this->assertSame(650.0, (float) $pin->fresh()?->price_usd);
         $this->assertSame(Direction::Sale, $pin->fresh()?->direction);
     }
+
+    public function test_opening_a_duplicate_copy_keeps_the_snapshot(): void
+    {
+        $agent = $this->agent();
+        $cluster = ['id' => 5, 'listings_count' => 2, 'phones_e164' => [], 'listings' => []];
+        $pin = app(Pins::class)->take($this->listing(['cluster' => $cluster]), $agent);
+        RealEstateFake::fake(cards: [14 => RealEstateFake::listing(['id' => 14, 'cluster' => $cluster, 'price' => ['usd' => 700.0], 'subdistrict' => null])]);
+        $this->actingAs($agent);
+
+        Livewire::test(ListingView::class, ['listing' => 14])->assertOk();
+
+        $this->assertSame(600.0, (float) $pin->fresh()?->price_usd);
+        $this->assertSame(101, $pin->fresh()?->subdistrict_id);
+    }
 }

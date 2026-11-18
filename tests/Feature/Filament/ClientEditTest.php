@@ -99,6 +99,22 @@ class ClientEditTest extends TestCase
         Livewire::test(ViewClient::class, ['record' => $client->getRouteKey()])->assertDontSee(__('gshome.crm.matching.offers_title'));
     }
 
+    /** Статус меняет любой, кто видит клиента (агент звонит, а клиенту уже не надо), но след остаётся в журнале. */
+    public function test_any_agent_changes_status_and_it_is_journaled(): void
+    {
+        $client = Client::factory()->create(['housing' => ClientHousing::Looking]);
+        $stranger = $this->agent();
+        $this->actingAs($stranger);
+
+        Livewire::test(ViewClient::class, ['record' => $client->getRouteKey()])
+            ->callAction('housing', data: ['housing' => ClientHousing::Renting->value])
+            ->assertHasNoActionErrors();
+
+        $this->assertSame(ClientHousing::Renting, $client->fresh()?->housing);
+        $entry = Activity::query()->where('event', Journal::CLIENT_UPDATED)->sole();
+        $this->assertSame($stranger->id, $entry->causer_id);
+    }
+
     public function test_status_labels_say_active_or_not(): void
     {
         $this->assertSame('Активен — ищет квартиру', ClientHousing::Looking->getLabel());

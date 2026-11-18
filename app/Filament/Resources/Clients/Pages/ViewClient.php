@@ -46,7 +46,12 @@ class ViewClient extends ViewRecord
                     $record->housing = $housing instanceof ClientHousing
                         ? $housing
                         : ClientHousing::from((string) $housing);
-                    $record->save();
+                    // Статус меняет любой, кто видит клиента: звонит агент без сделки, а клиенту уже не надо.
+                    // От статуса зависит подбор для всей группы — поэтому след в журнале.
+                    DB::transaction(function () use ($record): void {
+                        $record->save();
+                        Journal::record(Journal::CLIENT_UPDATED, $record);
+                    });
                 }),
             Action::make('archive')
                 ->label(__('gshome.crm.clients.to_archive'))

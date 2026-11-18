@@ -120,8 +120,9 @@ class ListingView extends Page
 
         $this->buildCard($l, $direction, $viewer);
 
-        // Снимок для подбора пар обновляем тем же ответом API, без второго запроса.
-        if (($pin = app(Pins::class)->activeFor($l)) !== null) {
+        // Снимок для подбора пар обновляем тем же ответом API, без второго запроса — и только со «своего»
+        // объявления: копия из группы дублей может стоить иначе и не знать микрорайона.
+        if (($pin = app(Pins::class)->activeFor($l)) !== null && $pin->listing_id === $l->id) {
             app(Pins::class)->snapshot($pin, $l);
         }
     }
