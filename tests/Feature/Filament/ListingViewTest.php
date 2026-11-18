@@ -376,11 +376,16 @@ class ListingViewTest extends TestCase
 
         Livewire::test(ListingView::class, ['listing' => 13])
             ->assertActionVisible('landlordPreferences')
+            ->mountAction('landlordPreferences')
+            ->assertFormFieldExists('occupants')
+            ->assertFormFieldDoesNotExist('price_min')
+            ->assertFormFieldDoesNotExist('subdistrict_ids')
+            ->assertFormFieldDoesNotExist('rooms_min')
+            ->callMountedAction()
             ->callAction('landlordPreferences', data: [
                 'occupants' => ['couple', 'small_family'],
                 'home' => ['furnished'],
                 'people' => 3,
-                'price_min' => 500,
                 'note' => '  Без животных  ',
             ])
             ->assertHasNoActionErrors()
@@ -390,7 +395,7 @@ class ListingViewTest extends TestCase
             ->assertSee('Без животных');
 
         // jsonb хранит ключи в своём порядке: сравниваем без учёта порядка ключей.
-        $expected = ['occupants' => ['couple', 'small_family'], 'people' => 3, 'home' => ['furnished'], 'price_min' => 500, 'note' => 'Без животных'];
+        $expected = ['occupants' => ['couple', 'small_family'], 'people' => 3, 'home' => ['furnished'], 'note' => 'Без животных'];
         $saved = (array) $pin->fresh()?->preferences;
         ksort($expected);
         ksort($saved);

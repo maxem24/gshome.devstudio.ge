@@ -70,7 +70,8 @@ class ClientResourceTest extends TestCase
                 'occupants' => 'mother_child',
                 'people' => 2,
                 'home' => ['new_build', 'pets'],
-                'rooms' => '2',
+                'rooms_min' => 2,
+                'rooms_max' => 3,
                 'price_max' => 800,
                 'note' => 'После 18:00',
             ])
@@ -82,7 +83,8 @@ class ClientResourceTest extends TestCase
             'occupants' => 'mother_child',
             'people' => 2,
             'home' => ['new_build', 'pets'],
-            'rooms' => '2',
+            'rooms_min' => 2,
+            'rooms_max' => 3,
             'price_max' => 800,
             'note' => 'После 18:00',
         ], $client->profile);

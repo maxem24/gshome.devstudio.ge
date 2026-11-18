@@ -55,17 +55,17 @@ class ClientForm
     }
 
     /**
-     * Поля «Кого ищет». Те же — в предпочтениях собственника, там «кто будет жить» — несколько вариантов.
+     * Поля «Кого ищет». У собственника «кто будет жить» — несколько вариантов, а цены, района и комнат нет.
      *
      * @return list<Component>
      */
-    public static function profileFields(bool $manyOccupants = false): array
+    public static function profileFields(bool $landlord = false): array
     {
-        return [
+        $fields = [
             Select::make('occupants')
                 ->label(__('gshome.crm.clients.profile.occupants'))
                 ->options(ClientOccupant::class)
-                ->multiple($manyOccupants)
+                ->multiple($landlord)
                 ->native(false)
                 ->searchable(),
             TextInput::make('people')->label(__('gshome.crm.clients.profile.people'))->numeric()->minValue(1)->maxValue(30),
@@ -75,17 +75,25 @@ class ClientForm
                 ->multiple()
                 ->native(false)
                 ->searchable(),
-            Select::make('subdistrict_ids')
-                ->label(__('gshome.crm.clients.profile.place'))
-                ->options(fn (): array => ClientPlaces::options())
-                ->multiple()
-                ->native(false)
-                ->searchable(),
-            TextInput::make('rooms')->label(__('gshome.crm.clients.profile.rooms'))->maxLength(32),
-            TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
-            TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
-            Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull(),
         ];
+        // У собственника цена, район и комнаты — из объявления, в окне их нет.
+        if (! $landlord) {
+            $fields = [
+                ...$fields,
+                Select::make('subdistrict_ids')
+                    ->label(__('gshome.crm.clients.profile.place'))
+                    ->options(fn (): array => ClientPlaces::options())
+                    ->multiple()
+                    ->native(false)
+                    ->searchable(),
+                TextInput::make('rooms_min')->label(__('gshome.crm.clients.profile.rooms_min'))->numeric()->minValue(1)->maxValue(20),
+                TextInput::make('rooms_max')->label(__('gshome.crm.clients.profile.rooms_max'))->numeric()->minValue(1)->maxValue(20),
+                TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
+                TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
+            ];
+        }
+
+        return [...$fields, Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull()];
     }
 
     public static function infolist(Schema $schema): Schema

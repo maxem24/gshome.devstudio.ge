@@ -610,7 +610,7 @@ class ListingView extends Page
                 ->visible($manage)
                 ->modalHeading(__('gshome.crm.pins.preferences_title'))
                 ->modalSubmitActionLabel(__('filament-actions::edit.single.modal.actions.save.label'))
-                ->schema(ClientForm::profileFields(manyOccupants: true))
+                ->schema(ClientForm::profileFields(landlord: true))
                 ->fillForm(fn (): array => $this->pin()->preferences ?? [])
                 ->action(function (array $data): void {
                     $pin = $this->pin();
