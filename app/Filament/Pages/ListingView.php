@@ -520,7 +520,8 @@ class ListingView extends Page
             'mine' => $holder->id === $viewer->id,
             'name' => $named ? $holder->name : null,
             'holder_id' => $holder->id,
-            'preferences' => ClientProfile::linesFor($pin->preferences ?? []),
+            // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
+            'preferences' => app(Pins::class)->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [],
         ];
     }
 

@@ -400,10 +400,14 @@ class ListingViewTest extends TestCase
     public function test_other_agent_cannot_edit_landlord_preferences(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
-        $this->pinFor(User::factory()->agent(User::factory()->teamLead()->create())->create());
+        $pin = $this->pinFor(User::factory()->agent(User::factory()->teamLead()->create())->create());
+        $pin->update(['preferences' => ['note' => 'Секрет собственника']]);
         $this->actingAs(User::factory()->agent(User::factory()->teamLead()->create())->create());
 
-        Livewire::test(ListingView::class, ['listing' => 13])->assertActionHidden('landlordPreferences');
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionHidden('landlordPreferences')
+            ->assertDontSee(__('gshome.crm.pins.preferences_title'))
+            ->assertDontSee('Секрет собственника');
     }
 
     public function test_other_agent_sees_banner_and_no_take_action(): void
