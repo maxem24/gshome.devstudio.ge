@@ -367,6 +367,45 @@ class ListingViewTest extends TestCase
         $this->assertSame($nino->id, ListingPin::query()->sole()->user_id);
     }
 
+    public function test_holder_saves_landlord_preferences_and_sees_them(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create(['name' => 'Нино']);
+        $pin = $this->pinFor($nino);
+        $this->actingAs($nino);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionVisible('landlordPreferences')
+            ->callAction('landlordPreferences', data: [
+                'occupants' => ['couple', 'small_family'],
+                'home' => ['furnished'],
+                'people' => 3,
+                'price_min' => 500,
+                'note' => '  Без животных  ',
+            ])
+            ->assertHasNoActionErrors()
+            ->assertNotified(__('gshome.crm.pins.preferences_saved'))
+            ->assertSee(__('gshome.crm.pins.preferences_title'))
+            ->assertSee('Пара, Маленькая семья')
+            ->assertSee('Без животных');
+
+        // jsonb хранит ключи в своём порядке: сравниваем без учёта порядка ключей.
+        $expected = ['occupants' => ['couple', 'small_family'], 'people' => 3, 'home' => ['furnished'], 'price_min' => 500, 'note' => 'Без животных'];
+        $saved = (array) $pin->fresh()?->preferences;
+        ksort($expected);
+        ksort($saved);
+        $this->assertSame($expected, $saved);
+    }
+
+    public function test_other_agent_cannot_edit_landlord_preferences(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $this->pinFor(User::factory()->agent(User::factory()->teamLead()->create())->create());
+        $this->actingAs(User::factory()->agent(User::factory()->teamLead()->create())->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertActionHidden('landlordPreferences');
+    }
+
     public function test_other_agent_sees_banner_and_no_take_action(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);

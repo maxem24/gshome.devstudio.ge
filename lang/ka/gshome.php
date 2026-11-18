@@ -585,6 +585,9 @@ return [
             'release' => 'მოხსნა ჩემგან',
             'release_open_deals' => 'ჯერ დახურეთ ობიექტის ღია გარიგებები.',
             'closed' => 'მზადაა',
+            'preferences' => 'მესაკუთრის პრეფერენციები',
+            'preferences_title' => 'ვის აქირავებს მესაკუთრე',
+            'preferences_saved' => 'პრეფერენციები შენახულია',
         ],
         'my_objects' => [
             'title' => 'ჩემი ობიექტები',

@@ -14,6 +14,16 @@
                         {{ __('gshome.crm.pins.in_work_other') }}
                     @endif
                 </p>
+                @if ($banner['preferences'])
+                    <div class="mt-3 text-sm">
+                        <p class="font-medium text-gray-950 dark:text-white">{{ __('gshome.crm.pins.preferences_title') }}</p>
+                        <ul class="mt-1 space-y-0.5 text-gray-700 dark:text-gray-200">
+                            @foreach ($banner['preferences'] as $line)
+                                <li>{{ $line }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
             </x-filament::section>
         @endif
         @if ($refresh !== [])

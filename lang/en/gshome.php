@@ -583,6 +583,9 @@ return [
             'release' => 'Release',
             'release_open_deals' => 'Close the open deals on this listing first.',
             'closed' => 'Done',
+            'preferences' => 'Landlord preferences',
+            'preferences_title' => 'Who the landlord will rent to',
+            'preferences_saved' => 'Preferences saved',
         ],
         'my_objects' => [
             'title' => 'My listings',

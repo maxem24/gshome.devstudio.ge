@@ -16,6 +16,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Schema;
 
 /** Создание клиента (редактирования нет) и карточка. */
@@ -49,9 +50,22 @@ class ClientForm
                 ->options(self::reliabilityOptions())
                 ->default('unverified')
                 ->required(),
+            ...self::profileFields(),
+        ]);
+    }
+
+    /**
+     * Поля «Кого ищет». Те же — в предпочтениях собственника, там «кто будет жить» — несколько вариантов.
+     *
+     * @return list<Component>
+     */
+    public static function profileFields(bool $manyOccupants = false): array
+    {
+        return [
             Select::make('occupants')
                 ->label(__('gshome.crm.clients.profile.occupants'))
                 ->options(ClientOccupant::class)
+                ->multiple($manyOccupants)
                 ->native(false)
                 ->searchable(),
             TextInput::make('people')->label(__('gshome.crm.clients.profile.people'))->numeric()->minValue(1)->maxValue(30),
@@ -71,7 +85,7 @@ class ClientForm
             TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
             TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
             Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull(),
-        ]);
+        ];
     }
 
     public static function infolist(Schema $schema): Schema

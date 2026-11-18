@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Access\OrgAccess;
 use App\Access\Ownership;
+use App\Crm\ClientProfile;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
@@ -13,6 +14,7 @@ use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
 use App\Enums\Role;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
+use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Jobs\PollListingRefresh;
 use App\Models\ListingPin;
 use App\Models\ListingSearch;
@@ -499,7 +501,7 @@ class ListingView extends Page
         return $id > 0 ? app(Pins::class)->activeForIds($id, $this->card['cluster_id'] ?? null) : null;
     }
 
-    /** @return array{mine: bool, name: ?string, holder_id: int}|null */
+    /** @return array{mine: bool, name: ?string, holder_id: int, preferences: list<string>}|null */
     public function banner(): ?array
     {
         $pin = $this->pin();
@@ -514,7 +516,12 @@ class ListingView extends Page
             || $viewer->role === Role::Owner
             || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
 
-        return ['mine' => $holder->id === $viewer->id, 'name' => $named ? $holder->name : null, 'holder_id' => $holder->id];
+        return [
+            'mine' => $holder->id === $viewer->id,
+            'name' => $named ? $holder->name : null,
+            'holder_id' => $holder->id,
+            'preferences' => ClientProfile::linesFor($pin->preferences ?? []),
+        ];
     }
 
     protected function dealPin(): ?ListingPin
@@ -585,6 +592,28 @@ class ListingView extends Page
                         }
                         app(Pins::class)->transfer($pin, $to, $this->viewer());
                         Notification::make()->title(__('gshome.crm.pins.transferred'))->success()->send();
+                    } catch (CrmForbidden) {
+                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    }
+                    unset($this->pin);
+                }),
+            Action::make('landlordPreferences')
+                ->label(__('gshome.crm.pins.preferences'))
+                ->icon(Heroicon::OutlinedAdjustmentsHorizontal)
+                ->color('gray')
+                ->visible($manage)
+                ->modalHeading(__('gshome.crm.pins.preferences_title'))
+                ->modalSubmitActionLabel(__('filament-actions::edit.single.modal.actions.save.label'))
+                ->schema(ClientForm::profileFields(manyOccupants: true))
+                ->fillForm(fn (): array => $this->pin()->preferences ?? [])
+                ->action(function (array $data): void {
+                    $pin = $this->pin();
+                    try {
+                        if ($pin === null) {
+                            throw new CrmForbidden('Nothing to edit.');
+                        }
+                        app(Pins::class)->savePreferences($pin, $data, $this->viewer());
+                        Notification::make()->title(__('gshome.crm.pins.preferences_saved'))->success()->send();
                     } catch (CrmForbidden) {
                         Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
                     }

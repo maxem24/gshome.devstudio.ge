@@ -65,14 +65,42 @@ final class ClientProfile
         return $out;
     }
 
+    /**
+     * Предпочтения собственника: тот же список, но «кто будет жить» — несколько вариантов.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, string|int|list<string>|list<int>>
+     */
+    public static function cleanLandlord(array $input): array
+    {
+        $occupants = self::enumList($input['occupants'] ?? null, ClientOccupant::class);
+        $rest = self::clean(array_diff_key($input, ['occupants' => true]));
+
+        return $occupants === [] ? $rest : ['occupants' => $occupants] + $rest;
+    }
+
     /** @return list<string> */
     public static function lines(?Client $client): array
     {
-        $profile = $client === null ? [] : $client->profile;
+        return self::linesFor($client === null ? [] : $client->profile);
+    }
+
+    /**
+     * Строки для показа: профиль клиента или предпочтения собственника.
+     *
+     * @param  array<string, mixed>  $profile
+     * @return list<string>
+     */
+    public static function linesFor(array $profile): array
+    {
         $lines = [];
 
-        if (is_string($profile['occupants'] ?? null) && ($who = ClientOccupant::tryFrom($profile['occupants'])) !== null) {
-            $lines[] = __('gshome.crm.clients.profile.occupants').': '.$who->getLabel();
+        $who = self::enumList($profile['occupants'] ?? null, ClientOccupant::class);
+        if ($who !== []) {
+            $lines[] = __('gshome.crm.clients.profile.occupants').': '.implode(', ', array_map(
+                fn (string $key): string => ClientOccupant::from($key)->getLabel(),
+                $who,
+            ));
         }
         if (isset($profile['people']) && $profile['people'] !== '') {
             $lines[] = __('gshome.crm.clients.profile.people').': '.$profile['people'];
@@ -121,6 +149,9 @@ final class ClientProfile
     {
         if ($value instanceof $enum) {
             return [$value->value];
+        }
+        if (is_string($value)) {
+            $value = [$value];
         }
         if (! is_array($value)) {
             return [];

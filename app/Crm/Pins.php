@@ -142,6 +142,17 @@ class Pins
         });
     }
 
+    /**
+     * Кому собственник готов сдать. Тот же список, что «Кого ищет» у клиента.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function savePreferences(ListingPin $pin, array $input, User $by): void
+    {
+        $this->assertCanManage($pin, $by);
+        $pin->update(['preferences' => ClientProfile::cleanLandlord($input)]);
+    }
+
     /** Перечитать под блокировкой: параллельная передача или закрытие могли изменить пин. */
     private function lockActive(ListingPin $pin): void
     {

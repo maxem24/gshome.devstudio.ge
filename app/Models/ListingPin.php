@@ -22,8 +22,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int $user_id
  * @property string $status
  * @property ?string $closed_reason
+ * @property array<string, mixed> $preferences кому собственник готов сдать (LandlordPreferences)
  */
-#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'closed_at', 'last_activity_at'])]
+#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'closed_at', 'last_activity_at', 'preferences'])]
 class ListingPin extends Model
 {
     use SoftDeletes;
@@ -41,6 +42,7 @@ class ListingPin extends Model
             'direction' => Direction::class,
             'closed_at' => 'datetime',
             'last_activity_at' => 'datetime',
+            'preferences' => 'array',
         ];
     }
 
