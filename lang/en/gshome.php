@@ -283,6 +283,13 @@ return [
         'deal' => 'Deal',
         'subdistrict' => 'Subdistrict',
         'mine' => [
+            'rename' => 'Rename',
+            'title_field' => 'Search name',
+            'pin' => 'Pin',
+            'unpin' => 'Unpin',
+            'delete' => 'Delete',
+            'deleted' => 'Search deleted',
+            'delete_running' => 'The search is still running — delete it once it finishes.',
             'nav' => 'My searches',
             'title' => 'My searches',
             'person' => 'Searched by',
@@ -741,6 +748,7 @@ return [
     ],
 
     'quick_search' => [
+        'pinned_title' => 'Pinned searches',
         'recent_title' => 'Recent searches',
         'recent_running' => 'searching…',
         'recent_shown' => ':count listings',
@@ -785,5 +793,30 @@ return [
         'caption_fresh' => 'myhome.ge and ss.ge · 1–3 min',
         'caption_base' => 'instant, already collected',
         'edit' => 'Edit search',
+    ],
+    'dashboard' => [
+        'greeting' => [
+            'morning' => 'Good morning, :name!',
+            'day' => 'Good afternoon, :name!',
+            'evening' => 'Good evening, :name!',
+        ],
+        'phrases' => [
+            'May everything go your way today.',
+            'Good viewings and agreeable landlords!',
+            'Good luck with your deals today.',
+            'May your clients pick up today.',
+            'Have a great day!',
+        ],
+        'summary_lead' => 'Right now you have',
+        'and' => 'and',
+        'pins' => ':count apartment in work|:count apartments in work',
+        'clients' => ':count client in deals|:count clients in deals',
+        'tasks' => ':count task|:count tasks',
+        'nothing_yet' => 'Nothing in work yet — a good time to find the first apartment.',
+        'today_title' => 'Today',
+        'today_empty' => 'Nothing planned for today.',
+        'overdue' => 'overdue',
+        'today_more' => 'and :count more',
+        'all_tasks' => 'All tasks',
     ],
 ];

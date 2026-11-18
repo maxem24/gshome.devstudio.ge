@@ -546,7 +546,10 @@
                         aria-haspopup="dialog"
                         class="{{ $chipBase }} {{ $chips['rooms'] ? $chipFilled : $chipEmpty }}"
                     >
-                        <span class="truncate">{{ $chips['rooms'] ?? __('gshome.quick_search.rooms') }}</span>
+                        <span
+                            class="truncate"
+                            >{{ $chips['rooms'] ?? __('gshome.quick_search.rooms') }}</span
+                        >
                         <x-filament::icon
                             :icon="Heroicon::ChevronDown"
                             class="size-4 shrink-0 opacity-60"

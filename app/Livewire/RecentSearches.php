@@ -6,6 +6,7 @@ use App\Models\ListingSearch;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 /** Три последних поиска человека под быстрым поиском на главной. Пока хоть один ищется — опрашивает сервер раз в 10 секунд. */
@@ -21,6 +22,10 @@ final class RecentSearches extends Component
 
         return ListingSearch::query()->with('user')->where('user_id', $id)->latest('id')->limit(3)->get();
     }
+
+    /** Повтор поиска из «Закреплённых» на той же панели: перерисоваться с новой строкой. */
+    #[On('search-started')]
+    public function refreshList(): void {}
 
     public function render(): View
     {

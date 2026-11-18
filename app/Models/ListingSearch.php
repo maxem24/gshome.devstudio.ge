@@ -28,8 +28,10 @@ use Illuminate\Support\Carbon;
  * @property Carbon $started_at
  * @property ?Carbon $finished_at
  * @property ?Carbon $notified_at
+ * @property ?string $title своё название; null — описание фильтров
+ * @property ?Carbon $pinned_at закреплён наверху
  */
-#[Fillable(['user_id', 'filters', 'body_hash', 'remote_id', 'status', 'message', 'sites', 'found', 'truncated', 'listing_ids', 'started_at', 'finished_at', 'notified_at'])]
+#[Fillable(['user_id', 'filters', 'body_hash', 'remote_id', 'status', 'message', 'sites', 'found', 'truncated', 'listing_ids', 'started_at', 'finished_at', 'notified_at', 'title', 'pinned_at'])]
 class ListingSearch extends Model
 {
     use SoftDeletes;
@@ -46,7 +48,14 @@ class ListingSearch extends Model
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'notified_at' => 'datetime',
+            'pinned_at' => 'datetime',
         ];
+    }
+
+    /** Как поиск называть в списках: своё название или описание фильтров. */
+    public function label(?User $viewer = null): string
+    {
+        return $this->title ?? FiltersSummary::make($this->filters, $viewer ?? $this->user);
     }
 
     /** @return BelongsTo<User, $this> */
