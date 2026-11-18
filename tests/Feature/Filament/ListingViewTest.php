@@ -22,6 +22,7 @@ use App\RealEstate\RealEstateClient;
 use App\Search\LinkImports;
 use Filament\Actions\Testing\TestAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
@@ -365,6 +366,124 @@ class ListingViewTest extends TestCase
             ->assertActionVisible('releasePin');
 
         $this->assertSame($nino->id, ListingPin::query()->sole()->user_id);
+    }
+
+    public function test_holder_saves_landlord_preferences_and_sees_them(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create(['name' => 'Нино']);
+        $pin = $this->pinFor($nino);
+        $this->actingAs($nino);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionVisible('landlordPreferences')
+            ->mountAction('landlordPreferences')
+            ->assertFormFieldExists('occupants')
+            ->assertFormFieldDoesNotExist('price_min')
+            ->assertFormFieldDoesNotExist('subdistrict_ids')
+            ->assertFormFieldDoesNotExist('rooms_min')
+            ->callMountedAction()
+            ->callAction('landlordPreferences', data: [
+                'occupants' => ['couple', 'small_family'],
+                'home' => ['furnished'],
+                'people' => 3,
+                'note' => '  Без животных  ',
+            ])
+            ->assertHasNoActionErrors()
+            ->assertNotified(__('gshome.crm.pins.preferences_saved'))
+            ->assertSee(__('gshome.crm.pins.preferences_title'))
+            ->assertSee('Пара, Маленькая семья')
+            ->assertSee('Без животных');
+
+        // jsonb хранит ключи в своём порядке: сравниваем без учёта порядка ключей.
+        $expected = ['occupants' => ['couple', 'small_family'], 'people' => 3, 'home' => ['furnished'], 'note' => 'Без животных'];
+        $saved = (array) $pin->fresh()?->preferences;
+        ksort($expected);
+        ksort($saved);
+        $this->assertSame($expected, $saved);
+    }
+
+    /** Объект аренды в работе у агента направления «аренда». */
+    private function rentPin(User $by): ListingPin
+    {
+        $data = RealEstateFake::listing(['deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'], 'subdistrict' => ['id' => 101, 'title' => 'Ваке'], 'price' => ['usd' => 600.0]]);
+        RealEstateFake::fake(cards: [13 => $data]);
+
+        return app(Pins::class)->take(Listing::fromApi($data, 'ru'), $by);
+    }
+
+    private function rentAgent(): User
+    {
+        return User::factory()->agent(User::factory()->teamLead(null, Direction::Rent)->create())->create();
+    }
+
+    public function test_holder_sees_probable_clients(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        Client::factory()->create(['first_name' => 'Лаша', 'housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101], 'price_max' => 650]]);
+        $this->actingAs($agent);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee(__('gshome.crm.matching.clients_title'))
+            ->assertSee('Лаша')
+            ->assertSee('100%');
+    }
+
+    public function test_probable_clients_hidden_for_others_and_sale(): void
+    {
+        $this->rentPin($this->rentAgent());
+        Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101]]]);
+        $this->actingAs($this->rentAgent());
+        Livewire::test(ListingView::class, ['listing' => 13])->assertDontSee(__('gshome.crm.matching.clients_title'));
+
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $this->pinFor($nino, 14);
+        RealEstateFake::fake(cards: [14 => RealEstateFake::listing(['id' => 14])]);
+        $this->actingAs($nino);
+        Livewire::test(ListingView::class, ['listing' => 14])->assertDontSee(__('gshome.crm.matching.clients_title'));
+    }
+
+    /** Опрос актуализации идёт раз в 2 секунды: подбор не должен считаться заново на каждом. */
+    public function test_matches_are_not_recomputed_on_every_render(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101]]]);
+        $this->actingAs($agent);
+        $runs = 0;
+        DB::listen(function ($q) use (&$runs): void {
+            if (str_contains($q->sql, 'CROSS JOIN listing_pins')) {
+                $runs++;
+            }
+        });
+
+        Livewire::test(ListingView::class, ['listing' => 13])->call('$refresh')->call('$refresh');
+
+        $this->assertSame(1, $runs);
+    }
+
+    public function test_probable_clients_empty_state(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        $this->actingAs($agent);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee(__('gshome.crm.matching.empty'));
+    }
+
+    public function test_other_agent_cannot_edit_landlord_preferences(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $pin = $this->pinFor(User::factory()->agent(User::factory()->teamLead()->create())->create());
+        $pin->update(['preferences' => ['note' => 'Секрет собственника']]);
+        $this->actingAs(User::factory()->agent(User::factory()->teamLead()->create())->create());
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertActionHidden('landlordPreferences')
+            ->assertDontSee(__('gshome.crm.pins.preferences_title'))
+            ->assertDontSee('Секрет собственника');
     }
 
     public function test_other_agent_sees_banner_and_no_take_action(): void

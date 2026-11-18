@@ -319,7 +319,7 @@ class CrmDemo
             $at('-4 days');
             $pinRent = $this->pin($rentListing, $renter);
             $tenant = $this->client($renter, '+995555100107', 'Элене', 'Беридзе', ['tenant']);
-            $tenant->profile = ['occupants' => 'mother_child', 'people' => 2, 'home' => ['new_build'], 'rooms' => '2', 'price_max' => 900];
+            $tenant->profile = ['occupants' => 'mother_child', 'people' => 2, 'home' => ['new_build'], 'rooms_min' => 2, 'rooms_max' => 2, 'price_max' => 900];
             $tenant->save();
             $dealRent = $this->deal($pinRent, $tenant, $renter);
             $this->deals->updateIntake($dealRent, [

@@ -70,7 +70,8 @@ class ClientResourceTest extends TestCase
                 'occupants' => 'mother_child',
                 'people' => 2,
                 'home' => ['new_build', 'pets'],
-                'rooms' => '2',
+                'rooms_min' => 2,
+                'rooms_max' => 3,
                 'price_max' => 800,
                 'note' => 'После 18:00',
             ])
@@ -82,7 +83,8 @@ class ClientResourceTest extends TestCase
             'occupants' => 'mother_child',
             'people' => 2,
             'home' => ['new_build', 'pets'],
-            'rooms' => '2',
+            'rooms_min' => 2,
+            'rooms_max' => 3,
             'price_max' => 800,
             'note' => 'После 18:00',
         ], $client->profile);
@@ -212,14 +214,14 @@ class ClientResourceTest extends TestCase
         $this->assertSame(1, Client::withTrashed()->count());
     }
 
-    public function test_no_edit_page(): void
+    /** С 18.11 правка есть (ClientEditTest): владельцу страница открывается. */
+    public function test_owner_opens_edit_page(): void
     {
         $client = Client::factory()->create();
         $this->actingAs(User::factory()->owner()->create());
 
-        $this->assertArrayNotHasKey('edit', ClientResource::getPages());
-        $this->get('/admin/clients/'.$client->id.'/edit')->assertNotFound();
-        $this->assertFalse(ClientResource::canEdit($client));
+        $this->get('/admin/clients/'.$client->id.'/edit')->assertOk();
+        $this->assertTrue(ClientResource::canEdit($client));
     }
 
     public function test_agent_sees_full_history_of_client_including_other_agents_deals(): void

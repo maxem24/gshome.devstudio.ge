@@ -66,6 +66,7 @@ final readonly class Listing
         public bool $partial = false,
         public bool $refreshable = false,
         public ?array $match = null,
+        public ?int $subdistrictId = null,
     ) {}
 
     /** Мягкая склейка: не хватало комнат, этажности или микрорайона, совпали телефон / дом / цена (с 29.10). */
@@ -174,6 +175,7 @@ final readonly class Listing
             partial: (bool) ($d['partial'] ?? false),
             refreshable: (bool) ($d['refreshable'] ?? false),
             match: self::match($d['match'] ?? null),
+            subdistrictId: isset($d['subdistrict']['id']) ? (int) $d['subdistrict']['id'] : null,
         );
     }
 

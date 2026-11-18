@@ -8,6 +8,7 @@ use App\Enums\DealStatus;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Models\Client;
 use Filament\Actions\Action;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
@@ -28,6 +29,7 @@ class ViewClient extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            EditAction::make()->visible(fn (Client $record): bool => ! $record->trashed() && (Auth::user()?->can('update', $record) ?? false)),
             Action::make('housing')
                 ->label(__('gshome.crm.clients.housing_label'))
                 ->visible(fn (Client $record): bool => ! $record->trashed())
@@ -44,7 +46,12 @@ class ViewClient extends ViewRecord
                     $record->housing = $housing instanceof ClientHousing
                         ? $housing
                         : ClientHousing::from((string) $housing);
-                    $record->save();
+                    // Статус меняет любой, кто видит клиента: звонит агент без сделки, а клиенту уже не надо.
+                    // От статуса зависит подбор для всей группы — поэтому след в журнале.
+                    DB::transaction(function () use ($record): void {
+                        $record->save();
+                        Journal::record(Journal::CLIENT_UPDATED, $record);
+                    });
                 }),
             Action::make('archive')
                 ->label(__('gshome.crm.clients.to_archive'))

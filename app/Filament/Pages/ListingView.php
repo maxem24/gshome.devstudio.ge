@@ -4,15 +4,17 @@ namespace App\Filament\Pages;
 
 use App\Access\OrgAccess;
 use App\Access\Ownership;
+use App\Crm\ClientProfile;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
+use App\Crm\MatchRows;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
-use App\Enums\Role;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
+use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Jobs\PollListingRefresh;
 use App\Models\ListingPin;
 use App\Models\ListingSearch;
@@ -37,6 +39,7 @@ use Filament\Panel;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
@@ -117,6 +120,12 @@ class ListingView extends Page
         Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);
 
         $this->buildCard($l, $direction, $viewer);
+
+        // Снимок для подбора пар обновляем тем же ответом API, без второго запроса — и только со «своего»
+        // объявления: копия из группы дублей может стоить иначе и не знать микрорайона.
+        if (($pin = app(Pins::class)->activeFor($l)) !== null && $pin->listing_id === $l->id) {
+            app(Pins::class)->snapshot($pin, $l);
+        }
     }
 
     /** Собирает $card из объявления; зовётся из mount() и после актуализации. */
@@ -499,7 +508,7 @@ class ListingView extends Page
         return $id > 0 ? app(Pins::class)->activeForIds($id, $this->card['cluster_id'] ?? null) : null;
     }
 
-    /** @return array{mine: bool, name: ?string, holder_id: int}|null */
+    /** @return array{mine: bool, name: ?string, holder_id: int, preferences: list<string>}|null */
     public function banner(): ?array
     {
         $pin = $this->pin();
@@ -509,12 +518,32 @@ class ListingView extends Page
 
         $viewer = $this->viewer();
         $holder = $pin->holder;
-        // Имя — по тем же правилам, что у объявлений: своих людей и группы смотрящий видит, чужих нет.
-        $named = $holder->id === $viewer->id
-            || $viewer->role === Role::Owner
-            || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
 
-        return ['mine' => $holder->id === $viewer->id, 'name' => $named ? $holder->name : null, 'holder_id' => $holder->id];
+        return [
+            'mine' => $holder->id === $viewer->id,
+            'name' => app(Pins::class)->holderLabel($pin, $viewer),
+            'holder_id' => $holder->id,
+            // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
+            'preferences' => app(Pins::class)->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [],
+        ];
+    }
+
+    /**
+     * «Вероятные клиенты»: только на объекте аренды и только тем, кто его ведёт.
+     *
+     * @return list<array{score: ?int, enough: bool, label: string, sub: ?string, url: string, mismatches: list<string>}>|null
+     */
+    #[Computed]
+    public function matches(): ?array
+    {
+        $pin = $this->pin();
+        if ($pin === null || $pin->direction !== Direction::Rent || ! app(Pins::class)->canManage($pin, $this->viewer())) {
+            return null;
+        }
+
+        // Опрос актуализации перерисовывает страницу раз в 2 секунды — подбор не пересчитываем на каждом.
+        // updated_at в ключе: после правки предпочтений список обновится сразу.
+        return Cache::remember('matches:pin:'.$pin->id.':'.$pin->updated_at?->timestamp, 30, fn (): array => MatchRows::forPin($pin));
     }
 
     protected function dealPin(): ?ListingPin
@@ -585,6 +614,28 @@ class ListingView extends Page
                         }
                         app(Pins::class)->transfer($pin, $to, $this->viewer());
                         Notification::make()->title(__('gshome.crm.pins.transferred'))->success()->send();
+                    } catch (CrmForbidden) {
+                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    }
+                    unset($this->pin);
+                }),
+            Action::make('landlordPreferences')
+                ->label(__('gshome.crm.pins.preferences'))
+                ->icon(Heroicon::OutlinedAdjustmentsHorizontal)
+                ->color('gray')
+                ->visible($manage)
+                ->modalHeading(__('gshome.crm.pins.preferences_title'))
+                ->modalSubmitActionLabel(__('filament-actions::edit.single.modal.actions.save.label'))
+                ->schema(ClientForm::profileFields(landlord: true))
+                ->fillForm(fn (): array => $this->pin()->preferences ?? [])
+                ->action(function (array $data): void {
+                    $pin = $this->pin();
+                    try {
+                        if ($pin === null) {
+                            throw new CrmForbidden('Nothing to edit.');
+                        }
+                        app(Pins::class)->savePreferences($pin, $data, $this->viewer());
+                        Notification::make()->title(__('gshome.crm.pins.preferences_saved'))->success()->send();
                     } catch (CrmForbidden) {
                         Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
                     }

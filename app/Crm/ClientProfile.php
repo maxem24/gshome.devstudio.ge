@@ -10,7 +10,7 @@ use App\Models\Client;
 final class ClientProfile
 {
     /** @var list<string> */
-    public const KEYS = ['occupants', 'people', 'home', 'rooms', 'price_min', 'price_max', 'subdistrict_ids', 'note'];
+    public const KEYS = ['occupants', 'people', 'home', 'rooms_min', 'rooms_max', 'price_min', 'price_max', 'subdistrict_ids', 'note'];
 
     /**
      * Оставить только известные ответы. Свободный текст — только комментарий.
@@ -37,9 +37,14 @@ final class ClientProfile
             $out['home'] = $home;
         }
 
-        $rooms = self::text($input['rooms'] ?? null, 32);
-        if ($rooms !== null) {
-            $out['rooms'] = $rooms;
+        foreach (['rooms_min', 'rooms_max'] as $key) {
+            $rooms = self::rooms($input[$key] ?? null);
+            if ($rooms !== null) {
+                $out[$key] = $rooms;
+            }
+        }
+        if (isset($out['rooms_min'], $out['rooms_max']) && $out['rooms_max'] < $out['rooms_min']) {
+            unset($out['rooms_max']);
         }
 
         foreach (['price_min', 'price_max'] as $key) {
@@ -65,14 +70,43 @@ final class ClientProfile
         return $out;
     }
 
+    /**
+     * Предпочтения собственника: тот же список, но «кто будет жить» — несколько вариантов.
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, string|int|list<string>|list<int>>
+     */
+    public static function cleanLandlord(array $input): array
+    {
+        $occupants = self::enumList($input['occupants'] ?? null, ClientOccupant::class);
+        // Цена, район и комнаты собственника берутся из объявления (снимок на listing_pins).
+        $rest = self::clean(array_intersect_key($input, array_flip(['people', 'home', 'note'])));
+
+        return $occupants === [] ? $rest : ['occupants' => $occupants] + $rest;
+    }
+
     /** @return list<string> */
     public static function lines(?Client $client): array
     {
-        $profile = $client === null ? [] : $client->profile;
+        return self::linesFor($client === null ? [] : $client->profile);
+    }
+
+    /**
+     * Строки для показа: профиль клиента или предпочтения собственника.
+     *
+     * @param  array<string, mixed>  $profile
+     * @return list<string>
+     */
+    public static function linesFor(array $profile): array
+    {
         $lines = [];
 
-        if (is_string($profile['occupants'] ?? null) && ($who = ClientOccupant::tryFrom($profile['occupants'])) !== null) {
-            $lines[] = __('gshome.crm.clients.profile.occupants').': '.$who->getLabel();
+        $who = self::enumList($profile['occupants'] ?? null, ClientOccupant::class);
+        if ($who !== []) {
+            $lines[] = __('gshome.crm.clients.profile.occupants').': '.implode(', ', array_map(
+                fn (string $key): string => ClientOccupant::from($key)->getLabel(),
+                $who,
+            ));
         }
         if (isset($profile['people']) && $profile['people'] !== '') {
             $lines[] = __('gshome.crm.clients.profile.people').': '.$profile['people'];
@@ -84,8 +118,16 @@ final class ClientProfile
                 $homes,
             ));
         }
-        if (is_string($profile['rooms'] ?? null) && $profile['rooms'] !== '') {
-            $lines[] = __('gshome.crm.clients.profile.rooms').': '.$profile['rooms'];
+        $min = self::rooms($profile['rooms_min'] ?? null);
+        $max = self::rooms($profile['rooms_max'] ?? null);
+        if ($min !== null || $max !== null) {
+            $range = match (true) {
+                $max === null => __('gshome.crm.clients.profile.rooms_from', ['n' => $min]),
+                $min === null => __('gshome.crm.clients.profile.rooms_to', ['n' => $max]),
+                $min === $max => (string) $min,
+                default => $min.'–'.$max,
+            };
+            $lines[] = __('gshome.crm.clients.profile.rooms').': '.$range;
         }
         foreach (['price_min', 'price_max'] as $key) {
             if (isset($profile[$key]) && $profile[$key] !== '') {
@@ -121,6 +163,9 @@ final class ClientProfile
     {
         if ($value instanceof $enum) {
             return [$value->value];
+        }
+        if (is_string($value)) {
+            $value = [$value];
         }
         if (! is_array($value)) {
             return [];
@@ -172,6 +217,16 @@ final class ClientProfile
         $n = (int) $value;
 
         return $n >= 1 && $n <= 30 ? $n : null;
+    }
+
+    private static function rooms(mixed $value): ?int
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+        $n = (int) $value;
+
+        return $n >= 1 && $n <= 20 ? $n : null;
     }
 
     private static function price(mixed $value): ?int

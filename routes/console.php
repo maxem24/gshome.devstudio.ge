@@ -13,3 +13,6 @@ Schedule::command('crm:viewing-reminders')->everyFiveMinutes();
 
 // Поиски по сайтам, у которых оборвался опрос (рестарт Horizon, потеря задания): закрываем по таймауту.
 Schedule::command('search:sweep')->everyFiveMinutes();
+
+// Снимок цены, комнат и микрорайона объектов аренды в работе — для подбора пар (решение 18.11).
+Schedule::command('pins:snapshot --stale=24')->dailyAt('04:30');

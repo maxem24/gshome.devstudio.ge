@@ -4,11 +4,13 @@ namespace App\Filament\Resources\Clients\Schemas;
 
 use App\Crm\ClientPlaces;
 use App\Crm\ClientProfile;
+use App\Crm\MatchRows;
 use App\Enums\ClientHome;
 use App\Enums\ClientHousing;
 use App\Enums\ClientOccupant;
 use App\Enums\ClientTag;
 use App\Models\Client;
+use App\Models\User;
 use App\Support\PhoneNumber;
 use Closure;
 use Filament\Forms\Components\CheckboxList;
@@ -16,9 +18,12 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Auth;
 
-/** Создание клиента (редактирования нет) и карточка. */
+/** Создание и правка клиента, карточка. */
 class ClientForm
 {
     public static function configure(Schema $schema): Schema
@@ -28,6 +33,8 @@ class ClientForm
                 ->label(__('gshome.crm.clients.phone'))
                 ->tel()
                 ->required()
+                // Номер меняется только через «новый человек на этом номере» при создании.
+                ->visibleOn('create')
                 ->maxLength(32)
                 ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
                     if (PhoneNumber::tryNormalize((string) $value) === null) {
@@ -43,15 +50,29 @@ class ClientForm
             Select::make('housing')
                 ->label(__('gshome.crm.clients.housing_label'))
                 ->options(ClientHousing::class)
+                ->default(ClientHousing::Looking->value)
                 ->required(),
             Select::make('reliability')
                 ->label(__('gshome.crm.clients.reliability'))
                 ->options(self::reliabilityOptions())
                 ->default('unverified')
                 ->required(),
+            ...self::profileFields(),
+        ]);
+    }
+
+    /**
+     * Поля «Кого ищет». У собственника «кто будет жить» — несколько вариантов, а цены, района и комнат нет.
+     *
+     * @return list<Component>
+     */
+    public static function profileFields(bool $landlord = false): array
+    {
+        $fields = [
             Select::make('occupants')
                 ->label(__('gshome.crm.clients.profile.occupants'))
                 ->options(ClientOccupant::class)
+                ->multiple($landlord)
                 ->native(false)
                 ->searchable(),
             TextInput::make('people')->label(__('gshome.crm.clients.profile.people'))->numeric()->minValue(1)->maxValue(30),
@@ -61,17 +82,25 @@ class ClientForm
                 ->multiple()
                 ->native(false)
                 ->searchable(),
-            Select::make('subdistrict_ids')
-                ->label(__('gshome.crm.clients.profile.place'))
-                ->options(fn (): array => ClientPlaces::options())
-                ->multiple()
-                ->native(false)
-                ->searchable(),
-            TextInput::make('rooms')->label(__('gshome.crm.clients.profile.rooms'))->maxLength(32),
-            TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
-            TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
-            Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull(),
-        ]);
+        ];
+        // У собственника цена, район и комнаты — из объявления, в окне их нет.
+        if (! $landlord) {
+            $fields = [
+                ...$fields,
+                Select::make('subdistrict_ids')
+                    ->label(__('gshome.crm.clients.profile.place'))
+                    ->options(fn (): array => ClientPlaces::options())
+                    ->multiple()
+                    ->native(false)
+                    ->searchable(),
+                TextInput::make('rooms_min')->label(__('gshome.crm.clients.profile.rooms_min'))->numeric()->minValue(1)->maxValue(20),
+                TextInput::make('rooms_max')->label(__('gshome.crm.clients.profile.rooms_max'))->numeric()->minValue(1)->maxValue(20),
+                TextInput::make('price_min')->label(__('gshome.crm.clients.profile.price_min'))->numeric()->minValue(0),
+                TextInput::make('price_max')->label(__('gshome.crm.clients.profile.price_max'))->numeric()->minValue(0),
+            ];
+        }
+
+        return [...$fields, Textarea::make('note')->label(__('gshome.crm.clients.profile.note'))->maxLength(2000)->columnSpanFull()];
     }
 
     public static function infolist(Schema $schema): Schema
@@ -98,6 +127,12 @@ class ClientForm
                 ->state(fn (Client $record): array => ClientProfile::lines($record))
                 ->listWithLineBreaks()
                 ->placeholder('—')
+                ->columnSpanFull(),
+            ViewEntry::make('offers')
+                ->hiddenLabel()
+                ->view('filament.clients.offers')
+                ->state(fn (Client $record): array => ($viewer = Auth::user()) instanceof User ? MatchRows::forClient($record, $viewer) : [])
+                ->visible(fn (Client $record): bool => ! $record->trashed() && $record->housing === ClientHousing::Looking)
                 ->columnSpanFull(),
             TextEntry::make('creator.name')->label(__('gshome.crm.clients.created_by'))->placeholder('—'),
             TextEntry::make('deleted_at')

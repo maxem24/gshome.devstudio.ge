@@ -8,6 +8,7 @@ use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Enums\DealStatus;
+use App\Enums\Role;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
@@ -66,6 +67,7 @@ class Pins
                     'status' => ListingPin::ACTIVE,
                     'last_activity_at' => now(),
                 ]);
+                $this->snapshot($pin, $listing);
                 Journal::record(Journal::PIN_TAKEN, $pin, ['listing_id' => $listing->id, 'cluster_id' => $listing->clusterId], $by);
 
                 return $pin;
@@ -140,6 +142,65 @@ class Pins
             Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
             PinClosed::dispatch($pin, $reason);
         });
+    }
+
+    /**
+     * Имя держателя для смотрящего — по тем же правилам, что у объявлений: свои люди и владелец
+     * группы видят имя, остальные — нет (null → «у другого агента группы»).
+     */
+    public function holderLabel(ListingPin $pin, User $viewer): ?string
+    {
+        $holder = $pin->holder;
+        $named = $holder->id === $viewer->id
+            || $viewer->role === Role::Owner
+            || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
+
+        return $named ? $holder->name : null;
+    }
+
+    /**
+     * Снимок цены, комнат и микрорайона объявления — для подбора пар без запросов к API.
+     * Пишет, только если что-то из этого изменилось; заголовок зависит от языка смотрящего,
+     * поэтому сам по себе запись не вызывает.
+     *
+     * @param  bool  $touch  ночная проверка: отметить снимок свежим и без изменений, чтобы --stale его пропускал
+     * @return bool true — снимок записан
+     */
+    public function snapshot(ListingPin $pin, Listing $listing, bool $touch = false): bool
+    {
+        $price = $listing->priceUsd === null ? null : number_format($listing->priceUsd, 2, '.', '');
+        $changed = $pin->snapshot_at === null
+            || $pin->price_usd !== $price
+            || $pin->rooms !== $listing->rooms
+            || $pin->subdistrict_id !== $listing->subdistrictId;
+        if (! $changed) {
+            if ($touch) {
+                $pin->update(['snapshot_at' => now()]);
+            }
+
+            return false;
+        }
+
+        $pin->update([
+            'price_usd' => $price,
+            'rooms' => $listing->rooms,
+            'subdistrict_id' => $listing->subdistrictId,
+            'title' => $listing->title ?? $pin->title,
+            'snapshot_at' => now(),
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Кому собственник готов сдать. Тот же список, что «Кого ищет» у клиента.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function savePreferences(ListingPin $pin, array $input, User $by): void
+    {
+        $this->assertCanManage($pin, $by);
+        $pin->update(['preferences' => ClientProfile::cleanLandlord($input)]);
     }
 
     /** Перечитать под блокировкой: параллельная передача или закрытие могли изменить пин. */
