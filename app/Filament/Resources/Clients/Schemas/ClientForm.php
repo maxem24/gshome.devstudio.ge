@@ -19,7 +19,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Schema;
 
-/** Создание клиента (редактирования нет) и карточка. */
+/** Создание и правка клиента, карточка. */
 class ClientForm
 {
     public static function configure(Schema $schema): Schema
@@ -29,6 +29,8 @@ class ClientForm
                 ->label(__('gshome.crm.clients.phone'))
                 ->tel()
                 ->required()
+                // Номер меняется только через «новый человек на этом номере» при создании.
+                ->visibleOn('create')
                 ->maxLength(32)
                 ->rule(fn (): Closure => function (string $attribute, mixed $value, Closure $fail): void {
                     if (PhoneNumber::tryNormalize((string) $value) === null) {
@@ -44,6 +46,7 @@ class ClientForm
             Select::make('housing')
                 ->label(__('gshome.crm.clients.housing_label'))
                 ->options(ClientHousing::class)
+                ->default(ClientHousing::Looking->value)
                 ->required(),
             Select::make('reliability')
                 ->label(__('gshome.crm.clients.reliability'))

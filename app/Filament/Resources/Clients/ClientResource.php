@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Clients;
 
 use App\Filament\RelationManagers\JournalRelationManager;
 use App\Filament\Resources\Clients\Pages\CreateClient;
+use App\Filament\Resources\Clients\Pages\EditClient;
 use App\Filament\Resources\Clients\Pages\ListClients;
 use App\Filament\Resources\Clients\Pages\ViewClient;
 use App\Filament\Resources\Clients\RelationManagers\DealsRelationManager;
@@ -86,6 +87,7 @@ class ClientResource extends Resource
             'index' => ListClients::route('/'),
             'create' => CreateClient::route('/create'),
             'view' => ViewClient::route('/{record}'),
+            'edit' => EditClient::route('/{record}/edit'),
         ];
     }
 }

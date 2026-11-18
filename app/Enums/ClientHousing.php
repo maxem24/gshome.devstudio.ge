@@ -2,13 +2,19 @@
 
 namespace App\Enums;
 
+use Filament\Support\Contracts\HasColor;
 use Filament\Support\Contracts\HasLabel;
 
-/** Живёт ли клиент в аренде или ищет квартиру и ждёт звонка. */
-enum ClientHousing: string implements HasLabel
+/** Статус клиента: активен — ищет квартиру и попадает в подбор; неактивен — уже не нужно. */
+enum ClientHousing: string implements HasColor, HasLabel
 {
     case Renting = 'renting';
     case Looking = 'looking';
+
+    public function getColor(): string
+    {
+        return $this === self::Looking ? 'success' : 'gray';
+    }
 
     public function getLabel(): string
     {

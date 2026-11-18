@@ -8,7 +8,7 @@ use App\Models\Client;
 use App\Models\User;
 
 /**
- * Клиенты: база общая, видимость — через Client::visibleTo (архив). Редактирования нет;
+ * Клиенты: база общая, видимость — через Client::visibleTo (архив). Правка — см. update();
  * в архив — владелец и создатель (без открытых сделок), обратно — владелец.
  */
 class ClientPolicy
@@ -28,9 +28,12 @@ class ClientPolicy
         return true;
     }
 
+    /** Править — владелец, тот, кто завёл, и тот, у кого есть сделка с клиентом. Номер правкой не меняется. */
     public function update(User $user, Client $client): bool
     {
-        return false;
+        return $user->role === Role::Owner
+            || $client->created_by === $user->id
+            || $client->deals()->where('user_id', $user->id)->exists();
     }
 
     public function delete(User $user, Client $client): bool

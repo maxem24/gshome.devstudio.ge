@@ -375,12 +375,12 @@ return [
             'tags' => 'Tags',
             'reliability' => 'Reliability',
             'profile_title' => 'What they are looking for',
-            'housing_label' => 'Housing',
+            'housing_label' => 'Client status',
             'looking_pick' => 'Looking for a home',
-            'looking_only' => 'This client cannot be picked here: they already rent, or the mark is not set.',
+            'looking_only' => 'This client cannot be picked here: they are inactive.',
             'housing' => [
-                'renting' => 'Renting',
-                'looking' => 'Not renting, looking for a home',
+                'renting' => 'Inactive — no longer needed',
+                'looking' => 'Active — looking for a home',
             ],
             'profile' => [
                 'occupants' => 'Who will live there',
@@ -664,6 +664,7 @@ return [
             'events' => [
                 'client' => [
                     'created' => 'Client created',
+                    'updated' => 'Client updated',
                     'phone_reassigned' => 'Client phone reassigned',
                 ],
                 'pin' => [
