@@ -407,6 +407,10 @@ class RealEstateClient
 
         return collect(Cache::remember($key, self::DICTIONARY_TTL, function () use ($name, $params): array {
             $data = $this->get("/dictionaries/{$name}", $params)->json('data');
+            // У района может не быть микрорайонов (Крцаниси-Мтацминда): пустой список — ответ, его кешируем.
+            if ($data === [] && $name === 'subdistricts') {
+                return [];
+            }
             // Пустой или кривой ответ на сутки не кешируем: иначе одна осечка прокси ломает экран до завтра.
             // Брак: не список, пустой, строки не массивы или без id (для deal-types ещё и без slug) —
             // dealTypeIds() и экран падали бы на них целые сутки.
