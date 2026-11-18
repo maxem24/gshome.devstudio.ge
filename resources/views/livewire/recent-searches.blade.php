@@ -19,7 +19,7 @@
                             class="focus-visible:outline-primary-600 flex min-h-11 items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-gray-50 focus-visible:outline-2 focus-visible:-outline-offset-2 dark:hover:bg-white/5"
                         >
                             <span class="min-w-0 flex-1 truncate text-gray-950 dark:text-white">
-                                {{ \App\Search\FiltersSummary::make($s->filters, $user) }}
+                                {{ $s->label($user) }}
                             </span>
                             @if ($s->isRunning())
                                 <span

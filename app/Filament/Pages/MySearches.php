@@ -2,20 +2,16 @@
 
 namespace App\Filament\Pages;
 
-use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\Role;
+use App\Filament\Pages\Concerns\RepeatsSearches;
 use App\Models\ListingSearch;
 use App\Models\User;
-use App\RealEstate\Exceptions\RealEstateBadRequest;
-use App\RealEstate\Exceptions\RealEstateException;
-use App\RealEstate\Exceptions\RealEstateRateLimited;
-use App\RealEstate\LinkImport;
 use App\Search\FiltersSummary;
-use App\Search\LinkImports;
 use App\Search\SearchStart;
-use App\Search\SiteSearches;
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Enums\FontWeight;
@@ -33,6 +29,7 @@ use UnitEnum;
 class MySearches extends Page implements HasTable
 {
     use InteractsWithTable;
+    use RepeatsSearches;
 
     protected string $view = 'filament.pages.my-searches';
 
@@ -62,15 +59,18 @@ class MySearches extends Page implements HasTable
         $viewer = $this->viewer();
 
         return $table
-            ->query(fn () => ListingSearch::query()->visibleTo($this->viewer())->with('user')->latest('id'))
+            ->query(fn () => ListingSearch::query()->visibleTo($this->viewer())->with('user')->orderByRaw('pinned_at DESC NULLS LAST')->orderByDesc('id'))
             ->poll(fn (): ?string => ListingSearch::query()->visibleTo($this->viewer())->whereIn('status', ListingSearch::RUNNING)->exists() ? '10s' : null)
             ->recordUrl(fn (ListingSearch $record): string => SearchResult::getUrl(['search' => $record->getKey()]))
             ->columns([
                 // Что искали — главное в строке; когда и кто — мелко под ним.
                 TextColumn::make('filters')->label(__('gshome.search.mine.search'))
-                    ->state(fn (ListingSearch $record): string => '№'.$record->getKey().' · '.FiltersSummary::make($record->filters, $record->user))
+                    ->state(fn (ListingSearch $record): string => '№'.$record->getKey().' · '.$record->label())
                     ->weight(FontWeight::Medium)
+                    ->icon(fn (ListingSearch $record): ?Heroicon => $record->pinned_at !== null ? Heroicon::Bookmark : null)
                     ->description(fn (ListingSearch $record): string => collect([
+                        // Своё название — крупно, а что искали — мелко под ним.
+                        $record->title !== null ? FiltersSummary::make($record->filters, $record->user) : null,
                         $record->started_at?->timezone((string) config('crm.timezone'))->format('d.m.Y H:i'),
                         $viewer->role !== Role::Agent ? $record->user?->name : null,
                     ])->filter()->implode(' · '))
@@ -102,63 +102,77 @@ class MySearches extends Page implements HasTable
                     // Повторить может только автор: чужие поиски руководитель видит, но не запускает.
                     ->visible(fn (ListingSearch $record): bool => $record->user_id === $this->viewer()->getKey())
                     ->action(fn (ListingSearch $record) => $this->searchAgain((int) $record->getKey())),
+                ActionGroup::make([
+                    Action::make('rename')
+                        ->label(__('gshome.search.mine.rename'))
+                        ->icon(Heroicon::OutlinedPencilSquare)
+                        ->visible(fn (ListingSearch $record): bool => $this->owns($record))
+                        ->fillForm(fn (ListingSearch $record): array => ['title' => $record->title])
+                        ->schema([
+                            TextInput::make('title')->label(__('gshome.search.mine.title_field'))
+                                ->placeholder(fn (ListingSearch $record): string => FiltersSummary::make($record->filters, $record->user))
+                                ->maxLength(80),
+                        ])
+                        ->action(fn (ListingSearch $record, array $data) => $this->renameSearch((int) $record->getKey(), (string) ($data['title'] ?? ''))),
+                    Action::make('pin')
+                        ->label(__('gshome.search.mine.pin'))
+                        ->icon(Heroicon::OutlinedBookmark)
+                        ->visible(fn (ListingSearch $record): bool => $this->owns($record) && $record->pinned_at === null)
+                        ->action(fn (ListingSearch $record) => $this->pinSearch((int) $record->getKey(), true)),
+                    Action::make('unpin')
+                        ->label(__('gshome.search.mine.unpin'))
+                        ->icon(Heroicon::OutlinedBookmarkSlash)
+                        ->visible(fn (ListingSearch $record): bool => $this->owns($record) && $record->pinned_at !== null)
+                        ->action(fn (ListingSearch $record) => $this->pinSearch((int) $record->getKey(), false)),
+                    Action::make('delete')
+                        ->label(__('gshome.search.mine.delete'))
+                        ->icon(Heroicon::OutlinedTrash)
+                        ->color('danger')
+                        ->requiresConfirmation()
+                        ->visible(fn (ListingSearch $record): bool => $this->owns($record) && ! $record->isRunning())
+                        ->action(fn (ListingSearch $record) => $this->deleteSearch((int) $record->getKey())),
+                ]),
             ])
             ->emptyStateHeading(__('gshome.search.mine.empty'))
             ->paginated([10, 25, 50]);
     }
 
-    public function searchAgain(int $id): void
+    /** Менять поиск — только автору: руководитель чужие поиски видит, но не трогает. */
+    private function owns(ListingSearch $search): bool
     {
-        $viewer = $this->viewer();
-        $search = ListingSearch::query()->visibleTo($viewer)->findOrFail($id);
-        abort_unless($search->user_id === $viewer->getKey(), 403);
-
-        try {
-            // Поиск по ссылке повторяется той же ссылкой: фильтров формы у него нет.
-            $link = $search->filters['link_sent'] ?? $search->filters['link'] ?? null;
-            if (is_string($link) && $link !== '') {
-                $linkStart = app(LinkImports::class)->start($viewer, $link);
-                if ($linkStart->listing !== null) {
-                    // Ссылка вдруг стала объявлением (сайт поменял адреса): ведём себя как «По ссылке».
-                    $this->openImportedListing($viewer, $linkStart->listing);
-
-                    return;
-                }
-                $start = $linkStart->search;
-            } else {
-                $start = app(SiteSearches::class)->start($viewer, $search->filters);
-            }
-        } catch (CrmForbidden) {
-            abort(403);
-        } catch (RealEstateRateLimited) {
-            Notification::make()->danger()->title(__('gshome.search.rate_limited'))->send();
-
-            return;
-        } catch (RealEstateBadRequest) {
-            Notification::make()->danger()->title(__('gshome.link.rejected'))->send();
-
-            return;
-        } catch (RealEstateException $e) {
-            Notification::make()->danger()->title($e->userMessage())->send();
-
-            return;
-        }
-
-        if ($start === null) {
-            return; // LinkStart без объявления всегда с поиском; ветка — для анализатора
-        }
-        $this->notifyStart($start);
+        return $search->user_id === $this->viewer()->getKey();
     }
 
-    private function openImportedListing(User $viewer, LinkImport $listing): void
+    private function ownSearch(int $id): ListingSearch
     {
-        if ($listing->ready()) {
-            $this->redirect(LinkImports::cardUrl($viewer, (int) $listing->listingId));
-        } elseif ($listing->finished()) {
-            Notification::make()->danger()->title($listing->message !== '' ? $listing->message : __('gshome.link.failed'))->send();
-        } else {
-            Notification::make()->success()->title(__('gshome.link.queued'))->body(__('gshome.link.queued_body'))->send();
+        $search = ListingSearch::query()->visibleTo($this->viewer())->findOrFail($id);
+        abort_unless($this->owns($search), 403);
+
+        return $search;
+    }
+
+    public function renameSearch(int $id, string $title): void
+    {
+        $title = trim($title);
+        $this->ownSearch($id)->update(['title' => $title === '' ? null : mb_substr($title, 0, 80)]);
+    }
+
+    public function pinSearch(int $id, bool $pin): void
+    {
+        $this->ownSearch($id)->update(['pinned_at' => $pin ? now() : null]);
+    }
+
+    public function deleteSearch(int $id): void
+    {
+        $search = $this->ownSearch($id);
+        // Идущий поиск ещё пишет результат в эту запись — удалять нельзя.
+        if ($search->isRunning()) {
+            Notification::make()->warning()->title(__('gshome.search.mine.delete_running'))->send();
+
+            return;
         }
+        $search->delete();
+        Notification::make()->success()->title(__('gshome.search.mine.deleted'))->send();
     }
 
     /** Что сказать после старта: новый поиск, такой же уже идёт или есть свежий готовый. */

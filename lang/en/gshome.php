@@ -283,6 +283,13 @@ return [
         'deal' => 'Deal',
         'subdistrict' => 'Subdistrict',
         'mine' => [
+            'rename' => 'Rename',
+            'title_field' => 'Search name',
+            'pin' => 'Pin',
+            'unpin' => 'Unpin',
+            'delete' => 'Delete',
+            'deleted' => 'Search deleted',
+            'delete_running' => 'The search is still running — delete it once it finishes.',
             'nav' => 'My searches',
             'title' => 'My searches',
             'person' => 'Searched by',
