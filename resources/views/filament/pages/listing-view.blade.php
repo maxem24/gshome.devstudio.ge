@@ -26,6 +26,10 @@
                 @endif
             </x-filament::section>
         @endif
+        @php ($matches = $this->matches())
+        @if ($matches !== null)
+            @include('filament.crm.matches', ['title' => __('gshome.crm.matching.clients_title'), 'rows' => $matches])
+        @endif
         @if ($refresh !== [])
             {{-- Актуализация: пока идёт — опрос раз в poll_ms; по концу опрос исчезает из разметки --}}
             <div

@@ -4,11 +4,13 @@ namespace App\Filament\Resources\Clients\Schemas;
 
 use App\Crm\ClientPlaces;
 use App\Crm\ClientProfile;
+use App\Crm\MatchRows;
 use App\Enums\ClientHome;
 use App\Enums\ClientHousing;
 use App\Enums\ClientOccupant;
 use App\Enums\ClientTag;
 use App\Models\Client;
+use App\Models\User;
 use App\Support\PhoneNumber;
 use Closure;
 use Filament\Forms\Components\CheckboxList;
@@ -16,8 +18,10 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Infolists\Components\ViewEntry;
 use Filament\Schemas\Components\Component;
 use Filament\Schemas\Schema;
+use Illuminate\Support\Facades\Auth;
 
 /** Создание и правка клиента, карточка. */
 class ClientForm
@@ -123,6 +127,12 @@ class ClientForm
                 ->state(fn (Client $record): array => ClientProfile::lines($record))
                 ->listWithLineBreaks()
                 ->placeholder('—')
+                ->columnSpanFull(),
+            ViewEntry::make('offers')
+                ->hiddenLabel()
+                ->view('filament.clients.offers')
+                ->state(fn (Client $record): array => ($viewer = Auth::user()) instanceof User ? MatchRows::forClient($record, $viewer) : [])
+                ->visible(fn (Client $record): bool => ! $record->trashed() && $record->housing === ClientHousing::Looking)
                 ->columnSpanFull(),
             TextEntry::make('creator.name')->label(__('gshome.crm.clients.created_by'))->placeholder('—'),
             TextEntry::make('deleted_at')

@@ -8,6 +8,7 @@ use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Enums\DealStatus;
+use App\Enums\Role;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
@@ -141,6 +142,20 @@ class Pins
             Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
             PinClosed::dispatch($pin, $reason);
         });
+    }
+
+    /**
+     * Имя держателя для смотрящего — по тем же правилам, что у объявлений: свои люди и владелец
+     * группы видят имя, остальные — нет (null → «у другого агента группы»).
+     */
+    public function holderLabel(ListingPin $pin, User $viewer): ?string
+    {
+        $holder = $pin->holder;
+        $named = $holder->id === $viewer->id
+            || $viewer->role === Role::Owner
+            || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
+
+        return $named ? $holder->name : null;
     }
 
     /**

@@ -8,11 +8,11 @@ use App\Crm\ClientProfile;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
+use App\Crm\MatchRows;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
-use App\Enums\Role;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
 use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Jobs\PollListingRefresh;
@@ -516,18 +516,30 @@ class ListingView extends Page
 
         $viewer = $this->viewer();
         $holder = $pin->holder;
-        // Имя — по тем же правилам, что у объявлений: своих людей и группы смотрящий видит, чужих нет.
-        $named = $holder->id === $viewer->id
-            || $viewer->role === Role::Owner
-            || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
 
         return [
             'mine' => $holder->id === $viewer->id,
-            'name' => $named ? $holder->name : null,
+            'name' => app(Pins::class)->holderLabel($pin, $viewer),
             'holder_id' => $holder->id,
             // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
             'preferences' => app(Pins::class)->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [],
         ];
+    }
+
+    /**
+     * «Вероятные клиенты»: только на объекте аренды и только тем, кто его ведёт.
+     *
+     * @return list<array{score: ?int, enough: bool, label: string, sub: ?string, url: string, mismatches: list<string>}>|null
+     */
+    #[Computed]
+    public function matches(): ?array
+    {
+        $pin = $this->pin();
+        if ($pin === null || $pin->direction !== Direction::Rent || ! app(Pins::class)->canManage($pin, $this->viewer())) {
+            return null;
+        }
+
+        return MatchRows::forPin($pin);
     }
 
     protected function dealPin(): ?ListingPin

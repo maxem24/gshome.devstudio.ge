@@ -4,10 +4,12 @@ namespace Tests\Feature\Filament;
 
 use App\Crm\Journal;
 use App\Enums\ClientHousing;
+use App\Enums\Direction;
 use App\Filament\Resources\Clients\ClientResource;
 use App\Filament\Resources\Clients\Pages\EditClient;
 use App\Filament\Resources\Clients\Pages\ViewClient;
 use App\Models\Client;
+use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -65,6 +67,36 @@ class ClientEditTest extends TestCase
         $this->actingAs(User::factory()->owner()->create());
 
         Livewire::test(ViewClient::class, ['record' => $client->getRouteKey()])->assertActionVisible('edit');
+    }
+
+    public function test_active_client_sees_offers_without_landlord_note(): void
+    {
+        $holder = User::factory()->agent(User::factory()->teamLead(null, Direction::Rent)->create())->create(['name' => 'Нино']);
+        ListingPin::query()->create([
+            'listing_id' => 77, 'pin_key' => 'l77', 'direction' => Direction::Rent, 'user_id' => $holder->id,
+            'status' => ListingPin::ACTIVE, 'last_activity_at' => now(), 'snapshot_at' => now(),
+            'subdistrict_id' => 101, 'price_usd' => 600, 'rooms' => 2, 'title' => 'Квартира в Ваке',
+            'preferences' => ['note' => 'Секрет собственника'],
+        ]);
+        $client = Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101], 'price_max' => 550]]);
+        $this->actingAs(User::factory()->agent(User::factory()->teamLead(null, Direction::Rent)->create())->create());
+
+        Livewire::test(ViewClient::class, ['record' => $client->getRouteKey()])
+            ->assertSee(__('gshome.crm.matching.offers_title'))
+            ->assertSee('Квартира в Ваке')
+            ->assertSee('$600')
+            ->assertSee(__('gshome.crm.matching.in_work_other'))
+            ->assertSee('цена +$50')
+            ->assertDontSee('Нино')
+            ->assertDontSee('Секрет собственника');
+    }
+
+    public function test_inactive_client_has_no_offers(): void
+    {
+        $client = Client::factory()->create(['housing' => ClientHousing::Renting]);
+        $this->actingAs(User::factory()->owner()->create());
+
+        Livewire::test(ViewClient::class, ['record' => $client->getRouteKey()])->assertDontSee(__('gshome.crm.matching.offers_title'));
     }
 
     public function test_status_labels_say_active_or_not(): void

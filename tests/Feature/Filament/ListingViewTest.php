@@ -402,6 +402,57 @@ class ListingViewTest extends TestCase
         $this->assertSame($expected, $saved);
     }
 
+    /** Объект аренды в работе у агента направления «аренда». */
+    private function rentPin(User $by): ListingPin
+    {
+        $data = RealEstateFake::listing(['deal_type' => ['id' => 2, 'slug' => 'rent', 'title' => 'Сдаётся'], 'subdistrict' => ['id' => 101, 'title' => 'Ваке'], 'price' => ['usd' => 600.0]]);
+        RealEstateFake::fake(cards: [13 => $data]);
+
+        return app(Pins::class)->take(Listing::fromApi($data, 'ru'), $by);
+    }
+
+    private function rentAgent(): User
+    {
+        return User::factory()->agent(User::factory()->teamLead(null, Direction::Rent)->create())->create();
+    }
+
+    public function test_holder_sees_probable_clients(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        Client::factory()->create(['first_name' => 'Лаша', 'housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101], 'price_max' => 650]]);
+        $this->actingAs($agent);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee(__('gshome.crm.matching.clients_title'))
+            ->assertSee('Лаша')
+            ->assertSee('100%');
+    }
+
+    public function test_probable_clients_hidden_for_others_and_sale(): void
+    {
+        $this->rentPin($this->rentAgent());
+        Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101]]]);
+        $this->actingAs($this->rentAgent());
+        Livewire::test(ListingView::class, ['listing' => 13])->assertDontSee(__('gshome.crm.matching.clients_title'));
+
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        $this->pinFor($nino, 14);
+        RealEstateFake::fake(cards: [14 => RealEstateFake::listing(['id' => 14])]);
+        $this->actingAs($nino);
+        Livewire::test(ListingView::class, ['listing' => 14])->assertDontSee(__('gshome.crm.matching.clients_title'));
+    }
+
+    public function test_probable_clients_empty_state(): void
+    {
+        $agent = $this->rentAgent();
+        $this->rentPin($agent);
+        $this->actingAs($agent);
+
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee(__('gshome.crm.matching.empty'));
+    }
+
     public function test_other_agent_cannot_edit_landlord_preferences(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
