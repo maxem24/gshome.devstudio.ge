@@ -28,7 +28,7 @@
         @endif
         @php ($matches = $this->matches())
         @if ($matches !== null)
-            @include('filament.crm.matches', ['title' => __('gshome.crm.matching.clients_title'), 'rows' => $matches])
+            @include ('filament.crm.matches', ['title' => __('gshome.crm.matching.clients_title'), 'rows' => $matches])
         @endif
         @if ($refresh !== [])
             {{-- Актуализация: пока идёт — опрос раз в poll_ms; по концу опрос исчезает из разметки --}}
@@ -192,46 +192,46 @@
                     <div
                         class="relative overflow-hidden rounded-xl bg-gray-100 ring-1 ring-gray-950/5 dark:bg-white/5 dark:ring-white/10"
                     >
-                    @foreach ($card['images'] as $index => $image)
-                        <a
-                            href="{{ $image['url'] }}"
-                            target="_blank"
-                            rel="noopener"
-                            x-show="i === {{ $index }}"
-                            @if ($index !== 0) x-cloak @endif
-                        >
-                            <img
-                                src="{{ $image['url'] }}"
-                                alt=""
-                                class="aspect-[4/3] w-full object-cover lg:aspect-auto lg:h-[min(32rem,calc(100vh-10rem))]"
-                                @if ($index === 0) loading="eager" @else loading="lazy" @endif
-                            />
-                        </a>
-                    @endforeach
-                    @if (count($card['images']) > 1)
-                        <button
-                            type="button"
-                            x-on:click="prev()"
-                            class="focus-visible:outline-primary-600 absolute start-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
-                        >
-                            <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
-                            <x-filament::icon icon="heroicon-o-chevron-left" class="size-5" />
-                        </button>
-                        <button
-                            type="button"
-                            x-on:click="next()"
-                            class="focus-visible:outline-primary-600 absolute end-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
-                        >
-                            <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
-                            <x-filament::icon icon="heroicon-o-chevron-right" class="size-5" />
-                        </button>
-                        <p
-                            class="absolute end-2 bottom-2 rounded-full bg-gray-950/70 px-3 py-1 text-sm font-medium text-white"
-                            x-text="@js(__('gshome.listings.photo_position')).replace(':current', i + 1).replace(':total', n)"
-                        >
-                            {{ __('gshome.listings.photo_position', ['current' => 1, 'total' => count($card['images'])]) }}
-                        </p>
-                    @endif
+                        @foreach ($card['images'] as $index => $image)
+                            <a
+                                href="{{ $image['url'] }}"
+                                target="_blank"
+                                rel="noopener"
+                                x-show="i === {{ $index }}"
+                                @if ($index !== 0) x-cloak @endif
+                            >
+                                <img
+                                    src="{{ $image['url'] }}"
+                                    alt=""
+                                    class="aspect-[4/3] w-full object-cover lg:aspect-auto lg:h-[min(32rem,calc(100vh-10rem))]"
+                                    @if ($index === 0) loading="eager" @else loading="lazy" @endif
+                                />
+                            </a>
+                        @endforeach
+                        @if (count($card['images']) > 1)
+                            <button
+                                type="button"
+                                x-on:click="prev()"
+                                class="focus-visible:outline-primary-600 absolute start-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
+                            >
+                                <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
+                                <x-filament::icon icon="heroicon-o-chevron-left" class="size-5" />
+                            </button>
+                            <button
+                                type="button"
+                                x-on:click="next()"
+                                class="focus-visible:outline-primary-600 absolute end-2 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-gray-950 shadow-sm focus-visible:outline-2 dark:bg-gray-950/80 dark:text-white"
+                            >
+                                <span class="sr-only">{{ __('gshome.listings.photos') }}</span>
+                                <x-filament::icon icon="heroicon-o-chevron-right" class="size-5" />
+                            </button>
+                            <p
+                                class="absolute end-2 bottom-2 rounded-full bg-gray-950/70 px-3 py-1 text-sm font-medium text-white"
+                                x-text="@js(__('gshome.listings.photo_position')).replace(':current', i + 1).replace(':total', n)"
+                            >
+                                {{ __('gshome.listings.photo_position', ['current' => 1, 'total' => count($card['images'])]) }}
+                            </p>
+                        @endif
                     </div>
                     @if (count($card['images']) > 1)
                         <div class="mt-2 hidden gap-2 overflow-x-auto lg:flex">
@@ -255,39 +255,39 @@
             @endif
 
             <div class="lg:col-start-2">
-            <x-filament::section :heading="__('gshome.listings.characteristics')">
-                <dl class="space-y-2 text-sm">
-                    @foreach ([
+                <x-filament::section :heading="__('gshome.listings.characteristics')">
+                    <dl class="space-y-2 text-sm">
+                        @foreach ([
                         __('gshome.listings.rooms') => $card['rooms'],
                         __('gshome.listings.area') => $card['area'],
                         __('gshome.listings.floor') => $card['floor'],
                         __('gshome.listings.property_type') => $card['property_type'],
                     ] as $label => $value)
-                        <div class="flex justify-between gap-3">
-                            <dt class="text-gray-500">{{ $label }}</dt>
-                            <dd class="text-right">{{ filled($value) ? $value : '—' }}</dd>
+                            <div class="flex justify-between gap-3">
+                                <dt class="text-gray-500">{{ $label }}</dt>
+                                <dd class="text-right">{{ filled($value) ? $value : '—' }}</dd>
+                            </div>
+                        @endforeach
+                        <div>
+                            <dt class="text-gray-500">{{ __('gshome.listings.address') }}</dt>
+                            <dd>
+                                {{ collect([$card['district'], $card['address']])->filter()->implode(', ') ?: '—' }}
+                                @if ($card['map'])
+                                    <a
+                                        href="{{ $card['map'] }}"
+                                        target="_blank"
+                                        rel="noopener"
+                                        class="text-primary-600"
+                                        >{{ __('gshome.listings.on_map') }}</a
+                                    >
+                                @endif
+                            </dd>
                         </div>
-                    @endforeach
-                    <div>
-                        <dt class="text-gray-500">{{ __('gshome.listings.address') }}</dt>
-                        <dd>
-                            {{ collect([$card['district'], $card['address']])->filter()->implode(', ') ?: '—' }}
-                            @if ($card['map'])
-                                <a
-                                    href="{{ $card['map'] }}"
-                                    target="_blank"
-                                    rel="noopener"
-                                    class="text-primary-600"
-                                    >{{ __('gshome.listings.on_map') }}</a
-                                >
-                            @endif
-                        </dd>
-                    </div>
-                    <div>
-                        {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
-                    </div>
-                </dl>
-            </x-filament::section>
+                        <div>
+                            {{ __('gshome.listings.appeared', ['date' => $card['created_at'] ?? '—', 'source' => $card['source']]) }}
+                        </div>
+                    </dl>
+                </x-filament::section>
             </div>
 
             <div class="space-y-4 lg:col-span-2">
