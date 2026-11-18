@@ -63,7 +63,7 @@ class PinnedSearchesTest extends TestCase
         RealEstateFake::fake(searchPosts: [Http::response(['data' => RealEstateFake::searchJob()], 202)]);
         $this->actingAs($this->nino);
 
-        Livewire::test(PinnedSearches::class)->call('searchAgain', $old->id);
+        Livewire::test(PinnedSearches::class)->call('searchAgain', $old->id)->assertDispatched('search-started');
 
         $this->assertSame(2, ListingSearch::query()->count());
         Queue::assertPushed(PollListingSearch::class);

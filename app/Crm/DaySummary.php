@@ -19,6 +19,8 @@ final class DaySummary
     public function __construct(private readonly Agenda $agenda) {}
 
     /**
+     * $now задаёт только приветствие и границу «сегодня»; пометку «просрочено» Agenda ставит по настоящему времени.
+     *
      * @return array{greeting: 'morning'|'day'|'evening', phrase: int, pins: int, clients: int, tasks: int, today: list<AgendaItem>, today_more: int}
      */
     public function for(User $user, ?CarbonInterface $now = null): array

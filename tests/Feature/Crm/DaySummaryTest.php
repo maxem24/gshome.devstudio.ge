@@ -6,6 +6,7 @@ use App\Crm\DaySummary;
 use App\Enums\Direction;
 use App\Filament\Pages\MyAgenda;
 use App\Filament\Pages\MyObjects;
+use App\Filament\Resources\Deals\DealResource;
 use App\Livewire\DayGreeting;
 use App\Models\Client;
 use App\Models\Company;
@@ -94,7 +95,11 @@ class DaySummaryTest extends TestCase
     public function test_component_greets_by_first_name_with_links(): void
     {
         $this->travelTo($this->at('2026-11-18 13:00'));
-        $this->pin(1);
+        $pin = $pin = $this->pin(1);
+        DB::table('deals')->insert(['listing_pin_id' => $pin->id, 'client_id' => Client::factory()->create()->id, 'user_id' => $this->nino->id,
+            'stage' => 's', 'status' => 'open', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('deals')->insert(['listing_pin_id' => $pin->id, 'client_id' => Client::factory()->create()->id, 'user_id' => $this->nino->id,
+            'stage' => 's', 'status' => 'open', 'created_at' => now(), 'updated_at' => now()]);
         $this->task('Отправить договор', $this->at('2026-11-18 15:00'));
         $this->actingAs($this->nino);
 
@@ -103,6 +108,7 @@ class DaySummaryTest extends TestCase
             ->assertSee('Отправить договор')
             ->assertSeeHtml('href="'.MyObjects::getUrl().'"')
             ->assertSeeHtml('href="'.MyAgenda::getUrl().'"')
+            ->assertSeeHtml('href="'.DealResource::getUrl('index').'"')
             ->assertSee('1 квартира в работе')
             ->assertSeeHtml('задача</a>.');
     }

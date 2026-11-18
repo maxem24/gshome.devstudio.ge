@@ -4,6 +4,7 @@ namespace Tests\Feature\Filament;
 
 use App\Enums\Direction;
 use App\Filament\Pages\MySearches;
+use App\Livewire\PinnedSearches;
 use App\Livewire\RecentSearches;
 use App\Models\Company;
 use App\Models\ListingSearch;
@@ -90,6 +91,7 @@ class MySearchesManageTest extends TestCase
 
         $this->assertSoftDeleted($s);
         Livewire::test(RecentSearches::class)->assertDontSee('Удаляемый');
+        Livewire::test(PinnedSearches::class)->assertDontSee('Удаляемый');
     }
 
     public function test_running_search_cannot_be_deleted(): void
@@ -118,6 +120,25 @@ class MySearchesManageTest extends TestCase
             ->assertForbidden();
 
         $this->assertNotSoftDeleted($s);
+    }
+
+    /** Наверх поднимаются только свои закреплённые: чужие закладки руководителю не мешают. */
+    public function test_leader_own_search_stays_above_agents_pinned(): void
+    {
+        $agents = $this->search($this->nino, ['pinned_at' => now()]);
+        $own = $this->search($this->lead);
+        $this->actingAs($this->lead);
+
+        Livewire::test(MySearches::class)->assertCanSeeTableRecords([$own, $agents], inOrder: true);
+    }
+
+    public function test_recent_refreshes_when_a_search_starts(): void
+    {
+        $this->actingAs($this->nino);
+        $recent = Livewire::test(RecentSearches::class)->assertDontSee('Новый');
+        $this->search($this->nino, ['title' => 'Новый']);
+
+        $recent->dispatch('search-started')->assertSee('Новый');
     }
 
     public function test_recent_searches_show_title(): void

@@ -59,7 +59,10 @@ class MySearches extends Page implements HasTable
         $viewer = $this->viewer();
 
         return $table
-            ->query(fn () => ListingSearch::query()->visibleTo($this->viewer())->with('user')->orderByRaw('pinned_at DESC NULLS LAST')->orderByDesc('id'))
+            ->query(fn () => ListingSearch::query()->visibleTo($this->viewer())->with('user')
+                // Наверх — только свои закреплённые: чужие закладки руководителю не мешают.
+                ->orderByRaw('CASE WHEN user_id = ? THEN pinned_at END DESC NULLS LAST', [$this->viewer()->getKey()])
+                ->orderByDesc('id'))
             ->poll(fn (): ?string => ListingSearch::query()->visibleTo($this->viewer())->whereIn('status', ListingSearch::RUNNING)->exists() ? '10s' : null)
             ->recordUrl(fn (ListingSearch $record): string => SearchResult::getUrl(['search' => $record->getKey()]))
             ->columns([
@@ -67,7 +70,7 @@ class MySearches extends Page implements HasTable
                 TextColumn::make('filters')->label(__('gshome.search.mine.search'))
                     ->state(fn (ListingSearch $record): string => '№'.$record->getKey().' · '.$record->label())
                     ->weight(FontWeight::Medium)
-                    ->icon(fn (ListingSearch $record): ?Heroicon => $record->pinned_at !== null ? Heroicon::Bookmark : null)
+                    ->icon(fn (ListingSearch $record): ?Heroicon => $record->pinned_at !== null && $this->owns($record) ? Heroicon::Bookmark : null)
                     ->description(fn (ListingSearch $record): string => collect([
                         // Своё название — крупно, а что искали — мелко под ним.
                         $record->title !== null ? FiltersSummary::make($record->filters, $record->user) : null,

@@ -60,6 +60,8 @@ trait RepeatsSearches
             return; // LinkStart без объявления всегда с поиском; ветка — для анализатора
         }
         MySearches::notifyStart($start);
+        // «Недавние поиски» на инфопанели подхватят новый поиск без перезагрузки.
+        $this->dispatch('search-started');
     }
 
     private function openImportedListing(User $viewer, LinkImport $listing): void

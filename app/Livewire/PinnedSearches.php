@@ -5,20 +5,14 @@ namespace App\Livewire;
 use App\Filament\Pages\Concerns\RepeatsSearches;
 use App\Models\ListingSearch;
 use App\Models\User;
-use Filament\Actions\Concerns\InteractsWithActions;
-use Filament\Actions\Contracts\HasActions;
-use Filament\Schemas\Concerns\InteractsWithSchemas;
-use Filament\Schemas\Contracts\HasSchemas;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Component;
 
 /** Закреплённые поиски человека на инфопанели: открыть результат или повторить одной кнопкой. */
-final class PinnedSearches extends Component implements HasActions, HasSchemas
+final class PinnedSearches extends Component
 {
-    use InteractsWithActions;
-    use InteractsWithSchemas;
     use RepeatsSearches;
 
     protected function viewer(): User
@@ -30,7 +24,7 @@ final class PinnedSearches extends Component implements HasActions, HasSchemas
     }
 
     /** @return Collection<int, ListingSearch> */
-    public function searches(): Collection
+    protected function searches(): Collection
     {
         return ListingSearch::query()->with('user')
             ->where('user_id', $this->viewer()->id)
