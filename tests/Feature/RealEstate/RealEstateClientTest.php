@@ -388,6 +388,20 @@ class RealEstateClientTest extends TestCase
 
     }
 
+    /** У района может не быть микрорайонов (Крцаниси-Мтацминда): пустой список — ответ, не сбой. */
+    public function test_empty_subdistricts_is_an_answer_and_is_cached(): void
+    {
+        Cache::flush();
+        Log::swap($log = \Mockery::spy(LogManager::class));
+        Http::fake(['*' => Http::response(['data' => []])]);
+
+        foreach ([1, 2] as $_) {
+            $this->assertTrue($this->client()->dictionary('subdistricts', ['district_id' => 5])->isEmpty());
+        }
+        Http::assertSentCount(1);
+        $log->shouldNotHaveReceived('warning');
+    }
+
     /** @return array<string, array{array<mixed>}> */
     public static function brokenDictionaries(): array
     {
