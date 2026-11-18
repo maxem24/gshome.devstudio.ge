@@ -750,6 +750,7 @@ return [
     ],
 
     'quick_search' => [
+        'pinned_title' => 'მიმაგრებული ძიებები',
         'recent_title' => 'ბოლო ძიებები',
         'recent_running' => 'ვეძებთ…',
         'recent_shown' => ':count განცხადება',

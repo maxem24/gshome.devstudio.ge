@@ -748,6 +748,7 @@ return [
     ],
 
     'quick_search' => [
+        'pinned_title' => 'Закреплённые поиски',
         'recent_title' => 'Недавние поиски',
         'recent_running' => 'ищем…',
         'recent_shown' => ':count объявл.',

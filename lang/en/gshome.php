@@ -748,6 +748,7 @@ return [
     ],
 
     'quick_search' => [
+        'pinned_title' => 'Pinned searches',
         'recent_title' => 'Recent searches',
         'recent_running' => 'searching…',
         'recent_shown' => ':count listings',
