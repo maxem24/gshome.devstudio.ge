@@ -66,6 +66,7 @@ class Pins
                     'status' => ListingPin::ACTIVE,
                     'last_activity_at' => now(),
                 ]);
+                $this->snapshot($pin, $listing);
                 Journal::record(Journal::PIN_TAKEN, $pin, ['listing_id' => $listing->id, 'cluster_id' => $listing->clusterId], $by);
 
                 return $pin;
@@ -140,6 +141,35 @@ class Pins
             Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
             PinClosed::dispatch($pin, $reason);
         });
+    }
+
+    /**
+     * Снимок цены, комнат и микрорайона объявления — для подбора пар без запросов к API.
+     * Пишет, только если что-то из этого изменилось; заголовок зависит от языка смотрящего,
+     * поэтому сам по себе запись не вызывает.
+     *
+     * @return bool true — снимок записан
+     */
+    public function snapshot(ListingPin $pin, Listing $listing): bool
+    {
+        $price = $listing->priceUsd === null ? null : number_format($listing->priceUsd, 2, '.', '');
+        $changed = $pin->snapshot_at === null
+            || $pin->price_usd !== $price
+            || $pin->rooms !== $listing->rooms
+            || $pin->subdistrict_id !== $listing->subdistrictId;
+        if (! $changed) {
+            return false;
+        }
+
+        $pin->update([
+            'price_usd' => $price,
+            'rooms' => $listing->rooms,
+            'subdistrict_id' => $listing->subdistrictId,
+            'title' => $listing->title ?? $pin->title,
+            'snapshot_at' => now(),
+        ]);
+
+        return true;
     }
 
     /**

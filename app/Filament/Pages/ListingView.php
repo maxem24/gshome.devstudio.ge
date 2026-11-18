@@ -119,6 +119,11 @@ class ListingView extends Page
         Journal::record(Journal::LISTING_VIEWED, null, ['listing_id' => $l->id], $viewer);
 
         $this->buildCard($l, $direction, $viewer);
+
+        // Снимок для подбора пар обновляем тем же ответом API, без второго запроса.
+        if (($pin = app(Pins::class)->activeFor($l)) !== null) {
+            app(Pins::class)->snapshot($pin, $l);
+        }
     }
 
     /** Собирает $card из объявления; зовётся из mount() и после актуализации. */
