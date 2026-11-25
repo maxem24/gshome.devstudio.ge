@@ -74,9 +74,9 @@ class ClientEditTest extends TestCase
     {
         $holder = User::factory()->agent(User::factory()->teamLead(null, Direction::Rent)->create())->create(['name' => 'Нино']);
         ListingPin::query()->create([
-            'listing_id' => 77, 'pin_key' => 'l77', 'object_id' => ListingObject::factory()->create()->id, 'direction' => Direction::Rent, 'user_id' => $holder->id,
-            'status' => ListingPin::ACTIVE, 'last_activity_at' => now(), 'snapshot_at' => now(),
-            'subdistrict_id' => 101, 'price_usd' => 600, 'rooms' => 2, 'title' => 'Квартира в Ваке',
+            'listing_id' => 77, 'pin_key' => 'l77', 'object_id' => ListingObject::factory()->create(['subdistrict_id' => 101, 'price_usd' => 600, 'rooms' => 2, 'title' => 'Квартира в Ваке', 'snapshot_at' => now()])->id,
+            'direction' => Direction::Rent, 'user_id' => $holder->id,
+            'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
             'preferences' => ['note' => 'Секрет собственника'],
         ]);
         $client = Client::factory()->create(['housing' => ClientHousing::Looking, 'profile' => ['subdistrict_ids' => [101], 'price_max' => 550]]);

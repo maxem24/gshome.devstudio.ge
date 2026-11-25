@@ -35,26 +35,26 @@ class PinSnapshotTest extends TestCase
     {
         $pin = app(Pins::class)->take($this->listing(), $this->agent());
 
-        $pin->refresh();
-        $this->assertSame(600.0, (float) $pin->price_usd);
-        $this->assertSame(2, $pin->rooms);
-        $this->assertSame(101, $pin->subdistrict_id);
-        $this->assertSame('Квартира', $pin->title);
-        $this->assertNotNull($pin->snapshot_at);
+        $object = $pin->object()->firstOrFail();
+        $this->assertSame(600.0, (float) $object->price_usd);
+        $this->assertSame(2, $object->rooms);
+        $this->assertSame(101, $object->subdistrict_id);
+        $this->assertSame('Квартира', $object->title);
+        $this->assertNotNull($object->snapshot_at);
     }
 
     public function test_snapshot_writes_only_on_change(): void
     {
         $pins = app(Pins::class);
         $pin = $pins->take($this->listing(), $this->agent());
-        $at = $pin->fresh()?->snapshot_at;
+        $at = $pin->object?->fresh()?->snapshot_at;
 
         $this->travel(5)->minutes();
         $this->assertFalse($pins->snapshot($pin, $this->listing()));
-        $this->assertEquals($at, $pin->fresh()?->snapshot_at);
+        $this->assertEquals($at, $pin->object?->fresh()?->snapshot_at);
 
         $this->assertTrue($pins->snapshot($pin, $this->listing(['price' => ['usd' => 650.0]])));
-        $this->assertSame(650.0, (float) $pin->fresh()?->price_usd);
+        $this->assertSame(650.0, (float) $pin->object?->fresh()?->price_usd);
     }
 
     public function test_opening_card_refreshes_changed_price(): void
@@ -81,7 +81,7 @@ class PinSnapshotTest extends TestCase
 
         Livewire::test(ListingView::class, ['listing' => 14])->assertOk();
 
-        $this->assertSame(600.0, (float) $pin->fresh()?->price_usd);
-        $this->assertSame(101, $pin->fresh()?->subdistrict_id);
+        $this->assertSame(600.0, (float) $pin->object?->fresh()?->price_usd);
+        $this->assertSame(101, $pin->object?->fresh()?->subdistrict_id);
     }
 }

@@ -38,8 +38,8 @@ final class Matching
         if (! in_array(Direction::Rent, OrgAccess::directions($viewer), true)) {
             return [];
         }
-        $rows = $this->query('c.id = ?', [$client->id], 'p.id', $limit);
-        $pins = ListingPin::query()->with('holder')->findMany(array_column($rows, 'pin_id'))->keyBy('id');
+        $rows = $this->query('c.id = ?', [$client->id], 'p.id', $limit, $viewer);
+        $pins = ListingPin::query()->with(['holder', 'object'])->findMany(array_column($rows, 'pin_id'))->keyBy('id');
 
         return $this->rows($rows, fn (object $r): ?ListingPin => $pins->get($r->pin_id));
     }
@@ -48,8 +48,16 @@ final class Matching
      * @param  list<int>  $bindings
      * @return list<object>
      */
-    private function query(string $side, array $bindings, string $tieBreak, int $limit): array
+    private function query(string $side, array $bindings, string $tieBreak, int $limit, ?User $viewer = null): array
     {
+        // Сторона клиента: одна строка на объект — участие смотрящего, иначе самое старшее активное.
+        $pins = 'listing_pins';
+        if ($viewer !== null) {
+            $pins = "(SELECT DISTINCT ON (q.object_id) q.* FROM listing_pins q
+                WHERE q.status = 'active' AND q.direction = 'rent' AND q.deleted_at IS NULL
+                ORDER BY q.object_id, (q.user_id = ".(int) $viewer->id.') DESC, q.id)';
+        }
+
         $num = fn (string $json): string => "(CASE WHEN jsonb_typeof({$json}) = 'number' THEN ({$json})::numeric END)";
         $arr = fn (string $json): string => "(CASE WHEN jsonb_typeof({$json}) = 'array' THEN {$json} ELSE '[]'::jsonb END)";
         $filled = fn (string $json): string => "(jsonb_array_length({$arr($json)}) > 0)";
@@ -67,24 +75,25 @@ final class Matching
         $homeItems = "jsonb_array_elements_text({$cHome}) AS e(v) WHERE e.v <> 'pets'";
 
         $pairs = <<<SQL
-            SELECT c.id AS client_id, p.id AS pin_id, p.rooms AS pin_rooms, c.profile->>'occupants' AS occupant,
-                COALESCE((p.subdistrict_id IS NOT NULL AND {$filled("c.profile->'subdistrict_ids'")}), false)::int AS known_place,
-                (c.profile->'subdistrict_ids' @> to_jsonb(p.subdistrict_id))::int AS hit_place,
-                COALESCE((p.price_usd IS NOT NULL AND ({$cmin} IS NOT NULL OR {$cmax} IS NOT NULL)), false)::int AS known_price,
-                GREATEST(p.price_usd - {$cmax}, 0) AS price_over,
-                GREATEST({$cmin} - p.price_usd, 0) AS price_under,
+            SELECT c.id AS client_id, p.id AS pin_id, o.rooms AS pin_rooms, c.profile->>'occupants' AS occupant,
+                COALESCE((o.subdistrict_id IS NOT NULL AND {$filled("c.profile->'subdistrict_ids'")}), false)::int AS known_place,
+                (c.profile->'subdistrict_ids' @> to_jsonb(o.subdistrict_id))::int AS hit_place,
+                COALESCE((o.price_usd IS NOT NULL AND ({$cmin} IS NOT NULL OR {$cmax} IS NOT NULL)), false)::int AS known_price,
+                GREATEST(o.price_usd - {$cmax}, 0) AS price_over,
+                GREATEST({$cmin} - o.price_usd, 0) AS price_under,
                 {$cmax} AS cmax, {$cmin} AS cmin,
                 COALESCE((jsonb_typeof(c.profile->'occupants') = 'string' AND {$filled("p.preferences->'occupants'")}), false)::int AS known_occupants,
                 jsonb_exists({$arr("p.preferences->'occupants'")}, c.profile->>'occupants')::int AS hit_occupants,
                 COALESCE(({$filled("c.profile->'home'")} AND {$filled("p.preferences->'home'")}), false)::int AS known_pets,
                 (NOT jsonb_exists({$cHome}, 'pets') OR jsonb_exists({$lHome}, 'pets'))::int AS hit_pets,
-                COALESCE((p.rooms IS NOT NULL AND ({$rmin} IS NOT NULL OR {$rmax} IS NOT NULL)), false)::int AS known_rooms,
-                GREATEST(COALESCE({$rmin} - p.rooms, 0), COALESCE(p.rooms - {$rmax}, 0), 0) AS rooms_off,
+                COALESCE((o.rooms IS NOT NULL AND ({$rmin} IS NOT NULL OR {$rmax} IS NOT NULL)), false)::int AS known_rooms,
+                GREATEST(COALESCE({$rmin} - o.rooms, 0), COALESCE(o.rooms - {$rmax}, 0), 0) AS rooms_off,
                 (SELECT count(*) FROM {$homeItems} AND jsonb_exists({$lHome}, e.v)) AS home_hit,
                 (SELECT jsonb_agg(e.v) FROM {$homeItems} AND NOT jsonb_exists({$lHome}, e.v) AND jsonb_exists_any({$lHome}, {$opposite})) AS home_missed,
                 COALESCE(({$num("c.profile->'people'")} IS NOT NULL AND {$num("p.preferences->'people'")} IS NOT NULL), false)::int AS known_people,
                 ({$num("c.profile->'people'")} <= {$num("p.preferences->'people'")})::int AS hit_people
-            FROM clients c CROSS JOIN listing_pins p
+            FROM clients c CROSS JOIN {$pins} p
+            JOIN listing_objects o ON o.id = p.object_id AND o.status = 'open'
             WHERE c.housing = 'looking' AND c.deleted_at IS NULL
               AND p.status = 'active' AND p.direction = 'rent' AND p.deleted_at IS NULL
               AND {$side}

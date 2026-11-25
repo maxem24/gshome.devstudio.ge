@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Support\Carbon;
 
 /**
  * Объект в работе: группа дублей (или одно объявление без группы), закреплённая за человеком.
@@ -26,14 +25,9 @@ use Illuminate\Support\Carbon;
  * @property ?string $closed_reason
  * @property ?int $object_id
  * @property ?UnavailableReason $unavailable_reason
- * @property ?string $price_usd снимок объявления (Pins::snapshot)
- * @property ?int $rooms
- * @property ?int $subdistrict_id
- * @property ?string $title
- * @property ?Carbon $snapshot_at
  * @property array<string, mixed> $preferences кому собственник готов сдать (LandlordPreferences)
  */
-#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'object_id', 'unavailable_reason', 'closed_at', 'last_activity_at', 'preferences', 'price_usd', 'rooms', 'subdistrict_id', 'title', 'snapshot_at'])]
+#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'object_id', 'unavailable_reason', 'closed_at', 'last_activity_at', 'preferences'])]
 class ListingPin extends Model
 {
     use SoftDeletes;
@@ -54,10 +48,6 @@ class ListingPin extends Model
             'closed_at' => 'datetime',
             'last_activity_at' => 'datetime',
             'preferences' => 'array',
-            'price_usd' => 'decimal:2',
-            'rooms' => 'integer',
-            'subdistrict_id' => 'integer',
-            'snapshot_at' => 'datetime',
         ];
     }
 

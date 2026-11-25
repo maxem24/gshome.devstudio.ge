@@ -2,25 +2,25 @@
 
 namespace App\Console\Commands;
 
-use App\Crm\Pins;
+use App\Crm\ListingObjects;
 use App\Enums\Direction;
-use App\Models\ListingPin;
+use App\Models\ListingObject;
 use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Exceptions\RealEstateRateLimited;
 use App\RealEstate\RealEstateClient;
 use Illuminate\Console\Command;
 
-/** Обновляет снимок объявления у объектов аренды в работе: по нему считается подбор пар. */
+/** Обновляет снимок объявления у открытых объектов аренды: по нему считается подбор пар. */
 class SnapshotPins extends Command
 {
     protected $signature = 'pins:snapshot {--stale= : только снимки старше этого числа часов}';
 
-    protected $description = 'Обновить цену, комнаты и микрорайон объектов аренды в работе';
+    protected $description = 'Обновить цену, комнаты и микрорайон открытых объектов аренды';
 
-    public function handle(Pins $pins, RealEstateClient $client): int
+    public function handle(ListingObjects $objects, RealEstateClient $client): int
     {
-        $query = ListingPin::query()
-            ->where('status', ListingPin::ACTIVE)
+        $query = ListingObject::query()
+            ->where('status', ListingObject::OPEN)
             ->where('direction', Direction::Rent);
         $stale = $this->option('stale');
         if (is_numeric($stale)) {
@@ -28,21 +28,30 @@ class SnapshotPins extends Command
         }
 
         $updated = 0;
-        foreach ($query->orderBy('id')->cursor() as $pin) {
+        // По id: объекты, склеенные по ходу, закроются, и их уже не отдадут повторно.
+        foreach ($query->orderBy('id')->cursor() as $object) {
+            // Склейка могла закрыть объект раньше, чем до него дошла очередь.
+            if (! $object->fresh()?->isOpen()) {
+                continue;
+            }
             try {
-                $listing = $client->listing($pin->listing_id);
+                $listing = $client->listing($object->listing_id);
             } catch (RealEstateRateLimited $e) {
                 // Квота кончилась: остальные дождутся следующего запуска, а не получат по 429.
-                $this->warn("Лимит API, остановлено на {$pin->listing_id}");
+                $this->warn("Лимит API, остановлено на {$object->listing_id}");
                 break;
             } catch (RealEstateException $e) {
                 $listing = null;
-                $this->warn("{$pin->listing_id}: {$e->getMessage()}");
+                $this->warn("{$object->listing_id}: {$e->getMessage()}");
             }
             if ($listing === null) {
-                $this->warn("Объявление {$pin->listing_id} недоступно, пропущено");
-            } elseif ($pins->snapshot($pin, $listing, touch: true)) {
-                $updated++;
+                $this->warn("Объявление {$object->listing_id} недоступно, пропущено");
+            } else {
+                // Свежее объявление знает свою группу дублей: findOpen склеивает объекты.
+                $target = $objects->findOpen($listing->id, $listing->clusterId) ?? $object;
+                if ($objects->snapshot($target, $listing, touch: true)) {
+                    $updated++;
+                }
             }
             // Квота API: не больше трёх запросов в секунду.
             if (! app()->runningUnitTests()) {

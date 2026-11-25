@@ -267,42 +267,13 @@ class Pins
     }
 
     /**
-     * Снимок объявления теперь живёт на объекте; колонки на пине пишем, пока их читает подбор пар.
-     * Пишет, только если что-то изменилось.
+     * @deprecated Объект снимает ListingObjects::snapshot; удалить в Task 8.
      *
-     * @deprecated Объект снимает ListingObjects::snapshot.
-     *
-     * @param  bool  $touch  ночная проверка: отметить снимок свежим и без изменений
-     * @return bool true — снимок пина записан
+     * @return bool true — снимок записан
      */
     public function snapshot(ListingPin $pin, Listing $listing, bool $touch = false): bool
     {
-        if ($pin->object !== null) {
-            $this->objects()->snapshot($pin->object, $listing, $touch);
-        }
-
-        $price = $listing->priceUsd === null ? null : number_format($listing->priceUsd, 2, '.', '');
-        $changed = $pin->snapshot_at === null
-            || $pin->price_usd !== $price
-            || $pin->rooms !== $listing->rooms
-            || $pin->subdistrict_id !== $listing->subdistrictId;
-        if (! $changed) {
-            if ($touch) {
-                $pin->update(['snapshot_at' => now()]);
-            }
-
-            return false;
-        }
-
-        $pin->update([
-            'price_usd' => $price,
-            'rooms' => $listing->rooms,
-            'subdistrict_id' => $listing->subdistrictId,
-            'title' => $listing->title ?? $pin->title,
-            'snapshot_at' => now(),
-        ]);
-
-        return true;
+        return $pin->object !== null && $this->objects()->snapshot($pin->object, $listing, $touch);
     }
 
     /**

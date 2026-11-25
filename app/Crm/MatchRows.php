@@ -33,10 +33,10 @@ final class MatchRows
             $pin = $row->other;
             $name = app(Pins::class)->holderLabel($pin, $viewer);
             $sub = collect([
-                $pin->price_usd === null ? null : '$'.DealIntake::display((string) $pin->price_usd),
+                $pin->object->price_usd === null ? null : '$'.DealIntake::display((string) $pin->object->price_usd),
                 $name === null ? __('gshome.crm.matching.in_work_other') : __('gshome.crm.matching.in_work_by', ['name' => $name]),
             ])->filter()->implode(' · ');
-            $out[] = self::row($row, $pin->title ?? '№'.$pin->listing_id, $sub, ListingView::getUrl(['listing' => $pin->listing_id]));
+            $out[] = self::row($row, $pin->object->title ?? '№'.$pin->listing_id, $sub, ListingView::getUrl(['listing' => $pin->listing_id]));
         }
 
         return $out;
