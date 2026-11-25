@@ -220,7 +220,7 @@ class ListingObjectsTest extends TestCase
         app(ListingObjects::class)->merge($keep, $gone);
 
         $this->assertTrue($gone->fresh()?->isOpen());
-        $this->assertNull($gone->fresh()?->merged_into_id);
+        $this->assertNull($gone->refresh()->merged_into_id);
         $this->assertSame($gone->id, $pin->refresh()->object_id);
     }
 
