@@ -253,7 +253,12 @@ class Pins
      */
     public function holderLabel(ListingPin $pin, User $viewer): ?string
     {
-        $holder = $pin->holder;
+        return $this->nameFor($pin->holder, $viewer);
+    }
+
+    /** Имя человека для смотрящего: правило «видимости держателя», без привязки к пину. */
+    public function nameFor(User $holder, User $viewer): ?string
+    {
         $named = $holder->id === $viewer->id
             || $viewer->role === Role::Owner
             || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);

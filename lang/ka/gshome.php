@@ -629,6 +629,15 @@ return [
             'empty' => 'სამუშაოში ობიექტები არ არის',
             'listing_unavailable' => 'განცხადება მიუწვდომელია (№:id)',
         ],
+        'objects' => [
+            'closed_by' => ':title — გაქირავდა/გაიყიდა აგენტის მიერ: :name',
+            'closed_by_other_company' => ':title — გაქირავდა/გაიყიდა სხვა კომპანიის აგენტის მიერ',
+            'closed_fake' => ':title — :name-მა განცხადება ყალბად მონიშნა',
+            'closed_fake_anon' => ':title — განცხადება ყალბად არის მონიშნული',
+            'closed_rented_elsewhere' => ':title — :name-მა მონიშნა, რომ სხვაგან გაქირავდა',
+            'closed_rented_elsewhere_anon' => ':title — მონიშნულია, რომ სხვაგან გაქირავდა',
+            'open' => 'გახსნა',
+        ],
         'tasks' => [
             'title' => 'ამოცანები',
             'assigned' => 'ამოცანა დაგინიშნათ: :author',

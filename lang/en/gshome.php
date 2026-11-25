@@ -627,6 +627,15 @@ return [
             'empty' => 'No listings in work',
             'listing_unavailable' => 'Listing unavailable (#:id)',
         ],
+        'objects' => [
+            'closed_by' => ':title — rented/sold by :name',
+            'closed_by_other_company' => ':title — rented/sold by an agent of another company',
+            'closed_fake' => ':title — :name marked the listing as fake',
+            'closed_fake_anon' => ':title — the listing was marked as fake',
+            'closed_rented_elsewhere' => ':title — :name marked it as rented elsewhere',
+            'closed_rented_elsewhere_anon' => ':title — marked as rented elsewhere',
+            'open' => 'Open',
+        ],
         'tasks' => [
             'title' => 'Tasks',
             'assigned' => 'You were assigned a task by :author',

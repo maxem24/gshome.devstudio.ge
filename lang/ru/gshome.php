@@ -627,6 +627,15 @@ return [
             'empty' => 'Объектов в работе нет',
             'listing_unavailable' => 'Объявление недоступно (№:id)',
         ],
+        'objects' => [
+            'closed_by' => ':title — сдан/продан агентом :name',
+            'closed_by_other_company' => ':title — сдан/продан агентом другой компании',
+            'closed_fake' => ':title — :name отметил(а) объявление как ненастоящее',
+            'closed_fake_anon' => ':title — объявление отмечено как ненастоящее',
+            'closed_rented_elsewhere' => ':title — :name отметил(а), что сдано в другом месте',
+            'closed_rented_elsewhere_anon' => ':title — отмечено, что сдано в другом месте',
+            'open' => 'Открыть',
+        ],
         'tasks' => [
             'title' => 'Задачи',
             'assigned' => 'Вам поставил задачу :author',
