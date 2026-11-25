@@ -14,7 +14,9 @@
                         <p class="font-medium text-gray-950 dark:text-white">{{ __('gshome.crm.pins.holders_title') }}</p>
                         <ul class="mt-1 space-y-0.5 text-gray-700 dark:text-gray-200">
                             @foreach ($banner['holders'] as $holder)
-                                <li>{{ $holder['name'] ?? __('gshome.crm.pins.another_agent') }}</li>
+                                <li>
+                                    {{ $holder['name'] ?? __('gshome.crm.pins.another_agent') }}
+                                </li>
                             @endforeach
                         </ul>
                     </div>
