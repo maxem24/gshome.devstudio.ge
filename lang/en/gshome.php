@@ -137,6 +137,12 @@ return [
         'sale' => 'Sale',
         'rent' => 'Monthly rent',
     ],
+    'unavailable_reason' => [
+        'rented_elsewhere' => 'Rented elsewhere',
+        'fake' => 'Listing is fake',
+        'owner_refused' => 'Owner refused',
+        'other' => 'Other reason',
+    ],
     'ownership' => [
         'our_employee' => 'Our employee',
         'linked_company' => 'Employee of a linked company',

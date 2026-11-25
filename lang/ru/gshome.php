@@ -137,6 +137,12 @@ return [
         'sale' => 'Продажа',
         'rent' => 'Помесячная сдача',
     ],
+    'unavailable_reason' => [
+        'rented_elsewhere' => 'Сдано в другом месте',
+        'fake' => 'Объявление фейковое',
+        'owner_refused' => 'Собственник отказался',
+        'other' => 'Другая причина',
+    ],
     'ownership' => [
         'our_employee' => 'Наш сотрудник',
         'linked_company' => 'Сотрудник связанной компании',

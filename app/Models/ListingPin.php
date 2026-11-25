@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Access\OrgAccess;
 use App\Crm\Archive;
 use App\Enums\Direction;
+use App\Enums\UnavailableReason;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -23,6 +24,8 @@ use Illuminate\Support\Carbon;
  * @property int $user_id
  * @property string $status
  * @property ?string $closed_reason
+ * @property ?int $object_id
+ * @property ?UnavailableReason $unavailable_reason
  * @property ?string $price_usd снимок объявления (Pins::snapshot)
  * @property ?int $rooms
  * @property ?int $subdistrict_id
@@ -30,7 +33,7 @@ use Illuminate\Support\Carbon;
  * @property ?Carbon $snapshot_at
  * @property array<string, mixed> $preferences кому собственник готов сдать (LandlordPreferences)
  */
-#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'closed_at', 'last_activity_at', 'preferences', 'price_usd', 'rooms', 'subdistrict_id', 'title', 'snapshot_at'])]
+#[Fillable(['listing_id', 'cluster_id', 'pin_key', 'direction', 'user_id', 'status', 'closed_reason', 'object_id', 'unavailable_reason', 'closed_at', 'last_activity_at', 'preferences', 'price_usd', 'rooms', 'subdistrict_id', 'title', 'snapshot_at'])]
 class ListingPin extends Model
 {
     use SoftDeletes;
@@ -46,6 +49,8 @@ class ListingPin extends Model
             'cluster_id' => 'integer',
             'user_id' => 'integer',
             'direction' => Direction::class,
+            'object_id' => 'integer',
+            'unavailable_reason' => UnavailableReason::class,
             'closed_at' => 'datetime',
             'last_activity_at' => 'datetime',
             'preferences' => 'array',
@@ -60,6 +65,12 @@ class ListingPin extends Model
     public function holder(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** @return BelongsTo<ListingObject, $this> */
+    public function object(): BelongsTo
+    {
+        return $this->belongsTo(ListingObject::class, 'object_id');
     }
 
     /** @return HasMany<Deal, $this> */
