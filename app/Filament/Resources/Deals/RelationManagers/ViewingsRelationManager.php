@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Deals\RelationManagers;
 
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Pins;
 use App\Crm\Viewings;
 use App\Enums\ViewingOutcome;
 use App\Models\Deal;
@@ -140,8 +141,8 @@ class ViewingsRelationManager extends RelationManager
         try {
             $do($user);
             Notification::make()->title(__('gshome.crm.pins.closed'))->success()->send();
-        } catch (CrmForbidden) {
-            Notification::make()->title(__('gshome.crm.deals.forbidden'))->danger()->send();
+        } catch (CrmForbidden $e) {
+            Notification::make()->title(app(Pins::class)->refusal($e, $user, 'gshome.crm.deals.forbidden'))->danger()->send();
         }
     }
 }

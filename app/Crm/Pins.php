@@ -7,7 +7,9 @@ use App\Crm\Events\ObjectClosed;
 use App\Crm\Events\PinClosed;
 use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Exceptions\ObjectClosed as ObjectClosedException;
 use App\Crm\Exceptions\PinTaken;
+use App\Crm\Exceptions\RecipientOnObject;
 use App\Enums\DealStatus;
 use App\Enums\Role;
 use App\Enums\UnavailableReason;
@@ -80,7 +82,10 @@ class Pins
                         'last_activity_at' => now(),
                     ]);
                     $pin->setRelation('object', $object);
-                    $this->objects()->snapshot($object, $listing);
+                    // Снимок — только с самого объявления объекта: копия группы может стоить иначе.
+                    if ($object->listing_id === $listing->id) {
+                        $this->objects()->snapshot($object, $listing);
+                    }
                     Journal::record(Journal::PIN_TAKEN, $pin, ['listing_id' => $listing->id, 'cluster_id' => $listing->clusterId, 'object_id' => $object->id], $by);
 
                     return $pin;
@@ -105,7 +110,7 @@ class Pins
             $object = $this->objects()->lockOfPin($pin);
             $this->lockActive($pin);
             if ($this->mine($object, $to) !== null) {
-                throw new CrmForbidden('Recipient already works on this object.');
+                throw new RecipientOnObject;
             }
             $pin->update(['user_id' => $to->id, 'last_activity_at' => now()]);
             Journal::record(Journal::PIN_TRANSFERRED, $pin, ['listing_id' => $pin->listing_id, 'from_user_id' => $from->id, 'to_user_id' => $to->id], $by);
@@ -193,7 +198,9 @@ class Pins
             'reason' => $reason,
             'closed_pins' => $others->pluck('id')->all(),
         ], $by);
-        ObjectClosed::dispatch($object, $by, $reason, $others);
+        // Руководитель закрыл от имени агента: сам агент тоже должен узнать (его пина нет среди закрытых здесь).
+        $acting = $except !== null && $except->user_id !== $by->id ? $except->holder : null;
+        ObjectClosed::dispatch($object, $by, $reason, $others, $acting);
     }
 
     public function touch(ListingPin $pin, ?CarbonInterface $at = null): void
@@ -236,6 +243,28 @@ class Pins
             || in_array((int) $holder->company_id, OrgAccess::identifiableCompanyIds($viewer), true);
 
         return $named ? $holder->name : null;
+    }
+
+    /**
+     * Понятный отказ для экрана: закрытый объект называет закрывшего (если смотрящему можно знать имя),
+     * передача тому, кто уже ведёт объект, — свой текст. Остальное — общий ключ $fallback.
+     */
+    public function refusal(CrmForbidden $e, User $viewer, string $fallback): string
+    {
+        if ($e instanceof RecipientOnObject) {
+            return __('gshome.crm.pins.transfer_already_on_object');
+        }
+        if ($e instanceof ObjectClosedException) {
+            $object = $e->object;
+            $by = $object->closed_by === null ? null : User::query()->find($object->closed_by);
+            $name = $by === null ? null : $this->nameFor($by, $viewer);
+            $reason = in_array($object->closed_reason, ['won', 'rented_elsewhere', 'fake'], true) ? (string) $object->closed_reason : 'abandoned';
+            $key = 'gshome.crm.pins.object_closed_'.$reason.($name === null && $reason !== 'abandoned' ? '_anon' : '');
+
+            return __($key, ['name' => $name]);
+        }
+
+        return __($fallback);
     }
 
     /**

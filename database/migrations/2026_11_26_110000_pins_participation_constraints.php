@@ -17,6 +17,10 @@ return new class extends Migration
         DB::statement("ALTER TABLE listing_pins ADD CONSTRAINT listing_pins_closed_reason_check CHECK (closed_reason IS NULL OR closed_reason IN ('won', 'unavailable', 'released', 'closed_by_other', 'merged'))");
     }
 
+    /**
+     * Откат упадёт, когда несколько агентов делят один объект: уникальный индекс по pin_key
+     * больше не соблюдается. Так задумано — данные не склеиваем молча.
+     */
     public function down(): void
     {
         DB::statement('ALTER TABLE listing_pins DROP CONSTRAINT IF EXISTS listing_pins_closed_reason_check');

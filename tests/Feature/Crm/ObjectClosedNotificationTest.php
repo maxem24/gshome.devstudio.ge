@@ -91,6 +91,20 @@ class ObjectClosedNotificationTest extends TestCase
         $this->assertSame([], $this->titles($this->nino));
     }
 
+    /** Руководитель закрыл от имени агента: агент, чей пин закрыт, тоже получает уведомление. */
+    public function test_pin_owner_notified_when_leader_closes_on_their_behalf(): void
+    {
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(), $this->nino);
+        $pins->take($this->listing(), $this->giorgi);
+
+        $pins->markUnavailable($ninoPin, UnavailableReason::Fake, $this->lead);
+
+        $this->assertCount(1, $this->titles($this->nino));
+        $this->assertCount(1, $this->titles($this->giorgi));
+        $this->assertSame([], $this->titles($this->lead));
+    }
+
     public function test_no_notification_when_rolled_back(): void
     {
         $pins = app(Pins::class);

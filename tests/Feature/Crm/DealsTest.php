@@ -4,6 +4,7 @@ namespace Tests\Feature\Crm;
 
 use App\Crm\Deals;
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Exceptions\ObjectClosed;
 use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
@@ -17,6 +18,7 @@ use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -185,10 +187,49 @@ class DealsTest extends TestCase
         try {
             $deals->win($b, '900', 'USD', $this->giorgi);
             $this->fail('Second win must be rejected.');
-        } catch (CrmForbidden) {
+        } catch (ObjectClosed $e) {
+            $this->assertSame($this->nino->id, $e->object->closed_by);
+            $this->assertSame('won', $e->object->closed_reason);
             $this->assertSame(1, Deal::query()->where('status', DealStatus::Won)->count());
             $this->assertSame(DealStatus::Unavailable, $b->fresh()->status);
         }
+    }
+
+    public function test_move_stage_on_object_closed_by_other_win_is_rejected_with_object_closed(): void
+    {
+        $deals = app(Deals::class);
+        $giorgiPin = app(Pins::class)->take($this->listing(41), $this->giorgi);
+        $a = $deals->open($this->pin, $this->client(), $this->nino);
+        $b = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+        $stage = $b->stage;
+
+        $deals->win($a, '1000', 'USD', $this->nino);
+
+        try {
+            $deals->moveStage($b, 'viewing_scheduled', $this->giorgi);
+            $this->fail('Move on closed object must be rejected.');
+        } catch (ObjectClosed $e) {
+            $this->assertSame('won', $e->object->closed_reason);
+        }
+        $this->assertSame($stage, $b->fresh()->stage);
+    }
+
+    /** Общий порядок блокировок: первым берётся объект, и только потом сделка и пин. */
+    public function test_lock_open_takes_object_lock_before_deal_and_pin(): void
+    {
+        $deals = app(Deals::class);
+        $deal = $deals->open($this->pin, $this->client(), $this->nino);
+
+        $tables = [];
+        DB::listen(function ($query) use (&$tables): void {
+            if (preg_match('/from "(\w+)".* for update/is', $query->sql, $m)) {
+                $tables[] = $m[1];
+            }
+        });
+        $deals->moveStage($deal, 'viewing_scheduled', $this->nino);
+
+        $this->assertSame('listing_objects', $tables[0] ?? null);
+        $this->assertLessThan(array_search('deals', $tables, true), array_search('listing_objects', $tables, true));
     }
 
     public function test_others_on_object_lists_same_client_elsewhere(): void

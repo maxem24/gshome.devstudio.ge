@@ -128,7 +128,7 @@ class ListingView extends Page
 
         // Снимок объекта обновляем тем же ответом API, без второго запроса — и только со «своего»
         // объявления: копия из группы дублей может стоить иначе и не знать микрорайона.
-        $object = app(ListingObjects::class)->findOpen($l->id, $l->clusterId);
+        $object = app(ListingObjects::class)->findOpen($l->id, $l->clusterId, app(ListingObjects::class)->copyIds($l));
         if ($object !== null && $object->listing_id === $l->id) {
             app(ListingObjects::class)->snapshot($object, $l);
         }
@@ -508,7 +508,10 @@ class ListingView extends Page
             return null;
         }
 
-        return app(ListingObjects::class)->findOpen($id, $this->card['cluster_id'] ?? null);
+        return app(ListingObjects::class)->findOpen($id, $this->card['cluster_id'] ?? null, array_values(array_filter(
+            array_map(fn (array $m): int => (int) $m['id'], $this->card['cluster'] ?? []),
+            fn (int $copy): bool => $copy > 0 && $copy !== $id,
+        )));
     }
 
     /** Пин, которым смотрящий вправе управлять: свой или самый старый из видимых ему. */
@@ -667,8 +670,8 @@ class ListingView extends Page
                         Notification::make()->title(__('gshome.crm.pins.taken'))->success()->send();
                     } catch (PinTaken) {
                         Notification::make()->title(__('gshome.crm.pins.already_mine'))->warning()->send();
-                    } catch (CrmForbidden) {
-                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    } catch (CrmForbidden $e) {
+                        Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.forbidden'))->danger()->send();
                     }
                     unset($this->pin, $this->object);
                 }),
@@ -691,8 +694,8 @@ class ListingView extends Page
                         }
                         app(Pins::class)->transfer($pin, $to, $this->viewer());
                         Notification::make()->title(__('gshome.crm.pins.transferred'))->success()->send();
-                    } catch (CrmForbidden) {
-                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    } catch (CrmForbidden $e) {
+                        Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.forbidden'))->danger()->send();
                     }
                     unset($this->pin, $this->object);
                 }),
@@ -713,8 +716,8 @@ class ListingView extends Page
                         }
                         app(Pins::class)->savePreferences($pin, $data, $this->viewer());
                         Notification::make()->title(__('gshome.crm.pins.preferences_saved'))->success()->send();
-                    } catch (CrmForbidden) {
-                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+                    } catch (CrmForbidden $e) {
+                        Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.forbidden'))->danger()->send();
                     }
                     unset($this->pin, $this->object);
                 }),
@@ -767,8 +770,8 @@ class ListingView extends Page
             }
             $close(app(Pins::class), $pin);
             Notification::make()->title(__('gshome.crm.pins.closed'))->success()->send();
-        } catch (CrmForbidden) {
-            Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+        } catch (CrmForbidden $e) {
+            Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.forbidden'))->danger()->send();
         }
         unset($this->pin, $this->object);
     }

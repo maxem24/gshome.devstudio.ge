@@ -7,7 +7,6 @@ use App\Crm\Exceptions\CrmForbidden;
 use App\Enums\DealStatus;
 use App\Models\Client;
 use App\Models\Deal;
-use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -271,9 +270,16 @@ class Deals
         throw new CrmForbidden("No visible stage of kind {$kind}.");
     }
 
-    /** Перечитать сделку под блокировкой: за это время её могли закрыть закрытием пина. */
+    /**
+     * Перечитать сделку под блокировкой: за это время её могли закрыть закрытием пина.
+     * Порядок блокировок общий: объект, затем сделка, затем пин. Объект берём первым, иначе закрытие
+     * объекта (объект, пины, их сделки) пересечётся с этим вызовом (сделка, пин) и даст взаимоблокировку.
+     */
     public function lockOpen(Deal $deal, User $by): void
     {
+        $pinId = Deal::query()->whereKey($deal->getKey())->value('listing_pin_id');
+        app(ListingObjects::class)->lockOfPin(ListingPin::query()->findOrFail($pinId));
+
         $fresh = Deal::query()->whereKey($deal->getKey())->lockForUpdate()->firstOrFail();
         if (! $fresh->isOpen() || ! $this->canManage($fresh, $by) || ! $fresh->pin->isActive()) {
             throw new CrmForbidden('Cannot change this deal.');

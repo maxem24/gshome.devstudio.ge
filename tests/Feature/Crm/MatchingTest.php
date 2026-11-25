@@ -7,6 +7,7 @@ use App\Crm\MatchRow;
 use App\Enums\ClientHousing;
 use App\Enums\Direction;
 use App\Models\Client;
+use App\Models\Company;
 use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
@@ -235,6 +236,37 @@ class MatchingTest extends TestCase
         $this->assertCount(1, $rows);
         $this->assertSame($mine->id, $rows[0]->other->id);
         $this->assertSame(100, $rows[0]->score);
+    }
+
+    /** Смотрящему без своего участия берём предпочтения видимой компании, а не невидимой, даже если та старше. */
+    public function test_viewer_without_own_pin_prefers_visible_company_pin(): void
+    {
+        $viewer = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $stranger = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $teammate = User::factory()->agent($viewer->teamLead)->create();
+        $hidden = $this->pin([], ['occupants' => ['family']], ['user_id' => $stranger->id]);
+        $visible = $this->pinOn($hidden->object, ['occupants' => ['couple']], ['user_id' => $teammate->id]);
+        $client = $this->looking(['subdistrict_ids' => [101], 'occupants' => 'couple']);
+
+        $rows = app(Matching::class)->pinsFor($client, $viewer);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($visible->id, $rows[0]->other->id);
+        $this->assertSame(100, $rows[0]->score);
+    }
+
+    /** Объект, который ведёт только невидимая компания, всё равно предлагается. */
+    public function test_object_of_invisible_company_only_is_still_offered(): void
+    {
+        $viewer = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $stranger = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $hidden = $this->pin([], [], ['user_id' => $stranger->id]);
+        $client = $this->looking(['subdistrict_ids' => [101]]);
+
+        $rows = app(Matching::class)->pinsFor($client, $viewer);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($hidden->id, $rows[0]->other->id);
     }
 
     public function test_closed_object_is_not_offered(): void

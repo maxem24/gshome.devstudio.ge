@@ -15,11 +15,13 @@ final class ObjectClosed
 
     /**
      * @param  Collection<int, ListingPin>  $closedPins  пины, закрытые этим вызовом (без пина того, кто закрыл)
+     * @param  User|null  $actingHolder  держатель пина, от имени которого закрыл руководитель: он тоже должен узнать
      */
     public function __construct(
         public readonly ListingObject $object,
         public readonly User $by,
         public readonly string $reason,
         public readonly Collection $closedPins,
+        public readonly ?User $actingHolder = null,
     ) {}
 }

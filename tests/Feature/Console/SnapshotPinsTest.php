@@ -102,6 +102,23 @@ class SnapshotPinsTest extends TestCase
         $this->assertCount(1, array_filter(Http::recorded()->all(), fn (array $pair): bool => str_contains($pair[0]->url(), '/listings/41')));
     }
 
+    /** Устаревший объект по копии 21 склеился со свежим по копии 22: снимок свежего чужой копией не трогаем. */
+    public function test_merged_into_object_of_other_copy_keeps_its_snapshot(): void
+    {
+        $keep = $this->object(22, Direction::Rent, now()->toIso8601String());
+        $keep->update(['object_key' => 'c:5', 'cluster_id' => 5, 'price_usd' => 500]);
+        $this->object(21, Direction::Rent, now()->subDays(2)->toIso8601String());
+        RealEstateFake::fake(cards: [21 => RealEstateFake::listing([
+            'id' => 21, 'price' => ['usd' => 700.0], 'rooms' => 3, 'subdistrict' => ['id' => 5, 'title' => 'X'],
+            'cluster' => ['id' => 5, 'listings_count' => 2, 'phones_e164' => [], 'listings' => [['id' => 22, 'source' => 'ss_ge'], ['id' => 21, 'source' => 'ss_ge']]],
+        ])]);
+
+        $this->artisan('pins:snapshot', ['--stale' => 24])->assertSuccessful();
+
+        $this->assertSame(500.0, (float) $keep->fresh()?->price_usd);
+        $this->assertSame(1, ListingObject::query()->where('status', ListingObject::OPEN)->count());
+    }
+
     public function test_stops_on_rate_limit(): void
     {
         $this->object(51, Direction::Rent);

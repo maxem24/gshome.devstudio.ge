@@ -17,6 +17,12 @@ class NotifyObjectClosed implements ShouldHandleEventsAfterCommit
     {
         $holders = (new EloquentCollection($event->closedPins->all()))->loadMissing('holder')
             ->map(fn ($pin) => $pin->holder)
+            ->all();
+        // Руководитель закрыл от имени агента: его пина среди закрытых нет, но узнать он должен.
+        if ($event->actingHolder !== null) {
+            $holders[] = $event->actingHolder;
+        }
+        $holders = collect($holders)
             ->filter(fn ($holder) => $holder->id !== $event->by->id)
             ->unique('id');
 

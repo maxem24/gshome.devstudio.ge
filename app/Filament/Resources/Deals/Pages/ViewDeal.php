@@ -9,6 +9,7 @@ use App\Crm\DealStage;
 use App\Crm\DealStages;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Journal;
+use App\Crm\Pins;
 use App\Enums\Direction;
 use App\Filament\Resources\Deals\DealResource;
 use App\Models\Deal;
@@ -244,8 +245,8 @@ class ViewDeal extends ViewRecord
         try {
             $do($deal, $user);
             Notification::make()->title(__('gshome.crm.pins.closed'))->success()->send();
-        } catch (CrmForbidden) {
-            Notification::make()->title(__('gshome.crm.deals.forbidden'))->danger()->send();
+        } catch (CrmForbidden $e) {
+            Notification::make()->title(app(Pins::class)->refusal($e, $user, 'gshome.crm.deals.forbidden'))->danger()->send();
         }
         $deal->refresh()->unsetRelations();
     }

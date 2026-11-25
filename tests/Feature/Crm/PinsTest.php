@@ -129,6 +129,23 @@ class PinsTest extends TestCase
         $this->assertNull($objects->findOpen(77, 8));
     }
 
+    /** Взяли копию 456: снимок объекта, созданного по объявлению 123, не перезаписывается чужой копией. */
+    public function test_take_via_other_copy_does_not_overwrite_object_snapshot(): void
+    {
+        $object = ListingObject::factory()->create([
+            'object_key' => 'l:123', 'listing_id' => 123, 'direction' => 'sale', 'price_usd' => 500, 'rooms' => 2, 'snapshot_at' => now(),
+        ]);
+        $copy = Listing::fromApi(RealEstateFake::listing([
+            'id' => 456, 'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'sale'], 'price' => ['usd' => 900.0, 'gel' => 2400.0],
+            'cluster' => ['id' => 55, 'listings_count' => 2, 'phones_e164' => [], 'listings' => [['id' => 123, 'source' => 'ss_ge'], ['id' => 456, 'source' => 'ss_ge']]],
+        ]), 'ru');
+
+        $pin = app(Pins::class)->take($copy, $this->nino);
+
+        $this->assertSame($object->id, $pin->object_id);
+        $this->assertSame(500.0, (float) $object->fresh()?->price_usd);
+    }
+
     public function test_mine_and_active_of(): void
     {
         $pins = app(Pins::class);

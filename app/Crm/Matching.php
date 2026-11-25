@@ -50,12 +50,16 @@ final class Matching
      */
     private function query(string $side, array $bindings, string $tieBreak, int $limit, ?User $viewer = null): array
     {
-        // Сторона клиента: одна строка на объект — участие смотрящего, иначе самое старшее активное.
+        // Сторона клиента: одна строка на объект — участие смотрящего, иначе самое старшее из видимых ему
+        // компаний (владелец видит все), иначе самое старшее: предпочтения невидимой компании берём лишь
+        // когда видимой нет.
         $pins = 'listing_pins';
         if ($viewer !== null) {
+            $visible = implode(',', OrgAccess::identifiableCompanyIds($viewer) ?: [0]);
             $pins = "(SELECT DISTINCT ON (q.object_id) q.* FROM listing_pins q
                 WHERE q.status = 'active' AND q.direction = 'rent' AND q.deleted_at IS NULL
-                ORDER BY q.object_id, (q.user_id = ".(int) $viewer->id.') DESC, q.id)';
+                ORDER BY q.object_id, (q.user_id = ".(int) $viewer->id.") DESC,
+                    (q.user_id IN (SELECT u.id FROM users u WHERE u.company_id IN ({$visible}))) DESC, q.id)";
         }
 
         $num = fn (string $json): string => "(CASE WHEN jsonb_typeof({$json}) = 'number' THEN ({$json})::numeric END)";

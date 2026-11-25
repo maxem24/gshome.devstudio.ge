@@ -86,6 +86,36 @@ class ListingObjectsTest extends TestCase
         $this->assertSame($stale->id, $found->id);
     }
 
+    /** Объект создан как l:123; открывают копию 456 той же группы 55 — второго объекта быть не должно. */
+    public function test_stale_listing_key_is_found_via_cluster_copy_and_rekeyed(): void
+    {
+        $old = ListingObject::factory()->create(['object_key' => 'l:123', 'listing_id' => 123, 'cluster_id' => null]);
+        $listing = $this->listing(456, 55, ['cluster' => ['id' => 55, 'listings_count' => 2, 'phones_e164' => [], 'listings' => [['id' => 123, 'source' => 'ss_ge'], ['id' => 456, 'source' => 'ss_ge']]]]);
+        $objects = app(ListingObjects::class);
+
+        $this->assertSame([123], $objects->copyIds($listing));
+        $found = $objects->openFor($listing);
+
+        $this->assertSame($old->id, $found->id);
+        $this->assertSame(1, ListingObject::query()->count());
+        $this->assertSame('c:55', $old->fresh()?->object_key);
+        $this->assertSame(55, $old->fresh()->cluster_id);
+        // Следующая копия группы находит тот же объект уже по ключу группы.
+        $this->assertSame($old->id, $objects->findOpen(789, 55)?->id);
+    }
+
+    public function test_find_open_rekeys_merged_survivor_to_cluster_key(): void
+    {
+        $old = ListingObject::factory()->create(['object_key' => 'l:123', 'listing_id' => 123]);
+        $young = ListingObject::factory()->create(['object_key' => 'c:55', 'listing_id' => 456, 'cluster_id' => 55]);
+
+        $found = app(ListingObjects::class)->findOpen(456, 55, [123]);
+
+        $this->assertSame($old->id, $found?->id);
+        $this->assertSame($old->id, $young->fresh()?->merged_into_id);
+        $this->assertSame('c:55', $old->fresh()?->object_key);
+    }
+
     public function test_find_open_merges_several_into_the_oldest(): void
     {
         $old = ListingObject::factory()->create(['object_key' => 'l:41', 'listing_id' => 41]);

@@ -3,6 +3,7 @@
 namespace App\Crm;
 
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Exceptions\ObjectClosed;
 use App\Enums\DealStatus;
 use App\Models\Deal;
 use App\Models\ListingObject;
@@ -20,19 +21,36 @@ class ListingObjects
     }
 
     /**
-     * Открытый объект этой квартиры. Ищем и по ключу группы, и по id самого объявления:
-     * после перестройки групп в Real Estate ключ мог устареть. Если нашлось несколько — склеиваем.
-     * Чтение без блокировки: кому нужен устойчивый объект, дальше вызывает lock().
+     * Id копий объявления в его группе дублей (без самого объявления и без «снятых» с id ≤ 0).
+     *
+     * @return list<int>
      */
-    public function findOpen(int $listingId, ?int $clusterId, bool $retry = true): ?ListingObject
+    public function copyIds(Listing $listing): array
+    {
+        return array_values(array_filter(
+            array_map(fn (array $m): int => (int) $m['id'], $listing->clusterListings),
+            fn (int $id): bool => $id > 0 && $id !== $listing->id,
+        ));
+    }
+
+    /**
+     * Открытый объект этой квартиры. Ищем и по ключу группы, и по id самого объявления, и по id его копий
+     * в группе: объект, созданный как l:123, находится, когда открыта другая копия группы. Если нашлось
+     * несколько — склеиваем, а ключ найденного приводим к ключу группы.
+     * Чтение без блокировки: кому нужен устойчивый объект, дальше вызывает lock().
+     *
+     * @param  list<int>  $copyIds  id других копий группы дублей (см. copyIds)
+     */
+    public function findOpen(int $listingId, ?int $clusterId, array $copyIds = [], bool $retry = true): ?ListingObject
     {
         $key = $clusterId !== null ? 'c:'.$clusterId : 'l:'.$listingId;
+        $ids = array_values(array_unique([$listingId, ...$copyIds]));
 
         /** @var ListingObject|null $found */
         $found = null;
         $objects = ListingObject::query()
             ->where('status', ListingObject::OPEN)
-            ->where(fn ($q) => $q->where('object_key', $key)->orWhere('listing_id', $listingId))
+            ->where(fn ($q) => $q->where('object_key', $key)->orWhereIn('listing_id', $ids))
             ->oldest('id')
             ->get();
 
@@ -50,16 +68,38 @@ class ListingObjects
         }
         $found->refresh();
         if ($found->isOpen()) {
-            return $found;
+            return $clusterId !== null ? $this->rekey($found, $clusterId) : $found;
         }
 
         // Пока склеивали, объект закрыли или склеили в другой: ищем заново один раз.
-        return $retry ? $this->findOpen($listingId, $clusterId, false) : null;
+        return $retry ? $this->findOpen($listingId, $clusterId, $copyIds, false) : null;
+    }
+
+    /** Ключ найденного объекта — на группу дублей: иначе соседняя копия создаст второй объект. */
+    private function rekey(ListingObject $object, int $clusterId): ListingObject
+    {
+        $key = 'c:'.$clusterId;
+        if ($object->object_key === $key) {
+            return $object;
+        }
+
+        try {
+            DB::transaction(function () use ($object, $key, $clusterId): void {
+                $fresh = ListingObject::query()->whereKey($object->id)->lockForUpdate()->first();
+                if ($fresh !== null && $fresh->isOpen() && $fresh->object_key !== $key) {
+                    $fresh->update(['object_key' => $key, 'cluster_id' => $clusterId]);
+                }
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Другой открытый объект успел занять этот ключ: оставляем как есть, следующий поиск склеит.
+        }
+
+        return $object->refresh();
     }
 
     public function openFor(Listing $listing): ListingObject
     {
-        if ($existing = $this->findOpen($listing->id, $listing->clusterId)) {
+        if ($existing = $this->findOpen($listing->id, $listing->clusterId, $this->copyIds($listing))) {
             return $existing;
         }
 
@@ -78,7 +118,7 @@ class ListingObjects
             });
         } catch (UniqueConstraintViolationException) {
             // Параллельный запрос успел создать объект между проверкой и вставкой.
-            return $this->findOpen($listing->id, $listing->clusterId) ?? throw new CrmForbidden('Object changed, reload it.');
+            return $this->findOpen($listing->id, $listing->clusterId, $this->copyIds($listing)) ?? throw new CrmForbidden('Object changed, reload it.');
         }
     }
 
@@ -90,7 +130,7 @@ class ListingObjects
             throw new CrmForbidden('Object merged into #'.$fresh->merged_into_id.'.');
         }
         if (! $fresh->isOpen()) {
-            throw new CrmForbidden('Object closed.');
+            throw new ObjectClosed($fresh);
         }
 
         return $fresh;
