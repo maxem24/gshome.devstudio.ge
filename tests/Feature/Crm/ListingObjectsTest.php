@@ -133,7 +133,9 @@ class ListingObjectsTest extends TestCase
         $this->assertSame(ListingPin::ACTIVE, $older->fresh()?->status);
         $this->assertSame($older->id, $moved->fresh()?->listing_pin_id);
         $this->assertSame(DealStatus::Open, $moved->refresh()->status);
-        $this->assertSame(DealStatus::Unavailable, $dup->fresh()?->status);
+        $this->assertSame(DealStatus::Unavailable, $dup->refresh()->status);
+        $this->assertNotNull($dup->closed_at);
+        $this->assertSame($younger->id, $dup->listing_pin_id);
     }
 
     public function test_lock_rejects_closed_object(): void
@@ -207,5 +209,34 @@ class ListingObjectsTest extends TestCase
         $this->travel(5)->minutes();
         $this->assertFalse($objects->snapshot($object, $this->listing(), touch: true));
         $this->assertTrue($object->fresh()?->snapshot_at?->isAfter(now()->subMinute()));
+    }
+
+    public function test_merge_into_closed_keep_is_noop(): void
+    {
+        $keep = ListingObject::factory()->closed('fake')->create(['object_key' => 'l:41', 'listing_id' => 41]);
+        $gone = ListingObject::factory()->create(['object_key' => 'c:5', 'listing_id' => 42, 'cluster_id' => 5]);
+        $pin = $this->pin($gone, $this->nino, 'c:5');
+
+        app(ListingObjects::class)->merge($keep, $gone);
+
+        $this->assertTrue($gone->fresh()?->isOpen());
+        $this->assertNull($gone->fresh()?->merged_into_id);
+        $this->assertSame($gone->id, $pin->refresh()->object_id);
+    }
+
+    public function test_find_open_does_not_return_closed_object(): void
+    {
+        ListingObject::factory()->closed('fake')->create(['object_key' => 'l:41', 'listing_id' => 41]);
+
+        $this->assertNull(app(ListingObjects::class)->findOpen(41, null));
+    }
+
+    public function test_snapshot_writes_on_gel_only_change(): void
+    {
+        $objects = app(ListingObjects::class);
+        $object = $objects->openFor($this->listing());
+
+        $this->assertTrue($objects->snapshot($object, $this->listing(41, null, ['price' => ['usd' => 600.0, 'gel' => 1700.0]])));
+        $this->assertSame(1700.0, (float) $object->fresh()?->price_gel);
     }
 }

@@ -22,8 +22,9 @@ class ListingObjects
     /**
      * Открытый объект этой квартиры. Ищем и по ключу группы, и по id самого объявления:
      * после перестройки групп в Real Estate ключ мог устареть. Если нашлось несколько — склеиваем.
+     * Чтение без блокировки: кому нужен устойчивый объект, дальше вызывает lock().
      */
-    public function findOpen(int $listingId, ?int $clusterId): ?ListingObject
+    public function findOpen(int $listingId, ?int $clusterId, bool $retry = true): ?ListingObject
     {
         $key = $clusterId !== null ? 'c:'.$clusterId : 'l:'.$listingId;
 
@@ -44,7 +45,16 @@ class ListingObjects
             $this->merge($found, $object);
         }
 
-        return $found?->refresh();
+        if ($found === null) {
+            return null;
+        }
+        $found->refresh();
+        if ($found->isOpen()) {
+            return $found;
+        }
+
+        // Пока склеивали, объект закрыли или склеили в другой: ищем заново один раз.
+        return $retry ? $this->findOpen($listingId, $clusterId, false) : null;
     }
 
     public function openFor(Listing $listing): ListingObject
@@ -102,7 +112,7 @@ class ListingObjects
             $locked = ListingObject::query()->whereKey([$keep->id, $gone->id])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
             $keepRow = $locked->get($keep->id);
             $goneRow = $locked->get($gone->id);
-            if ($keepRow === null || $goneRow === null || ! $goneRow->isOpen()) {
+            if ($keepRow === null || $goneRow === null || ! $keepRow->isOpen() || ! $goneRow->isOpen()) {
                 return;
             }
 
