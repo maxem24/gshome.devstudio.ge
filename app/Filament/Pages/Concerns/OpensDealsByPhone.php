@@ -150,7 +150,8 @@ trait OpensDealsByPhone
                 if ($match->kind === 'conflict') {
                     try {
                         // Перенос номера и сделка — одной транзакцией: не открылась сделка, номер на месте.
-                        DB::transaction(function () use ($match, $data, $pin): void {
+                        $new = null;
+                        DB::transaction(function () use ($match, $data, $pin, &$new): void {
                             $new = ClientLookup::reassignPhone($match, $this->clientAttributes($data), $this->viewer());
                             app(Deals::class)->open($pin, $new, $this->viewer());
                         });
@@ -165,6 +166,9 @@ trait OpensDealsByPhone
                         return;
                     }
                     Notification::make()->title(__('gshome.crm.pins.deal_opened'))->success()->send();
+                    if ($new !== null) {
+                        $this->warnAboutOtherAgents($pin, $new);
+                    }
                     $this->afterDealChange();
 
                     return;
@@ -295,7 +299,24 @@ trait OpensDealsByPhone
         }
 
         Notification::make()->title(__('gshome.crm.pins.deal_opened'))->success()->send();
+        $this->warnAboutOtherAgents($pin, $client);
         $this->afterDealChange();
+    }
+
+    /** Тот же клиент уже в сделке по этой квартире у другого агента: сделка открыта, но предупреждаем. */
+    private function warnAboutOtherAgents(ListingPin $pin, Client $client): void
+    {
+        $others = app(Deals::class)->othersOnObject($pin, $client);
+        if ($others->isEmpty()) {
+            return;
+        }
+
+        $pins = app(Pins::class);
+        $viewer = $this->viewer();
+        $names = $others->map(fn ($deal): string => $pins->nameFor($deal->agent, $viewer) ?? __('gshome.crm.pins.another_agent'))
+            ->unique()->implode(', ');
+
+        Notification::make()->title(__('gshome.crm.pins.client_in_other_deal', ['names' => $names]))->warning()->send();
     }
 
     /**

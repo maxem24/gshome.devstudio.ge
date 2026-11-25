@@ -66,7 +66,8 @@ class PinSnapshotTest extends TestCase
 
         Livewire::test(ListingView::class, ['listing' => 13])->assertOk();
 
-        $this->assertSame(650.0, (float) $pin->fresh()?->price_usd);
+        // Снимок живёт на объекте; колонки пина больше не обновляются при открытии карточки.
+        $this->assertSame(650.0, (float) $pin->object?->fresh()?->price_usd);
         $this->assertSame(Direction::Sale, $pin->fresh()?->direction);
     }
 

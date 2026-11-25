@@ -8,15 +8,18 @@ use App\Crm\ClientProfile;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
+use App\Crm\ListingObjects;
 use App\Crm\MatchRows;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
+use App\Enums\Role;
 use App\Enums\UnavailableReason;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
 use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Jobs\PollListingRefresh;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\ListingSearch;
 use App\Models\SavedListing;
@@ -37,6 +40,7 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Panel;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -122,10 +126,11 @@ class ListingView extends Page
 
         $this->buildCard($l, $direction, $viewer);
 
-        // Снимок для подбора пар обновляем тем же ответом API, без второго запроса — и только со «своего»
+        // Снимок объекта обновляем тем же ответом API, без второго запроса — и только со «своего»
         // объявления: копия из группы дублей может стоить иначе и не знать микрорайона.
-        if (($pin = app(Pins::class)->activeFor($l)) !== null && $pin->listing_id === $l->id) {
-            app(Pins::class)->snapshot($pin, $l);
+        $object = app(ListingObjects::class)->findOpen($l->id, $l->clusterId);
+        if ($object !== null && $object->listing_id === $l->id) {
+            app(ListingObjects::class)->snapshot($object, $l);
         }
     }
 
@@ -494,38 +499,88 @@ class ListingView extends Page
         ];
     }
 
-    /** Активное закрепление этой квартиры; не в снапшоте — читается на каждый рендер. */
+    /** Открытый объект этой квартиры; не в снапшоте — читается на каждый рендер. Находит и по снятому объявлению. */
     #[Computed]
-    public function pin(): ?ListingPin
+    public function object(): ?ListingObject
     {
-        $listing = $this->currentListing();
-        if ($listing !== null) {
-            return app(Pins::class)->activeFor($listing);
-        }
-
-        // Снятое API не отдаёт (404), но закрепление живёт: ищем его по id и группе из карточки.
         $id = (int) ($this->card['id'] ?? 0);
-
-        return $id > 0 ? app(Pins::class)->activeForIds($id, $this->card['cluster_id'] ?? null) : null;
-    }
-
-    /** @return array{mine: bool, name: ?string, holder_id: int, preferences: list<string>}|null */
-    public function banner(): ?array
-    {
-        $pin = $this->pin();
-        if ($pin === null) {
+        if ($id <= 0) {
             return null;
         }
 
+        return app(ListingObjects::class)->findOpen($id, $this->card['cluster_id'] ?? null);
+    }
+
+    /** Пин, которым смотрящий вправе управлять: свой или самый старый из видимых ему. */
+    #[Computed]
+    public function pin(): ?ListingPin
+    {
+        $object = $this->object();
+
+        return $object === null ? null : app(Pins::class)->managed($object, $this->viewer());
+    }
+
+    /**
+     * «Ведут»: только люди своей компании и компаний по обмену (владелец — все); прочие не показываются.
+     *
+     * @return array{holders: list<array{name: ?string, mine: bool}>, preferences: list<string>, closed: ?array{reason: string, at: string, name: ?string}}|null
+     */
+    public function banner(): ?array
+    {
         $viewer = $this->viewer();
-        $holder = $pin->holder;
+        $pins = app(Pins::class);
+        $object = $this->object();
+
+        $holders = [];
+        if ($object !== null) {
+            $visible = $viewer->role === Role::Owner ? null : OrgAccess::identifiableCompanyIds($viewer);
+            foreach ($pins->activeOf($object) as $held) {
+                $holder = $held->holder;
+                $mine = $holder->id === $viewer->id;
+                if ($mine || $visible === null || in_array((int) $holder->company_id, $visible, true)) {
+                    $holders[] = ['name' => $pins->nameFor($holder, $viewer), 'mine' => $mine];
+                }
+            }
+        }
+
+        $pin = $this->pin();
+        // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
+        $preferences = $pin !== null && $pins->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [];
+
+        $closed = $object === null ? $this->closedBanner() : null;
+
+        if ($holders === [] && $preferences === [] && $closed === null) {
+            return null;
+        }
+
+        return ['holders' => $holders, 'preferences' => $preferences, 'closed' => $closed];
+    }
+
+    /** @return array{reason: string, at: string, name: ?string}|null */
+    private function closedBanner(): ?array
+    {
+        $id = (int) ($this->card['id'] ?? 0);
+        if ($id <= 0) {
+            return null;
+        }
+        $clusterId = $this->card['cluster_id'] ?? null;
+
+        $closed = ListingObject::query()
+            ->where('status', ListingObject::CLOSED)
+            ->whereIn('closed_reason', ['won', 'rented_elsewhere', 'fake'])
+            ->where(fn ($q) => $q->where('listing_id', $id)->when($clusterId !== null, fn ($q) => $q->orWhere('object_key', 'c:'.$clusterId)))
+            ->latest('closed_at')->latest('id')
+            ->first();
+        if ($closed === null) {
+            return null;
+        }
+
+        $by = $closed->closed_by === null ? null : User::query()->find($closed->closed_by);
 
         return [
-            'mine' => $holder->id === $viewer->id,
-            'name' => app(Pins::class)->holderLabel($pin, $viewer),
-            'holder_id' => $holder->id,
-            // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
-            'preferences' => app(Pins::class)->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [],
+            'reason' => (string) $closed->closed_reason,
+            'at' => $closed->closed_at?->timezone(config('app.timezone'))->format('d.m.Y') ?? '—',
+            'name' => $by === null ? null : app(Pins::class)->nameFor($by, $this->viewer()),
         ];
     }
 
@@ -554,7 +609,7 @@ class ListingView extends Page
 
     protected function afterDealChange(): void
     {
-        unset($this->pin);
+        unset($this->pin, $this->object);
     }
 
     private function currentListing(): ?Listing
@@ -571,6 +626,27 @@ class ListingView extends Page
         }
     }
 
+    private static function reasonOf(mixed $value): ?UnavailableReason
+    {
+        return $value instanceof UnavailableReason ? $value : UnavailableReason::tryFrom(is_string($value) ? $value : '');
+    }
+
+    /** «Взять в работу»: объявление живо, направление доступно, своего участия в объекте ещё нет. */
+    private function canTake(): bool
+    {
+        if ($this->card === [] || ($this->refresh['removed'] ?? false)) {
+            return false;
+        }
+        $viewer = $this->viewer();
+        $direction = Direction::tryFrom((string) ($this->card['direction_key'] ?? ''));
+        if ($direction === null || ! in_array($direction, OrgAccess::directions($viewer), true)) {
+            return false;
+        }
+        $object = $this->object();
+
+        return $object === null || app(Pins::class)->mine($object, $viewer) === null;
+    }
+
     /** @return list<Action> */
     private function pinActions(): array
     {
@@ -580,7 +656,7 @@ class ListingView extends Page
             Action::make('takeInWork')
                 ->label(__('gshome.crm.pins.take'))
                 ->icon(Heroicon::OutlinedHandRaised)
-                ->visible(fn (): bool => $this->card !== [] && ! ($this->refresh['removed'] ?? false) && $this->pin() === null)
+                ->visible(fn (): bool => $this->canTake())
                 ->action(function (): void {
                     $listing = $this->currentListing();
                     try {
@@ -590,11 +666,11 @@ class ListingView extends Page
                         app(Pins::class)->take($listing, $this->viewer());
                         Notification::make()->title(__('gshome.crm.pins.taken'))->success()->send();
                     } catch (PinTaken) {
-                        Notification::make()->title(__('gshome.crm.pins.already_taken'))->warning()->send();
+                        Notification::make()->title(__('gshome.crm.pins.already_mine'))->warning()->send();
                     } catch (CrmForbidden) {
                         Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
                     }
-                    unset($this->pin);
+                    unset($this->pin, $this->object);
                 }),
             $this->openDealAction(),
             Action::make('transferPin')
@@ -618,7 +694,7 @@ class ListingView extends Page
                     } catch (CrmForbidden) {
                         Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
                     }
-                    unset($this->pin);
+                    unset($this->pin, $this->object);
                 }),
             Action::make('landlordPreferences')
                 ->label(__('gshome.crm.pins.preferences'))
@@ -640,15 +716,29 @@ class ListingView extends Page
                     } catch (CrmForbidden) {
                         Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
                     }
-                    unset($this->pin);
+                    unset($this->pin, $this->object);
                 }),
             Action::make('markUnavailable')
                 ->label(__('gshome.crm.pins.unavailable'))
                 ->icon(Heroicon::OutlinedNoSymbol)
                 ->color('gray')
-                ->requiresConfirmation()
                 ->visible($manage)
-                ->action(fn () => $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->markUnavailable($pin, UnavailableReason::Other, $this->viewer()))),
+                ->modalHeading(__('gshome.crm.pins.unavailable'))
+                ->schema([
+                    Select::make('reason')->label(__('gshome.crm.pins.unavailable_reason'))
+                        ->options(UnavailableReason::class)->required()->live()
+                        ->helperText(fn (Get $get): ?string => ($reason = self::reasonOf($get('reason'))) === null ? null
+                            : __($reason->closesObject() ? 'gshome.crm.pins.unavailable_closes_all' : 'gshome.crm.pins.unavailable_closes_mine')),
+                ])
+                ->action(function (array $data): void {
+                    $reason = self::reasonOf($data['reason'] ?? null);
+                    if ($reason === null) {
+                        Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
+
+                        return;
+                    }
+                    $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->markUnavailable($pin, $reason, $this->viewer()));
+                }),
             Action::make('releasePin')
                 ->label(__('gshome.crm.pins.release'))
                 ->icon(Heroicon::OutlinedXMark)
@@ -680,7 +770,7 @@ class ListingView extends Page
         } catch (CrmForbidden) {
             Notification::make()->title(__('gshome.crm.pins.forbidden'))->danger()->send();
         }
-        unset($this->pin);
+        unset($this->pin, $this->object);
     }
 
     /** @return array<int, string> кому можно передать: id ⇒ имя */
@@ -693,10 +783,13 @@ class ListingView extends Page
 
         $viewer = $this->viewer();
         $pins = app(Pins::class);
+        // Кто уже ведёт этот объект, получить его ещё раз не может.
+        $object = $this->object();
+        $busy = $object === null ? [] : $pins->activeOf($object)->pluck('user_id')->all();
 
         return OrgAccess::visibleUsers(OrgAccess::handOverScope($viewer, $pin->user_id))
             ->orderBy('name')->get()
-            ->filter(fn (User $u): bool => $pins->canReceive($pin, $u, $viewer))
+            ->filter(fn (User $u): bool => ! in_array($u->id, $busy, true) && $pins->canReceive($pin, $u, $viewer))
             ->mapWithKeys(fn (User $u): array => [$u->id => $u->name])
             ->all();
     }
