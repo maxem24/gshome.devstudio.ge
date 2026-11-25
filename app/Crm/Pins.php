@@ -21,7 +21,7 @@ class Pins
 {
     public function keyFor(Listing $listing): string
     {
-        return $listing->clusterId !== null ? 'c:'.$listing->clusterId : 'l:'.$listing->id;
+        return app(ListingObjects::class)->keyFor($listing);
     }
 
     /**
