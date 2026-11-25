@@ -8,6 +8,7 @@ use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
+use App\Enums\UnavailableReason;
 use App\Enums\UserStatus;
 use App\Models\Client;
 use App\Models\Company;
@@ -232,7 +233,7 @@ class DealsTest extends TestCase
         $lost = $deals->open($this->pin, $this->client(), $this->nino);
         $deals->lose($lost, 'x', $this->nino);
 
-        app(Pins::class)->markUnavailable($this->pin, $this->nino);
+        app(Pins::class)->markUnavailable($this->pin, UnavailableReason::Other, $this->nino);
 
         $this->assertSame(DealStatus::Unavailable, $a->fresh()->status);
         $this->assertSame(DealStatus::Unavailable, $b->fresh()->status);

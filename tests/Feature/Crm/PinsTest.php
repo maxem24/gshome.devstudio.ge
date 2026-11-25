@@ -3,16 +3,20 @@
 namespace Tests\Feature\Crm;
 
 use App\Crm\Deals;
+use App\Crm\Events\ObjectClosed;
 use App\Crm\Events\PinClosed;
 use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
 use App\Crm\Pins;
+use App\Enums\DealStatus;
 use App\Enums\Direction;
+use App\Enums\UnavailableReason;
 use App\Enums\UserStatus;
 use App\Models\Client;
 use App\Models\Company;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
@@ -74,48 +78,83 @@ class PinsTest extends TestCase
         $this->assertNull($pin->cluster_id);
     }
 
-    public function test_second_take_of_same_cluster_throws_pin_taken(): void
+    public function test_two_agents_take_same_listing(): void
     {
         $pins = app(Pins::class);
-        $pins->take($this->listing(41, 5), $this->nino);
+        $first = $pins->take($this->listing(41, 5), $this->nino);
+        $second = $pins->take($this->listing(42, 5), $this->giorgi);
 
-        $this->expectException(PinTaken::class);
-        $pins->take($this->listing(42, 5), $this->giorgi);
+        $this->assertNotSame($first->id, $second->id);
+        $this->assertSame($first->object_id, $second->object_id);
+        $this->assertSame(1, ListingObject::query()->count());
+        $this->assertSame(2, ListingPin::query()->where('status', 'active')->count());
     }
 
-    public function test_pin_taken_names_the_holder(): void
+    public function test_same_agent_cannot_take_twice(): void
     {
         $pins = app(Pins::class);
         $first = $pins->take($this->listing(41, 5), $this->nino);
 
         try {
-            $pins->take($this->listing(42, 5), $this->giorgi);
+            $pins->take($this->listing(42, 5), $this->nino);
             $this->fail('PinTaken expected');
         } catch (PinTaken $e) {
-            $this->assertTrue($e->pin->is($first));
+            $this->assertTrue($e->pin?->is($first));
         }
+        $this->assertSame(1, ListingPin::query()->count());
     }
 
-    public function test_second_take_of_same_cluster_fails_even_bypassing_service(): void
+    public function test_same_agent_twice_fails_even_bypassing_service(): void
     {
-        app(Pins::class)->take($this->listing(41, 5), $this->nino);
+        $first = app(Pins::class)->take($this->listing(41, 5), $this->nino);
 
         $this->expectException(UniqueConstraintViolationException::class);
         ListingPin::query()->create([
-            'listing_id' => 42, 'cluster_id' => 5, 'pin_key' => 'c:5', 'direction' => 'sale',
-            'user_id' => $this->giorgi->id, 'status' => 'active', 'last_activity_at' => now(),
+            'listing_id' => 42, 'cluster_id' => 5, 'pin_key' => 'c:5', 'direction' => 'sale', 'object_id' => $first->object_id,
+            'user_id' => $this->nino->id, 'status' => 'active', 'last_activity_at' => now(),
         ]);
     }
 
-    public function test_active_for_finds_pin_by_any_copy_and_by_listing_id(): void
+    public function test_active_for_finds_oldest_pin_by_any_copy_and_by_listing_id(): void
     {
         $pins = app(Pins::class);
         $pin = $pins->take($this->listing(41, 5), $this->nino);
+        $pins->take($this->listing(41, 5), $this->giorgi);
 
         $this->assertTrue($pins->activeFor($this->listing(42, 5))?->is($pin));
-        // Real Estate перестроил группы: у той же копии другой cluster.id — закрепление находится по id объявления.
+        // Real Estate перестроил группы: у той же копии другой cluster.id — объект находится по id объявления.
         $this->assertTrue($pins->activeFor($this->listing(41, 9))?->is($pin));
         $this->assertNull($pins->activeFor($this->listing(77, 8)));
+    }
+
+    public function test_mine_and_active_of(): void
+    {
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+        $object = $ninoPin->object;
+
+        $this->assertTrue($pins->mine($object, $this->giorgi)?->is($giorgiPin));
+        $this->assertNull($pins->mine($object, $this->lead));
+        $this->assertSame([$ninoPin->id, $giorgiPin->id], $pins->activeOf($object)->pluck('id')->all());
+        $this->assertTrue($pins->activeOf($object)->first()->relationLoaded('holder'));
+    }
+
+    public function test_leader_manages_oldest_visible_pin(): void
+    {
+        $pins = app(Pins::class);
+        $stranger = User::factory()->agent(User::factory()->teamLead($this->company, Direction::Sale)->create())->create();
+        $strangerPin = $pins->take($this->listing(41, 5), $stranger);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+        $object = $ninoPin->object;
+
+        // Руководитель не ведёт объект сам: берётся самый старый из видимых ему, чужой группы пропускается.
+        $this->assertTrue($pins->managed($object, $this->lead)?->is($ninoPin));
+        // Свой пин важнее.
+        $this->assertTrue($pins->managed($object, $this->giorgi)?->is($giorgiPin));
+        $this->assertTrue($pins->managed($object, $stranger)?->is($strangerPin));
+        $this->assertNull($pins->managed($object, User::factory()->agent(User::factory()->teamLead($this->company, Direction::Sale)->create())->create()));
     }
 
     public function test_take_after_close_is_allowed(): void
@@ -129,6 +168,121 @@ class PinsTest extends TestCase
         $this->assertSame($this->giorgi->id, $second->user_id);
         $this->assertSame('closed', $first->fresh()->status);
         $this->assertSame('released', $first->fresh()->closed_reason);
+    }
+
+    public function test_release_last_pin_abandons_object(): void
+    {
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+        $object = $ninoPin->object;
+
+        $pins->release($ninoPin, $this->nino);
+        $this->assertTrue($object->fresh()->isOpen());
+
+        $pins->release($giorgiPin, $this->giorgi);
+        $this->assertSame('abandoned', $object->fresh()->closed_reason);
+    }
+
+    public function test_take_after_abandon_creates_new_object(): void
+    {
+        $pins = app(Pins::class);
+        $first = $pins->take($this->listing(41, 5), $this->nino);
+        $pins->release($first, $this->nino);
+
+        $second = $pins->take($this->listing(41, 5), $this->nino);
+
+        $this->assertNotSame($first->object_id, $second->object_id);
+        $this->assertTrue($second->object->isOpen());
+    }
+
+    public function test_release_with_open_deals_forbidden(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+        app(Deals::class)->open($pin, Client::factory()->create(), $this->nino);
+
+        try {
+            $pins->release($pin, $this->nino);
+            $this->fail('CrmForbidden expected');
+        } catch (CrmForbidden) {
+            $this->assertSame('active', $pin->fresh()->status);
+        }
+    }
+
+    public function test_owner_refused_closes_only_mine(): void
+    {
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+
+        $pins->markUnavailable($ninoPin, UnavailableReason::OwnerRefused, $this->nino);
+
+        $ninoPin->refresh();
+        $this->assertSame('unavailable', $ninoPin->closed_reason);
+        $this->assertSame(UnavailableReason::OwnerRefused, $ninoPin->unavailable_reason);
+        $this->assertSame('active', $giorgiPin->fresh()->status);
+        $this->assertTrue($giorgiPin->object->fresh()->isOpen());
+    }
+
+    public function test_owner_refused_by_last_agent_abandons_object(): void
+    {
+        $pin = app(Pins::class)->take($this->listing(41, 5), $this->nino);
+
+        app(Pins::class)->markUnavailable($pin, UnavailableReason::Other, $this->nino);
+
+        $this->assertSame('abandoned', $pin->object->fresh()->closed_reason);
+    }
+
+    public function test_fake_closes_object_for_all(): void
+    {
+        Event::fake([ObjectClosed::class]);
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+        $deal = app(Deals::class)->open($giorgiPin, Client::factory()->create(), $this->giorgi);
+
+        $pins->markUnavailable($ninoPin, UnavailableReason::Fake, $this->nino);
+
+        $object = $ninoPin->object->fresh();
+        $this->assertSame('closed', $object->status);
+        $this->assertSame('fake', $object->closed_reason);
+        $this->assertSame($this->nino->id, $object->closed_by);
+        $this->assertSame('unavailable', $ninoPin->fresh()->closed_reason);
+        $this->assertSame('closed_by_other', $giorgiPin->fresh()->closed_reason);
+        $this->assertSame(DealStatus::Unavailable, $deal->fresh()->status);
+        $activity = Activity::query()->where('event', Journal::OBJECT_CLOSED)->sole();
+        $this->assertSame([$giorgiPin->id], $activity->properties['closed_pins']);
+        $this->assertSame('fake', $activity->properties['reason']);
+        Event::assertDispatched(ObjectClosed::class, fn (ObjectClosed $e): bool => $e->object->is($object) && $e->closedPins->pluck('id')->all() === [$giorgiPin->id] && $e->by->is($this->nino));
+    }
+
+    public function test_rented_elsewhere_closes_object_with_its_reason(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+
+        $pins->markUnavailable($pin, UnavailableReason::RentedElsewhere, $this->lead);
+
+        $this->assertSame('rented_elsewhere', $pin->object->fresh()->closed_reason);
+    }
+
+    public function test_won_deal_closes_object_for_all(): void
+    {
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $giorgiPin = $pins->take($this->listing(41, 5), $this->giorgi);
+        $deal = app(Deals::class)->open($ninoPin, Client::factory()->create(), $this->nino);
+        $other = app(Deals::class)->open($giorgiPin, Client::factory()->create(), $this->giorgi);
+
+        app(Deals::class)->win($deal, '100', 'USD', $this->nino);
+
+        $object = $ninoPin->object->fresh();
+        $this->assertSame('won', $object->closed_reason);
+        $this->assertSame($deal->id, $object->won_deal_id);
+        $this->assertSame('won', $ninoPin->fresh()->closed_reason);
+        $this->assertSame('closed_by_other', $giorgiPin->fresh()->closed_reason);
+        $this->assertSame(DealStatus::Unavailable, $other->fresh()->status);
     }
 
     public function test_take_other_direction_forbidden(): void
@@ -188,7 +342,7 @@ class PinsTest extends TestCase
     {
         $pins = app(Pins::class);
         $pin = $pins->take($this->listing(41, 5), $this->nino);
-        $pins->markUnavailable($pin, $this->nino);
+        $pins->markUnavailable($pin, UnavailableReason::Other, $this->nino);
 
         $this->expectException(CrmForbidden::class);
         $pins->transfer($pin->fresh(), $this->giorgi, $this->lead);
@@ -200,7 +354,7 @@ class PinsTest extends TestCase
         $pins = app(Pins::class);
         $pin = $pins->take($this->listing(41, 5), $this->nino);
 
-        $pins->markUnavailable($pin, $this->lead);
+        $pins->markUnavailable($pin, UnavailableReason::Other, $this->lead);
 
         $this->assertSame('closed', $pin->fresh()->status);
         $this->assertSame('unavailable', $pin->fresh()->closed_reason);
@@ -214,7 +368,7 @@ class PinsTest extends TestCase
         $pin = $pins->take($this->listing(41, 5), $this->nino);
 
         $this->expectException(CrmForbidden::class);
-        $pins->markUnavailable($pin, $this->giorgi);
+        $pins->markUnavailable($pin, UnavailableReason::Other, $this->giorgi);
     }
 
     public function test_visible_to_follows_org_ladder(): void
@@ -228,33 +382,31 @@ class PinsTest extends TestCase
         $this->assertSame(0, ListingPin::query()->visibleTo(User::factory()->companyOwner()->create())->count());
     }
 
-    public function test_race_between_check_and_insert_ends_in_pin_taken(): void
+    public function test_transfer_to_agent_already_on_object_rejected(): void
     {
-        $winner = app(Pins::class)->take($this->listing(41, 5), $this->nino);
-        // Второй агент проверил «свободно» раньше, чем первый вставил строку.
-        $racing = new class extends Pins
-        {
-            private bool $missedOnce = false;
-
-            public function activeFor(Listing $listing): ?ListingPin
-            {
-                if (! $this->missedOnce) {
-                    $this->missedOnce = true;
-
-                    return null;
-                }
-
-                return parent::activeFor($listing);
-            }
-        };
+        $pins = app(Pins::class);
+        $ninoPin = $pins->take($this->listing(41, 5), $this->nino);
+        $pins->take($this->listing(41, 5), $this->giorgi);
 
         try {
-            $racing->take($this->listing(42, 5), $this->giorgi);
-            $this->fail('PinTaken expected');
-        } catch (PinTaken $e) {
-            $this->assertTrue($e->pin?->is($winner));
+            $pins->transfer($ninoPin, $this->giorgi, $this->lead);
+            $this->fail('CrmForbidden expected');
+        } catch (CrmForbidden $e) {
+            $this->assertSame('Recipient already works on this object.', $e->getMessage());
         }
-        $this->assertSame(1, ListingPin::query()->where('status', 'active')->count());
+        $this->assertSame($this->nino->id, $ninoPin->fresh()->user_id);
+    }
+
+    public function test_transfer_keeps_open_deals(): void
+    {
+        $pins = app(Pins::class);
+        $pin = $pins->take($this->listing(41, 5), $this->nino);
+        $deal = app(Deals::class)->open($pin, Client::factory()->create(), $this->nino);
+
+        $pins->transfer($pin, $this->giorgi, $this->lead);
+
+        $this->assertSame(DealStatus::Open, $deal->fresh()->status);
+        $this->assertSame($this->giorgi->id, $deal->fresh()->user_id);
     }
 
     public function test_lead_manages_pins_of_archived_agent(): void
@@ -273,7 +425,7 @@ class PinsTest extends TestCase
         $pins = app(Pins::class);
         $pin = $pins->take($this->listing(41, 5), $this->nino);
         $stale = ListingPin::query()->findOrFail($pin->id);
-        $pins->markUnavailable($pin, $this->nino);
+        $pins->markUnavailable($pin, UnavailableReason::Other, $this->nino);
 
         $this->expectException(CrmForbidden::class);
         $pins->transfer($stale, $this->giorgi, $this->lead);

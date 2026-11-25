@@ -10,6 +10,7 @@ use App\Filament\Resources\Deals\DealResource;
 use App\Livewire\DayGreeting;
 use App\Models\Client;
 use App\Models\Company;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\Task;
 use App\Models\User;
@@ -44,7 +45,7 @@ class DaySummaryTest extends TestCase
     private function pin(int $listingId): ListingPin
     {
         return ListingPin::query()->create([
-            'listing_id' => $listingId, 'pin_key' => 'l'.$listingId, 'direction' => Direction::Rent,
+            'listing_id' => $listingId, 'pin_key' => 'l'.$listingId, 'object_id' => ListingObject::factory()->create()->id, 'direction' => Direction::Rent,
             'user_id' => $this->nino->id, 'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
         ]);
     }

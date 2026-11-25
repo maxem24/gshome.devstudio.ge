@@ -103,8 +103,8 @@ class Deals
             $this->logStage($deal, $from, $stage, $by);
             Journal::record(Journal::DEAL_WON, $deal, $this->props($deal) + ['amount' => $amount, 'currency' => $currency, 'partner_share' => $partnerShare], $by);
             $this->pins->touch($deal->pin);
-            // Остальные открытые сделки пина закроет слушатель PinClosed('won').
-            $this->pins->close($deal->pin, 'won', Journal::PIN_WON, $by);
+            // Остальные открытые сделки пина закроет слушатель PinClosed('won'), объект закроется для всех.
+            $this->pins->win($deal->pin, $deal, $by);
         });
     }
 

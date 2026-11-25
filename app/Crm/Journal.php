@@ -34,6 +34,8 @@ final class Journal
 
     public const PIN_WON = 'pin.won';
 
+    public const OBJECT_CLOSED = 'object.closed';
+
     public const DEAL_OPENED = 'deal.opened';
 
     public const DEAL_STAGE_CHANGED = 'deal.stage_changed';
@@ -82,6 +84,7 @@ final class Journal
         self::PIN_UNAVAILABLE,
         self::PIN_RELEASED,
         self::PIN_WON,
+        self::OBJECT_CLOSED,
         self::DEAL_OPENED,
         self::DEAL_STAGE_CHANGED,
         self::DEAL_WON,

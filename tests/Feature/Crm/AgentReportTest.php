@@ -13,6 +13,7 @@ use App\Models\Client;
 use App\Models\Company;
 use App\Models\Deal;
 use App\Models\DealStageChange;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\Models\Viewing;
@@ -43,8 +44,8 @@ class AgentReportTest extends TestCase
         $this->seq++;
 
         return ListingPin::query()->create([
-            'listing_id' => 100 + $this->seq, 'pin_key' => 'l'.(100 + $this->seq), 'direction' => Direction::Sale,
-            'user_id' => $u->id, 'status' => $status, 'closed_reason' => $status === 'active' ? null : 'manual', 'last_activity_at' => $lastActivity === 'now' ? now() : now()->sub($lastActivity),
+            'listing_id' => 100 + $this->seq, 'pin_key' => 'l'.(100 + $this->seq), 'object_id' => ListingObject::factory()->create()->id, 'direction' => Direction::Sale,
+            'user_id' => $u->id, 'status' => $status, 'closed_reason' => $status === 'active' ? null : 'released', 'last_activity_at' => $lastActivity === 'now' ? now() : now()->sub($lastActivity),
         ]);
     }
 

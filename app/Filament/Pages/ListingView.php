@@ -13,6 +13,7 @@ use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
+use App\Enums\UnavailableReason;
 use App\Filament\Pages\Concerns\OpensDealsByPhone;
 use App\Filament\Resources\Clients\Schemas\ClientForm;
 use App\Jobs\PollListingRefresh;
@@ -647,7 +648,7 @@ class ListingView extends Page
                 ->color('gray')
                 ->requiresConfirmation()
                 ->visible($manage)
-                ->action(fn () => $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->markUnavailable($pin, $this->viewer()))),
+                ->action(fn () => $this->closePin(fn (Pins $pins, ListingPin $pin) => $pins->markUnavailable($pin, UnavailableReason::Other, $this->viewer()))),
             Action::make('releasePin')
                 ->label(__('gshome.crm.pins.release'))
                 ->icon(Heroicon::OutlinedXMark)

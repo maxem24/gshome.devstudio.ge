@@ -3,6 +3,7 @@
 namespace Tests\Feature\Console;
 
 use App\Enums\Direction;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,7 +20,7 @@ class SnapshotPinsTest extends TestCase
     private function pin(int $listingId, Direction $direction, ?string $snapshotAt = null): ListingPin
     {
         return ListingPin::query()->create([
-            'listing_id' => $listingId, 'pin_key' => 'l'.$listingId, 'direction' => $direction,
+            'listing_id' => $listingId, 'pin_key' => 'l'.$listingId, 'object_id' => ListingObject::factory()->create()->id, 'direction' => $direction,
             'user_id' => User::factory()->create()->id, 'status' => ListingPin::ACTIVE,
             'snapshot_at' => $snapshotAt, 'last_activity_at' => now(),
         ]);

@@ -7,6 +7,7 @@ use App\Crm\MatchRow;
 use App\Enums\ClientHousing;
 use App\Enums\Direction;
 use App\Models\Client;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -29,7 +30,7 @@ class MatchingTest extends TestCase
         $id = ++$this->listingId;
 
         return ListingPin::query()->create([
-            'listing_id' => $id, 'pin_key' => 'l'.$id, 'direction' => Direction::Rent,
+            'listing_id' => $id, 'pin_key' => 'l'.$id, 'object_id' => ListingObject::factory()->create()->id, 'direction' => Direction::Rent,
             'user_id' => User::factory()->create()->id, 'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
             'preferences' => $prefs, 'snapshot_at' => now(),
             ...array_replace(['subdistrict_id' => 101, 'price_usd' => 600, 'rooms' => 2, 'title' => 'Квартира'], $snap),

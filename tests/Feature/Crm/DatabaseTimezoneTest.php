@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Crm;
 
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use Carbon\Carbon;
@@ -22,7 +23,7 @@ class DatabaseTimezoneTest extends TestCase
     {
         $at = Carbon::parse('2026-10-25 15:00:00', 'Asia/Tbilisi');
         $pin = ListingPin::query()->create([
-            'listing_id' => 1, 'pin_key' => 'l:1', 'direction' => 'sale',
+            'listing_id' => 1, 'pin_key' => 'l:1', 'object_id' => ListingObject::factory()->create()->id, 'direction' => 'sale',
             'user_id' => User::factory()->owner()->create()->id, 'status' => 'active', 'last_activity_at' => $at,
         ]);
 

@@ -703,6 +703,9 @@ return [
                     'released' => 'Pin released',
                     'won' => 'Pin: deal won',
                 ],
+                'object' => [
+                    'closed' => 'Object closed for everyone',
+                ],
                 'deal' => [
                     'opened' => 'Deal opened',
                     'stage_changed' => 'Deal stage changed',
@@ -738,6 +741,9 @@ return [
                 'unavailable' => ':name marked property #:listing unavailable',
                 'released' => ':name released property #:listing',
                 'won' => ':name closed property #:listing with a deal',
+            ],
+            'object' => [
+                'closed' => ':name closed property #:listing for everyone',
             ],
             'deal' => [
                 'opened' => ':name opened a deal on property #:listing',

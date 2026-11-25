@@ -3,48 +3,83 @@
 namespace App\Crm;
 
 use App\Access\OrgAccess;
+use App\Crm\Events\ObjectClosed;
 use App\Crm\Events\PinClosed;
 use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Enums\DealStatus;
 use App\Enums\Role;
+use App\Enums\UnavailableReason;
+use App\Models\Deal;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
 use Carbon\CarbonInterface;
-use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /** Объекты в работе: взять, передать, закрыть. Правила «кто за кого» — OrgAccess::canActFor. */
 class Pins
 {
+    /** @deprecated Ключ считает ListingObjects::keyFor. */
     public function keyFor(Listing $listing): string
     {
-        return app(ListingObjects::class)->keyFor($listing);
+        return $this->objects()->keyFor($listing);
     }
 
     /**
-     * Активное закрепление этой квартиры. Ищем и по текущему ключу группы, и по id самого
-     * объявления: после перестройки групп в Real Estate ключ мог устареть (спецификация).
+     * Самый старый активный пин открытого объекта этой квартиры.
+     *
+     * @deprecated Читатели переезжают на объекты (ListingObjects::findOpen, Pins::activeOf).
      */
     public function activeFor(Listing $listing): ?ListingPin
     {
         return $this->activeForIds($listing->id, $listing->clusterId);
     }
 
-    /** То же по id и группе без самого объявления: снятое API уже не отдаёт, а закрепление живёт. */
+    /**
+     * То же по id и группе без самого объявления: снятое API уже не отдаёт, а участие живёт.
+     *
+     * @deprecated См. activeFor.
+     */
     public function activeForIds(int $listingId, ?int $clusterId): ?ListingPin
     {
-        $key = $clusterId !== null ? 'c:'.$clusterId : 'l:'.$listingId;
+        $object = $this->objects()->findOpen($listingId, $clusterId);
 
+        return $object === null ? null : $object->activePins()->oldest('id')->first();
+    }
+
+    /** Активный пин этого человека в объекте. */
+    public function mine(ListingObject $object, User $user): ?ListingPin
+    {
         return ListingPin::query()
+            ->where('object_id', $object->id)
+            ->where('user_id', $user->id)
             ->where('status', ListingPin::ACTIVE)
-            ->where(fn ($q) => $q->where('pin_key', $key)->orWhere('listing_id', $listingId))
-            ->oldest('id')
             ->first();
     }
 
+    /** Пин, которым смотрящий вправе управлять: свой или самый старый из видимых ему (руководитель). */
+    public function managed(ListingObject $object, User $viewer): ?ListingPin
+    {
+        return $this->mine($object, $viewer)
+            ?? $this->activeOf($object)->first(fn (ListingPin $pin): bool => $this->canManage($pin, $viewer));
+    }
+
+    /** @return Collection<int, ListingPin> */
+    public function activeOf(ListingObject $object): Collection
+    {
+        return ListingPin::query()
+            ->where('object_id', $object->id)
+            ->where('status', ListingPin::ACTIVE)
+            ->with('holder')
+            ->orderBy('id')
+            ->get();
+    }
+
+    /** Взять объект в работу. Другие агенты не мешают; отказ — только если вы сами уже его ведёте. */
     public function take(Listing $listing, User $by): ListingPin
     {
         $direction = $listing->direction();
@@ -52,29 +87,37 @@ class Pins
             throw new CrmForbidden('Direction is not available to this user.');
         }
 
-        if ($existing = $this->activeFor($listing)) {
-            throw new PinTaken($existing);
-        }
+        // Порядок блокировок: сначала openFor (может склеивать объекты), потом lock. Закрыли между ними — один повтор.
+        for ($attempt = 1; ; $attempt++) {
+            $object = $this->objects()->openFor($listing);
+            try {
+                return DB::transaction(function () use ($listing, $by, $direction, $object): ListingPin {
+                    $object = $this->objects()->lock($object);
+                    if ($existing = $this->mine($object, $by)) {
+                        throw new PinTaken($existing);
+                    }
 
-        try {
-            return DB::transaction(function () use ($listing, $by, $direction): ListingPin {
-                $pin = ListingPin::query()->create([
-                    'listing_id' => $listing->id,
-                    'cluster_id' => $listing->clusterId,
-                    'pin_key' => $this->keyFor($listing),
-                    'direction' => $direction,
-                    'user_id' => $by->id,
-                    'status' => ListingPin::ACTIVE,
-                    'last_activity_at' => now(),
-                ]);
-                $this->snapshot($pin, $listing);
-                Journal::record(Journal::PIN_TAKEN, $pin, ['listing_id' => $listing->id, 'cluster_id' => $listing->clusterId], $by);
+                    $pin = ListingPin::query()->create([
+                        'listing_id' => $listing->id,
+                        'cluster_id' => $listing->clusterId,
+                        'pin_key' => $this->objects()->keyFor($listing),
+                        'object_id' => $object->id,
+                        'direction' => $direction,
+                        'user_id' => $by->id,
+                        'status' => ListingPin::ACTIVE,
+                        'last_activity_at' => now(),
+                    ]);
+                    $pin->setRelation('object', $object);
+                    $this->snapshot($pin, $listing);
+                    Journal::record(Journal::PIN_TAKEN, $pin, ['listing_id' => $listing->id, 'cluster_id' => $listing->clusterId, 'object_id' => $object->id], $by);
 
-                return $pin;
-            });
-        } catch (UniqueConstraintViolationException) {
-            // Второй агент успел между проверкой и вставкой — держит индекс.
-            throw new PinTaken($this->activeFor($listing));
+                    return $pin;
+                });
+            } catch (CrmForbidden $e) {
+                if ($attempt >= 2) {
+                    throw $e;
+                }
+            }
         }
     }
 
@@ -87,21 +130,98 @@ class Pins
 
         $from = $pin->holder;
         DB::transaction(function () use ($pin, $to, $by, $from): void {
+            $object = $this->lockObjectOf($pin);
             $this->lockActive($pin);
+            if ($this->mine($object, $to) !== null) {
+                throw new CrmForbidden('Recipient already works on this object.');
+            }
             $pin->update(['user_id' => $to->id, 'last_activity_at' => now()]);
             Journal::record(Journal::PIN_TRANSFERRED, $pin, ['listing_id' => $pin->listing_id, 'from_user_id' => $from->id, 'to_user_id' => $to->id], $by);
             PinTransferred::dispatch($pin, $from, $to, $by);
         });
     }
 
-    public function markUnavailable(ListingPin $pin, User $by): void
+    /**
+     * «Объект недоступен». Закрывающая причина (сдан в другом месте, фейк) закрывает объект для всех,
+     * остальные — только участие этого агента.
+     */
+    public function markUnavailable(ListingPin $pin, UnavailableReason $reason, User $by): void
     {
-        $this->close($pin, 'unavailable', Journal::PIN_UNAVAILABLE, $by);
+        $this->assertCanManage($pin, $by);
+
+        DB::transaction(function () use ($pin, $reason, $by): void {
+            $object = $this->lockObjectOf($pin);
+            $this->lockActive($pin);
+            $this->closePin($pin, 'unavailable', Journal::PIN_UNAVAILABLE, $by, $reason);
+            if ($reason->closesObject()) {
+                $this->closeObject($object, $reason->value, $by, except: $pin);
+            } else {
+                $this->objects()->closeIfAbandoned($object);
+            }
+        });
     }
 
+    /** Снять своё участие. Нельзя с открытыми сделками; последний ушедший закрывает объект («abandoned»). */
     public function release(ListingPin $pin, User $by): void
     {
-        $this->close($pin, 'released', Journal::PIN_RELEASED, $by);
+        $this->assertCanManage($pin, $by);
+
+        DB::transaction(function () use ($pin, $by): void {
+            $object = $this->lockObjectOf($pin);
+            $this->lockActive($pin);
+            // Отпустить объект с живой сделкой нельзя; проверка под блокировкой пина не гонится с Deals::open.
+            if ($pin->deals()->where('status', DealStatus::Open)->exists()) {
+                throw new CrmForbidden('Pin has open deals.');
+            }
+            $this->closePin($pin, 'released', Journal::PIN_RELEASED, $by);
+            $this->objects()->closeIfAbandoned($object);
+        });
+    }
+
+    /** Сделка по этому пину состоялась: пин закрывается «won», объект закрывается для всех остальных. */
+    public function win(ListingPin $pin, Deal $deal, User $by): void
+    {
+        $this->assertCanManage($pin, $by);
+
+        DB::transaction(function () use ($pin, $deal, $by): void {
+            $object = $this->lockObjectOf($pin);
+            $this->lockActive($pin);
+            $this->closePin($pin, 'won', Journal::PIN_WON, $by);
+            $this->closeObject($object, 'won', $by, except: $pin, wonDeal: $deal);
+        });
+    }
+
+    /**
+     * Закрыть объект для всех. Вызывать внутри транзакции, держа блокировку объекта (ListingObjects::lock).
+     * Остальные активные пины закрываются «closed_by_other», их открытые сделки — «недоступен» (слушатель PinClosed).
+     */
+    public function closeObject(ListingObject $object, string $reason, User $by, ?ListingPin $except = null, ?Deal $wonDeal = null): void
+    {
+        $object->update([
+            'status' => ListingObject::CLOSED,
+            'closed_reason' => $reason,
+            'closed_at' => now(),
+            'closed_by' => $by->id,
+            'won_deal_id' => $wonDeal?->id,
+        ]);
+
+        $others = ListingPin::query()
+            ->where('object_id', $object->id)
+            ->where('status', ListingPin::ACTIVE)
+            ->when($except !== null, fn ($q) => $q->whereKeyNot($except->id))
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+        foreach ($others as $other) {
+            $this->closePin($other, 'closed_by_other', null, $by);
+        }
+
+        Journal::record(Journal::OBJECT_CLOSED, $object, [
+            'listing_id' => $object->listing_id,
+            'reason' => $reason,
+            'closed_pins' => $others->pluck('id')->all(),
+        ], $by);
+        ObjectClosed::dispatch($object, $by, $reason, $others);
     }
 
     public function touch(ListingPin $pin, ?CarbonInterface $at = null): void
@@ -127,23 +247,6 @@ class Pins
         return OrgAccess::canActFor(OrgAccess::handOverScope($by, $pin->user_id), $to);
     }
 
-    /** @param  'won'|'unavailable'|'released'  $reason */
-    public function close(ListingPin $pin, string $reason, string $event, User $by): void
-    {
-        $this->assertCanManage($pin, $by);
-
-        DB::transaction(function () use ($pin, $reason, $event, $by): void {
-            $this->lockActive($pin);
-            // Отпустить объект с живой сделкой нельзя; проверка под блокировкой пина не гонится с Deals::open.
-            if ($reason === 'released' && $pin->deals()->where('status', DealStatus::Open)->exists()) {
-                throw new CrmForbidden('Pin has open deals.');
-            }
-            $pin->update(['status' => ListingPin::CLOSED, 'closed_reason' => $reason, 'closed_at' => now()]);
-            Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason], $by);
-            PinClosed::dispatch($pin, $reason);
-        });
-    }
-
     /**
      * Имя держателя для смотрящего — по тем же правилам, что у объявлений: свои люди и владелец
      * группы видят имя, остальные — нет (null → «у другого агента группы»).
@@ -159,15 +262,20 @@ class Pins
     }
 
     /**
-     * Снимок цены, комнат и микрорайона объявления — для подбора пар без запросов к API.
-     * Пишет, только если что-то из этого изменилось; заголовок зависит от языка смотрящего,
-     * поэтому сам по себе запись не вызывает.
+     * Снимок объявления теперь живёт на объекте; колонки на пине пишем, пока их читает подбор пар.
+     * Пишет, только если что-то изменилось.
      *
-     * @param  bool  $touch  ночная проверка: отметить снимок свежим и без изменений, чтобы --stale его пропускал
-     * @return bool true — снимок записан
+     * @deprecated Объект снимает ListingObjects::snapshot.
+     *
+     * @param  bool  $touch  ночная проверка: отметить снимок свежим и без изменений
+     * @return bool true — снимок пина записан
      */
     public function snapshot(ListingPin $pin, Listing $listing, bool $touch = false): bool
     {
+        if ($pin->object !== null) {
+            $this->objects()->snapshot($pin->object, $listing, $touch);
+        }
+
         $price = $listing->priceUsd === null ? null : number_format($listing->priceUsd, 2, '.', '');
         $changed = $pin->snapshot_at === null
             || $pin->price_usd !== $price
@@ -201,6 +309,29 @@ class Pins
     {
         $this->assertCanManage($pin, $by);
         $pin->update(['preferences' => ClientProfile::cleanLandlord($input)]);
+    }
+
+    private function objects(): ListingObjects
+    {
+        return app(ListingObjects::class);
+    }
+
+    /** Закрыть один пин: статус, журнал (если задан), событие. Блокировки и права — на вызывающем. */
+    private function closePin(ListingPin $pin, string $reason, ?string $event, User $by, ?UnavailableReason $why = null): void
+    {
+        $pin->update(['status' => ListingPin::CLOSED, 'closed_reason' => $reason, 'unavailable_reason' => $why, 'closed_at' => now()]);
+        if ($event !== null) {
+            Journal::record($event, $pin, ['listing_id' => $pin->listing_id, 'reason' => $reason] + ($why !== null ? ['why' => $why->value] : []), $by);
+        }
+        PinClosed::dispatch($pin, $reason);
+    }
+
+    /** Заблокировать объект пина; объект читаем свежим: после склейки пин мог переехать. */
+    private function lockObjectOf(ListingPin $pin): ListingObject
+    {
+        $objectId = ListingPin::query()->whereKey($pin->getKey())->value('object_id');
+
+        return $this->objects()->lock(ListingObject::query()->findOrFail($objectId));
     }
 
     /** Перечитать под блокировкой: параллельная передача или закрытие могли изменить пин. */
