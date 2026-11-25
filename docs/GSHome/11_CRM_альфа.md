@@ -12,7 +12,8 @@ tags: [gshome, crm, access]
 
 | что | где |
 |---|---|
-| закрепление объекта: взять, передать, снять, закрыть | `App\Crm\Pins`; модель `App\Models\ListingPin` |
+| объект: поиск открытого, склейка дублей, снимок, закрытие брошенного | `App\Crm\ListingObjects`; модель `App\Models\ListingObject` |
+| участие агента в объекте: взять, передать, снять, «недоступен», закрыть для всех | `App\Crm\Pins`; модель `App\Models\ListingPin`; причины — enum `App\Enums\UnavailableReason` |
 | сделки, этапы, итог, «состоялась» / «не состоялась» | `App\Crm\Deals`, `App\Crm\DealStages` (+ `DealStage`); модели `Deal`, `DealStageChange` |
 | анкета клиента по сделке (вопросы по направлению, проверка, подписи); цена, партнёр, «состоялась» с долей | `App\Crm\DealIntake`; `App\Crm\Deals` (`updateIntake`, `setPartner`, `win`) |
 | показы, итог показа, перенос | `App\Crm\Viewings`; модель `Viewing`; enum `App\Enums\ViewingOutcome` |
@@ -23,11 +24,11 @@ tags: [gshome, crm, access]
 | журнал: единственная точка записи | `App\Crm\Journal` (`Journal::record`); чтение и ленты — `App\Crm\JournalQuery` |
 | отчёт руководителя по агентам | `App\Crm\AgentReport`, `AgentReportRow` |
 | демо-данные | `App\Crm\CrmDemo` |
-| события и реакции на них | `App\Crm\Events\PinClosed`, `PinTransferred`; `App\Listeners\CloseDealsOnPinClosed`, `ReassignDealsOnPinTransferred` |
+| события и реакции на них | `App\Crm\Events\PinClosed`, `PinTransferred`, `ObjectClosed`; `App\Listeners\CloseDealsOnPinClosed`, `ReassignDealsOnPinTransferred`, `NotifyObjectClosed` |
 | исключения | `App\Crm\Exceptions\CrmForbidden`, `PinTaken` |
 | права «кто кого видит» | `App\Access\OrgAccess`: `canActFor()`, `canSee()`, `handOverScope()`, `visibleUsers()`, `canPartner()` (кто может быть партнёром по сделке) |
 | политики панели | `App\Policies\DealPolicy`, `TaskPolicy` |
-| модели | `App\Models\Client`, `ListingPin`, `Deal`, `DealStageChange`, `Viewing`, `Task`, `CrmSetting` |
+| модели | `App\Models\Client`, `ListingObject`, `ListingPin`, `Deal`, `DealStageChange`, `Viewing`, `Task`, `CrmSetting` |
 | ресурсы панели | `App\Filament\Resources\Clients`, `Deals`, `Tasks` |
 | страницы панели | `App\Filament\Pages\MyObjects`, `MyAgenda`, `JournalPage`, `AgentReportPage`, `DealStagesSettings` (только владелец), `ListingView` (кнопки «Взять в работу» и сделка) |
 | лента на главной | `App\Filament\Widgets\CrmFeed` |
@@ -59,9 +60,9 @@ tags: [gshome, crm, access]
   `delete_records_older_than_days = 365` (`config/activitylog.php`): команду `activitylog:clean`
   **не планировать** — журнал хранится полностью.
 - **Закрепление: ключ фиксируется при взятии.** `pin_key` = `c:{cluster_id}` или `l:{listing_id}`
-  и не пересчитывается, даже если Real Estate перестроит группу. Одно активное закрепление на
-  ключ держит база: частичный уникальный индекс `listing_pins_active_key` (`status = 'active'`,
-  `deleted_at IS NULL`). Вторая сделка на один пин и клиента — индекс `deals_pin_client_unique`.
+  и не пересчитывается, даже если Real Estate перестроит группу. С 26.11.2026 объект ведут
+  несколько агентов ([[02_Решения]]): одно активное участие на пару объект + агент держит
+  уникальный индекс по `(object_id, user_id)`, а не по ключу. Вторая сделка на один пин и клиента — индекс `deals_pin_client_unique`.
 - **Закрытие закрепления.** «Снять с себя» (`released`) при открытых сделках запрещено
   (`CrmForbidden`). «Состоялась» (`won`) и «объект недоступен» (`unavailable`) закрывают открытые
   сделки по этому закреплению (`CloseDealsOnPinClosed`); при передаче открытые сделки и показы

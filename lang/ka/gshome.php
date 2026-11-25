@@ -622,7 +622,7 @@ return [
             'another_agent' => 'სხვა აგენტი',
             'already_mine' => 'ობიექტი უკვე თქვენთან არის სამუშაოში.',
             'unavailable_reason' => 'მიზეზი',
-            'unavailable_closes_all' => 'ობიექტს დახურავს ყველა მწარმოებლისთვის',
+            'unavailable_closes_all' => 'ობიექტს დახურავს ყველა აგენტისთვის',
             'unavailable_closes_mine' => 'დახურავს მხოლოდ თქვენს მუშაობას',
             'client_in_other_deal' => 'ეს კლიენტი უკვე გარიგებაშია ამ ბინაზე: :names',
             'closed_banner' => 'ობიექტი დახურულია :date: :reason.',

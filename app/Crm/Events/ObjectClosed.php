@@ -8,7 +8,7 @@ use App\Models\User;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Support\Collection;
 
-/** Объект закрыт для всех участников. Слушатель уведомлений — отдельная задача. */
+/** Объект закрыт для всех участников. Уведомления рассылает Listeners\NotifyObjectClosed. */
 final class ObjectClosed
 {
     use Dispatchable;

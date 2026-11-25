@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * Объекты, закрытые «won» до появления won_deal_id/closed_by: берём выигранную сделку с одного из их пинов.
+ * closed_by для старых строк приблизительный: агент выигранной сделки.
  */
 return new class extends Migration
 {

@@ -9,6 +9,7 @@ use App\Crm\Events\PinTransferred;
 use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
+use App\Crm\ListingObjects;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
@@ -115,16 +116,17 @@ class PinsTest extends TestCase
         ]);
     }
 
-    public function test_active_for_finds_oldest_pin_by_any_copy_and_by_listing_id(): void
+    public function test_find_open_finds_object_by_any_copy_and_by_listing_id(): void
     {
         $pins = app(Pins::class);
+        $objects = app(ListingObjects::class);
         $pin = $pins->take($this->listing(41, 5), $this->nino);
         $pins->take($this->listing(41, 5), $this->giorgi);
 
-        $this->assertTrue($pins->activeFor($this->listing(42, 5))?->is($pin));
+        $this->assertSame($pin->object_id, $objects->findOpen(42, 5)?->id);
         // Real Estate перестроил группы: у той же копии другой cluster.id — объект находится по id объявления.
-        $this->assertTrue($pins->activeFor($this->listing(41, 9))?->is($pin));
-        $this->assertNull($pins->activeFor($this->listing(77, 8)));
+        $this->assertSame($pin->object_id, $objects->findOpen(41, 9)?->id);
+        $this->assertNull($objects->findOpen(77, 8));
     }
 
     public function test_mine_and_active_of(): void

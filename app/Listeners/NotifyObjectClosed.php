@@ -6,6 +6,7 @@ use App\Crm\Events\ObjectClosed;
 use App\Crm\Pins;
 use App\Notifications\ObjectClosed as ObjectClosedNotification;
 use Illuminate\Contracts\Events\ShouldHandleEventsAfterCommit;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 
 /** Сообщает остальным ведущим, что объект закрыт. Только после коммита: откат не должен слать уведомлений. */
 class NotifyObjectClosed implements ShouldHandleEventsAfterCommit
@@ -14,7 +15,7 @@ class NotifyObjectClosed implements ShouldHandleEventsAfterCommit
 
     public function handle(ObjectClosed $event): void
     {
-        $holders = $event->closedPins
+        $holders = (new EloquentCollection($event->closedPins->all()))->loadMissing('holder')
             ->map(fn ($pin) => $pin->holder)
             ->filter(fn ($holder) => $holder->id !== $event->by->id)
             ->unique('id');

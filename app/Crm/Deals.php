@@ -28,7 +28,7 @@ class Deals
         try {
             return DB::transaction(function () use ($pin, $client, $by): Deal {
                 // Порядок блокировок един: объект, затем сделка, затем пин.
-                $this->lockObjectOfPin($pin);
+                app(ListingObjects::class)->lockOfPin($pin);
                 $this->lockActivePin($pin, $by);
                 if ($pin->deals()->where('client_id', $client->id)->exists()) {
                     throw new CrmForbidden('This client already has a deal on this pin.');
@@ -91,7 +91,7 @@ class Deals
 
         DB::transaction(function () use ($deal, $amount, $currency, $stage, $partnerShare, $by): void {
             // Первым объект: второй win на том же объекте дождётся его и увидит «закрыт».
-            $this->lockObjectOfPin($deal->pin);
+            app(ListingObjects::class)->lockOfPin($deal->pin);
             $this->lockOpen($deal, $by);
             // Партнёр читается из строки под блокировкой: его могли снять или назначить за это время.
             if (($deal->partner_user_id === null) !== ($partnerShare === null)) {
@@ -280,14 +280,6 @@ class Deals
         }
         $deal->setRawAttributes($fresh->getAttributes(), true);
         $deal->unsetRelations(); // агент, партнёр и пин могли смениться при передаче пина
-    }
-
-    /** Заблокировать объект пина (читаем свежим: после склейки пин мог переехать); закрытый — CrmForbidden. */
-    private function lockObjectOfPin(ListingPin $pin): ListingObject
-    {
-        $objectId = ListingPin::query()->whereKey($pin->getKey())->value('object_id');
-
-        return app(ListingObjects::class)->lock(ListingObject::query()->findOrFail($objectId));
     }
 
     /** Права проверялись по модели до блокировки: пин мог закрыться или сменить держателя. */

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Crm;
 
+use App\Crm\ListingObjects;
 use App\Crm\Pins;
 use App\Enums\Direction;
 use App\Filament\Pages\ListingView;
@@ -45,15 +46,15 @@ class PinSnapshotTest extends TestCase
 
     public function test_snapshot_writes_only_on_change(): void
     {
-        $pins = app(Pins::class);
-        $pin = $pins->take($this->listing(), $this->agent());
+        $objects = app(ListingObjects::class);
+        $pin = app(Pins::class)->take($this->listing(), $this->agent());
         $at = $pin->object?->fresh()?->snapshot_at;
 
         $this->travel(5)->minutes();
-        $this->assertFalse($pins->snapshot($pin, $this->listing()));
+        $this->assertFalse($objects->snapshot($pin->object()->firstOrFail(), $this->listing()));
         $this->assertEquals($at, $pin->object?->fresh()?->snapshot_at);
 
-        $this->assertTrue($pins->snapshot($pin, $this->listing(['price' => ['usd' => 650.0]])));
+        $this->assertTrue($objects->snapshot($pin->object()->firstOrFail(), $this->listing(['price' => ['usd' => 650.0]])));
         $this->assertSame(650.0, (float) $pin->object?->fresh()?->price_usd);
     }
 

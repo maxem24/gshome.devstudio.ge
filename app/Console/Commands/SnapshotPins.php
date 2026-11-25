@@ -48,8 +48,9 @@ class SnapshotPins extends Command
                 $this->warn("Объявление {$object->listing_id} недоступно, пропущено");
             } else {
                 // Свежее объявление знает свою группу дублей: findOpen склеивает объекты.
-                $target = $objects->findOpen($listing->id, $listing->clusterId) ?? $object;
-                if ($objects->snapshot($target, $listing, touch: true)) {
+                $target = $objects->findOpen($listing->id, $listing->clusterId);
+                // Объект закрыли, пока шли за объявлением: пропускаем (пауза квоты ниже сохраняется).
+                if ($target !== null && $objects->snapshot($target, $listing, touch: true)) {
                     $updated++;
                 }
             }

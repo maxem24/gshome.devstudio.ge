@@ -49,6 +49,7 @@ class CrmDemo
     public function __construct(
         private readonly RealEstateClient $api,
         private readonly Pins $pins,
+        private readonly ListingObjects $objects,
         private readonly Deals $deals,
         private readonly Viewings $viewings,
         private readonly Tasks $tasks,
@@ -394,8 +395,8 @@ class CrmDemo
         for ($page = 0; $page < 5 && count($found) < 40; $page++) {
             $result = $this->api->listings($params, $cursor);
             foreach ($result->listings as $listing) {
-                $key = $this->pins->keyFor($listing);
-                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
+                $key = $this->objects->keyFor($listing);
+                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && $this->isFree($listing, $ignorePins)) {
                     $keys[$key] = true;
                     $found[] = $listing;
                 }
@@ -412,6 +413,18 @@ class CrmDemo
         $rest = array_values(array_filter($found, fn (Listing $l): bool => $l !== $grouped[0]));
 
         return [$grouped[0], ...array_slice($rest, 0, 5)];
+    }
+
+    /**
+     * Свободно: открытого объекта нет или все его активные участия в списке $ignorePins.
+     *
+     * @param  list<int>  $ignorePins
+     */
+    private function isFree(Listing $listing, array $ignorePins): bool
+    {
+        $object = $this->objects->findOpen($listing->id, $listing->clusterId);
+
+        return $object === null || ! $object->activePins()->whereNotIn('id', $ignorePins)->exists();
     }
 
     /**
@@ -434,7 +447,7 @@ class CrmDemo
         for ($page = 0; $page < 5; $page++) {
             $result = $this->api->listings($params, $cursor);
             foreach ($result->listings as $listing) {
-                if ($listing->direction() === Direction::Rent && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
+                if ($listing->direction() === Direction::Rent && $this->isFree($listing, $ignorePins)) {
                     return [$renter, $listing];
                 }
             }

@@ -97,6 +97,17 @@ class ListingObjects
     }
 
     /**
+     * Заблокировать объект пина. Объект читаем свежим: после склейки пин мог переехать.
+     * Параллельная склейка даёт CrmForbidden — ложный отказ, пользователь повторит.
+     */
+    public function lockOfPin(ListingPin $pin): ListingObject
+    {
+        $objectId = ListingPin::query()->whereKey($pin->getKey())->value('object_id');
+
+        return $this->lock(ListingObject::query()->findOrFail($objectId));
+    }
+
+    /**
      * Склеить $gone в $keep: пины переезжают, $gone закрывается. Если у агента теперь два
      * активных пина в $keep, остаётся старший, младший закрывается «merged», его открытые сделки
      * уходят на старший.
