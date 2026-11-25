@@ -34,7 +34,7 @@
 
 Ветка `feat/multi-agent-objects` от `main` (в ней уже коммиты дизайна и записи о чистке прода).
 
-**Отклонение от спецификации R8 (решение плана, сообщить владельцу):** передача участия при архиве сейчас в коде не делается вовсе (архив не трогает пины — `Archive::scope` их прячет). PR 1 убирает передачу из карточки и `Pins::transfer` целиком; поведение архива не меняется. Коллега при необходимости просто берёт объект в работу сам. Склейка «два участия одного агента» нужна только в Task 2 (склейка объектов).
+**Передача остаётся (R8, решение владельца 26.11):** аккаунт = рабочее место, при смене человека меняют пароль; руководитель может переключить участие на другого агента. Меняется только: блокировка объекта первой и отказ, если у получателя уже есть активное участие в объекте.
 
 ## Файлы PR 1
 
@@ -44,12 +44,11 @@
 | `app/Models/ListingObject.php` | модель объекта |
 | `app/Enums/UnavailableReason.php` | причины «недоступен» и их охват |
 | `app/Crm/ListingObjects.php` | найти/создать/склеить/заблокировать объект, снимок |
-| `app/Crm/Pins.php` | участие: взять, мой пин, закрыть; без передачи |
+| `app/Crm/Pins.php` | участие: взять, мой пин, передать, закрыть |
 | `app/Crm/Events/ObjectClosed.php`, `app/Notifications/ObjectClosed.php`, `app/Listeners/NotifyObjectClosed.php` | уведомление остальным ведущим |
 | `app/Crm/Deals.php` | `win` закрывает объект для всех; `othersOnObject` |
-| `app/Filament/Pages/ListingView.php`, `resources/views/filament/pages/listing-view.blade.php` | «Ведут», мой пин, причина недоступности, без передачи |
+| `app/Filament/Pages/ListingView.php`, `resources/views/filament/pages/listing-view.blade.php` | «Ведут», мой пин, причина недоступности, передача |
 | `app/Crm/Matching.php`, `app/Crm/MatchRows.php`, `app/Console/Commands/SnapshotPins.php` | снимок и подбор по объекту |
-| удалить: `app/Crm/Events/PinTransferred.php`, `app/Listeners/ReassignDealsOnPinTransferred.php` | передача |
 
 ### Task 1: Схема объектов и миграция данных
 
@@ -95,13 +94,12 @@
 - [ ] **Step 4:** PASS, `composer analyse`.
 - [ ] **Step 5: Commit** `feat(objects): find, create, merge and lock objects`.
 
-### Task 3: Участие — взять, мой пин, освободить, недоступен (без передачи)
+### Task 3: Участие — взять, мой пин, передать, освободить, недоступен
 
 **Files:**
-- Modify: `app/Crm/Pins.php`, `app/Crm/Journal.php` (константа `PIN_TRANSFERRED` остаётся — старые записи журнала; добавить `OBJECT_CLOSED = 'object.closed'`), `app/Providers/*` или `EventServiceProvider` — снять регистрацию `ReassignDealsOnPinTransferred`
-- Delete: `app/Crm/Events/PinTransferred.php`, `app/Listeners/ReassignDealsOnPinTransferred.php`
+- Modify: `app/Crm/Pins.php`, `app/Crm/Journal.php` (добавить `OBJECT_CLOSED = 'object.closed'`)
 - Modify: `app/Crm/Exceptions/PinTaken.php` — смысл «вы уже ведёте этот объект»
-- Test: `tests/Feature/Crm/PinsTest.php` — удалить тесты передачи и «занято другим», добавить новые
+- Test: `tests/Feature/Crm/PinsTest.php` — удалить тесты «занято другим», тесты передачи оставить и дополнить, добавить новые
 
 **Interfaces:**
 - Consumes: `ListingObjects` (Task 2).
@@ -113,21 +111,22 @@
   - `Pins::markUnavailable(ListingPin $pin, UnavailableReason $reason, User $by): void` — `closesObject()` → `closeObject($o, $reason->value, $by, except: $pin)` + свой пин `unavailable` с причиной; иначе только свой пин + `closeIfAbandoned`.
   - `Pins::release(ListingPin $pin, User $by): void` — как сейчас (нельзя с открытыми сделками) + `closeIfAbandoned`.
   - `Pins::closeObject(ListingObject $o, string $reason, User $by, ?ListingPin $except = null, ?Deal $wonDeal = null): void` — **вызывается внутри транзакции с уже взятой блокировкой объекта**: объект `closed/$reason` (+`closed_by`, `won_deal_id`), остальные активные пины `closed_by_other` (их открытые сделки → `unavailable` через `PinClosed`), событие `ObjectClosed($o, $by, $notify = пины, закрытые этим вызовом)`.
-  - Удаляются: `transfer`, `canReceive`, `activeFor`, `activeForIds`, `snapshot`, `keyFor`.
+  - `Pins::transfer(ListingPin $pin, User $to, User $by): void` — сигнатура прежняя; в транзакции сначала `ListingObjects::lock($pin->object)`, затем `lockActive($pin)`; у `$to` уже активный пин в объекте → `CrmForbidden('Recipient already works on this object.')`. `canReceive` — прежний. `PinTransferred` и `ReassignDealsOnPinTransferred` без изменений.
+  - Удаляются: `activeFor`, `activeForIds`, `snapshot`, `keyFor`.
   - `close()` больше не публичный путь для `won`: остаётся приватный `closePin(ListingPin, string $reason, string $event, User $by, ?UnavailableReason $why = null)`.
   - `CloseDealsOnPinClosed` реагирует на `won`, `unavailable`, `closed_by_other`.
 
-- [ ] **Step 1: Тесты** — `test_two_agents_take_same_listing` (два пина, один объект), `test_same_agent_cannot_take_twice` (`PinTaken`), `test_release_last_pin_abandons_object` и `test_take_after_abandon_creates_new_object`, `test_owner_refused_closes_only_mine` (у Георгия пин активен, объект открыт), `test_fake_closes_object_for_all` (Георгий `closed_by_other`, его открытая сделка `unavailable`, объект `closed/fake`, журнал `object.closed`), `test_release_with_open_deals_forbidden` (как сейчас), `test_leader_manages_oldest_visible_pin` (`managed`).
+- [ ] **Step 1: Тесты** — `test_two_agents_take_same_listing` (два пина, один объект), `test_same_agent_cannot_take_twice` (`PinTaken`), `test_release_last_pin_abandons_object` и `test_take_after_abandon_creates_new_object`, `test_owner_refused_closes_only_mine` (у Георгия пин активен, объект открыт), `test_fake_closes_object_for_all` (Георгий `closed_by_other`, его открытая сделка `unavailable`, объект `closed/fake`, журнал `object.closed`), `test_release_with_open_deals_forbidden` (как сейчас), `test_leader_manages_oldest_visible_pin` (`managed`), `test_transfer_to_agent_already_on_object_rejected`, `test_transfer_keeps_open_deals` (как сейчас).
 - [ ] **Step 2:** FAIL.
-- [ ] **Step 3: Реализация**; удалить файлы передачи и регистрацию слушателя; `grep -rn "transfer\|activeFor" app tests` — пусто, кроме `Journal::PIN_TRANSFERRED` и его перевода.
+- [ ] **Step 3: Реализация**; `grep -rn "activeFor" app tests` — пусто.
 - [ ] **Step 4:** `--filter 'PinsTest|ListingObjects'` PASS, `composer analyse`.
-- [ ] **Step 5: Commit** `feat(pins): several agents per object; no transfer`.
+- [ ] **Step 5: Commit** `feat(pins): several agents per object`.
 
 ### Task 4: Сделка состоялась — объект закрывается у всех; «сдали двое» невозможно
 
 **Files:**
 - Modify: `app/Crm/Deals.php` (`win`, `open`, новый `othersOnObject`), `app/Listeners/CloseDealsOnPinClosed.php`
-- Test: `tests/Feature/Crm/DealsTest.php`, `tests/Feature/Crm/DealPartnerTest.php` (тесты, опиравшиеся на передачу/эксклюзив — `:242`, `:293`, `:201` — переписать под участия)
+- Test: `tests/Feature/Crm/DealsTest.php`, `tests/Feature/Crm/DealPartnerTest.php` (тесты, опиравшиеся на эксклюзив — `:242`, `:293`, `:201` — переписать под участия)
 
 **Interfaces:**
 - Consumes: `ListingObjects::lock`, `Pins::closeObject` (Tasks 2–3).
@@ -135,7 +134,7 @@
 - `Deals::open` — блокирует объект первым (порядок блокировок един), проверка «клиент уже в сделке на этом пине» остаётся.
 
 - [ ] **Step 1: Тесты** — `test_win_closes_object_for_everyone` (пин Георгия `closed_by_other`, его открытая сделка `unavailable`, объект `closed/won`, `won_deal_id`), `test_second_win_on_same_object_is_rejected` (после первого `win` второй — `CrmForbidden`; в базе один `won`), `test_others_on_object_lists_same_client_elsewhere`, `test_open_deal_on_closed_object_rejected`.
-- [ ] **Step 2:** FAIL. **Step 3:** реализация. **Step 4:** `--filter 'Deals|DealPartner|Viewing'` PASS (`ViewingRemindersTest:175` поправить, если опирался на передачу). **Step 5: Commit** `feat(deals): winning closes the object for all agents`.
+- [ ] **Step 2:** FAIL. **Step 3:** реализация. **Step 4:** `--filter 'Deals|DealPartner|Viewing'` PASS (`ViewingRemindersTest:175` поправить, если опирался на эксклюзив). **Step 5: Commit** `feat(deals): winning closes the object for all agents`.
 
 ### Task 5: Уведомление остальным ведущим
 
@@ -161,11 +160,11 @@
 - `ListingView::pin(): ?ListingPin` — `Pins::managed($object, $viewer)`.
 - `ListingView::banner(): ?array{holders: list<array{name: ?string, mine: bool}>, preferences: list<string>, closed: ?array{reason: string, at: string, name: ?string}}` — ведущие по R4/уточнению 7: своя компания и компании по обмену (`OrgAccess::identifiableCompanyIds`) с именами по `nameFor`; прочие не показываются. `closed` — последний закрытый объект этого `listing_id` с причиной `won|rented_elsewhere|fake`, если открытого нет.
 - «Взять в работу» видна, если объект не открыт **или** у смотрящего нет своего пина (`Pins::mine`), и направление доступно.
-- `transferPin` и `recipients()` удаляются.
+- `transferPin` остаётся; `recipients()` исключает тех, у кого уже есть активное участие в объекте.
 - `markUnavailable` — модалка с `Select reason` (обязательный, `UnavailableReason`), под ним подсказка охвата (`helperText`: «закроет объект для всех ведущих» / «закроет только вашу работу»).
 - После открытия сделки: `Deals::othersOnObject` не пуст → предупреждение (`Notification::warning`) «Этот клиент уже в сделке по этой квартире у :names» — сделка всё равно открыта.
 
-- [ ] **Step 1: Тесты (Livewire)** — `test_second_agent_sees_take_button_and_holder_list`, `test_unavailable_requires_reason_and_fake_closes_for_all`, `test_no_transfer_action`, `test_removed_listing_still_finds_my_pin` (API 404 → кнопки «Освободить»/«Недоступен» видны), `test_closed_object_banner_shows_who_rented`, `test_warning_when_client_in_other_agents_deal`.
+- [ ] **Step 1: Тесты (Livewire)** — `test_second_agent_sees_take_button_and_holder_list`, `test_unavailable_requires_reason_and_fake_closes_for_all`, `test_transfer_recipients_exclude_agents_already_on_object`, `test_removed_listing_still_finds_my_pin` (API 404 → кнопки «Освободить»/«Недоступен» видны), `test_closed_object_banner_shows_who_rented`, `test_warning_when_client_in_other_agents_deal`.
 - [ ] **Step 2–4:** FAIL → реализация → PASS; `composer analyse`. **Step 5: Commit** `feat(listing): several holders on the card; unavailable with reason`.
 
 ### Task 7: Подбор пар и ночной снимок — по объекту
@@ -185,8 +184,8 @@
 
 **Files:**
 - Modify: `app/Crm/CrmDemo.php:390,429,453` (`activeFor` → `ListingObjects::findOpen` + «нет открытого объекта»), `tests/Feature/Crm/CrmDemoSeederTest.php`
-- Modify docs: `docs/GSHome/02_Решения.md` (запись 26.11: несколько агентов на объекте; отменяет «одно закрепление на группу» и передачу; R1–R10 как временные до ответа директора; чем платим), `docs/GSHome/11_CRM_альфа.md` (таблица «где что»: `ListingObjects`, нет передачи), `docs/GSHome/10_Модули_системы.md` (пометки у разделов про передачу), `docs/GSHome/08_Объявления.md` если упоминает держателя
-- Lang: удалить `crm.pins.transfer*`, `already_taken`, `in_work_by/other`; добавить `crm.objects.*`
+- Modify docs: `docs/GSHome/02_Решения.md` (запись 26.11: несколько агентов на объекте; отменяет «одно закрепление на группу»; аккаунт = рабочее место; R1–R10 как временные до ответа директора; чем платим), `docs/GSHome/11_CRM_альфа.md` (таблица «где что»: `ListingObjects`, нет передачи), `docs/GSHome/10_Модули_системы.md` (пометки у разделов про передачу), `docs/GSHome/08_Объявления.md` если упоминает держателя
+- Lang: удалить `already_taken`, `in_work_by/other`; добавить `crm.objects.*`, `crm.pins.transfer_already_on_object`
 
 - [ ] **Step 1:** `CrmDemoSeederTest` PASS.
 - [ ] **Step 2:** `docker compose run --rm test composer test` — весь сьют зелёный; `docker compose exec app composer analyse` — 0 ошибок.
