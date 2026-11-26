@@ -21,6 +21,33 @@ tags: [gshome, api, myhome]
 
 Токен в git не кладём. В примерах — плейсхолдер `YOUR_NEW_AUTH_TOKEN`.
 
+### Как получить токен без браузера (проверено 26.11.2026)
+
+Одним запросом, тем же, что отправляет форма `auth.tnet.ge`:
+
+```bash
+curl -X POST 'https://accounts.tnet.ge/api/ka/user/auth' \
+  -H 'Content-Type: application/json' \
+  -H 'Origin: https://auth.tnet.ge' -H 'Referer: https://auth.tnet.ge/' \
+  -d '{"Email":"MYHOME_USERNAME","Password":"MYHOME_PASSWORD","token":"","Continue":"https://www.myhome.ge/"}'
+```
+
+- Поле `token` оставляем **пустым** — сервер принимает. Это поле для ответа invisible reCAPTCHA
+  (в браузере форма входа её запускает: `google.com/recaptcha/api2/…`, `reload`, `clr`). Пустое
+  значение сейчас принимается, но это может измениться. Хеширования нет: пароль уходит открытым текстом по HTTPS.
+- Скрипт и запросы к API обязаны слать браузерный `User-Agent`: иначе Cloudflare отвечает
+  `403 Error 1010` (проверено 26.11).
+- Ответ: `data.access_token` (JWT, живёт ~11 минут — 660 с) и `data.refresh_token` (~120 дней).
+  Куки не ставятся. Эндпоинт обновления по refresh-токену неизвестен — проще войти заново.
+- **`access_token` = значение `Global-Authorization`.** Проверка: `POST /v1/statements/create`
+  с неполным телом отвечает `401 Unauthenticated` на плохой токен и `422` (ошибки валидации
+  полей) на наш.
+- Скрипт: `~/.cursor/script-library/myhome-bearer-token/get_token.py --env-file .env`
+  (учётные данные — `MYHOME_USERNAME` / `MYHOME_PASSWORD` в `.env`).
+- Аккаунт в `.env` — `user_id` 9224739, тот же ящик, что и на ss.ge.
+- Не проверено: публикация, правка и удаление с этим токеном; эндпоинты правки/удаления в
+  документе не описаны.
+
 ## Эндпоинты
 
 | # | Метод | URL | Назначение |
@@ -250,3 +277,110 @@ _(пока пусто)_
 - Как обновлять / снимать объявление (если есть отдельные эндпоинты).
 - Маппинг MyHome id → Real Estate / GS Home при публикации из CRM (кроме уже
   заведённых в `SourceMappingSeeder`).
+
+---
+
+## Вход в браузере и запросы кабинета (снято 26.11.2026, аккаунт `jshome926@gmail.com`)
+
+Снято через Chrome DevTools MCP в изолированной вкладке, вход руками пользователя. Токены и cookie
+в документ не переносим: в снятых запросах они живые.
+
+### Цепочка входа
+
+| # | Запрос | Что происходит |
+|---|---|---|
+| 1 | `GET auth.tnet.ge/ka/user/login/?Continue=…statements.myhome.ge/ka/user-profile/my-statements?referrer=myhome` | форма входа (поля Email / Password, invisible reCAPTCHA) |
+| 2 | `POST accounts.tnet.ge/api/ka/user/auth` | **200**, тело `{Email, Password, token, Continue}`, ответ — `access_token` + `refresh_token` |
+| 3 | `GET auth.myauto.ge/?AccessToken=…&RefreshToken=…&Continue=…` → `302` | SSO-«развод» по сайтам TNET: `auth.myauto.ge`, `auth.mymarket.ge`, `auth.myparts.ge`, `auth.myhome.ge`, `auth.swoop.ge`, `auth.livo.ge`, `auth.myjobs.ge`, `auth.tkt.ge`, `auth.superesim.ge`. Каждый ставит cookie `AccessToken` на свой домен |
+| 4 | `GET statements.myhome.ge/ka/user-profile/my-statements?referrer=myhome` | **200**, страница кабинета |
+
+Ответ шага 2 совпадает с нашим скриптом `myhome-bearer-token`: тот же `access_token` уходит браузером
+в заголовке `Global-Authorization`.
+
+### Запросы кабинета (`api-statements.tnet.ge`)
+
+Заголовки, которые шлёт браузер: `Global-Authorization: <access_token>`, `x-website-key: myhome`,
+`x-referrer-key: myhome`, `locale: ka`, `Origin/Referer: https://statements.myhome.ge`.
+
+| запрос | назначение |
+|---|---|
+| `GET /v1/users/me` | профиль: `id 9224739`, `type.key: agent`, `is_premier_agent: false`, `roles: []` |
+| `GET /v1/auth/grouped-info` | данные аккаунта (email, телефон, подтверждения) |
+| `GET /v1/users/get-type?websites=1,2&` | тип пользователя по сайтам |
+| `GET /v1/users/statements/statuses` | счётчики по статусам (`id 2` «მიმდინარე» — текущие: 48) |
+| `GET /v1/users/active-statements/count` | активных объявлений: **48** |
+| `GET /v1/users/statements?website_status_id=2&q=&order_by=update_date_desc&page=1&per_page=10` | список объявлений кабинета |
+| `GET /v1/locations/cities`, `GET /v2/services?websites=1,2`, `GET /v1/users/statements/monthly-count` | справочники и сервисы |
+
+Проверено скриптом (вне браузера, тот же токен): `/v1/users/me`, `/v1/auth/grouped-info`,
+`/v1/users/statements/statuses`, `/v1/users/active-statements/count` → 200.
+
+### Что ещё не снято
+
+Создание, правка и удаление объявления в кабинете. Список запросов будет дописан, когда пользователь
+выполнит каждое действие в той же вкладке.
+
+### Кнопка «Редактировать» (снято 26.11.2026, объявление `26671397`)
+
+Переход: `statements.myhome.ge/ka/statement/edit/26671397?referrer=myhome`. Запросы, которые ушли при
+открытии формы и после неё (по номеру в DevTools):
+
+| reqid | запрос | что это |
+|---|---|---|
+| 645 | `GET /v1/statements/edit/26671397` → 200 | загрузка данных объявления (ответ: `data.statement`) |
+| 644, 660, 672, 856 | `GET /v1/statements/title-preview?deal_type_id=…&real_estate_type_id=…&city_id=…&status_id=…&urban_id=…&room_type_id=…` | живой предпросмотр заголовка при заполнении формы |
+| 649, 847 | `GET /v1/statements/title-preview?real_estate_type_id=1` → **422** | неполный запрос предпросмотра, без последствий |
+| 653, 849, 667 | `GET api-locations.tnet.ge/v2/suggestions?with_visible_in_cities=1[&location_id=201]` | подсказки районов и локаций |
+| 668, 864 | `GET /v1/users/validation/check?number=544407436` | проверка телефона |
+| 640, 836 | `GET /v1/statements/statement-parameters?exclude_cities=1` | справочник удобств |
+| 711 | **`PUT /v1/statements/update/26671397` → 200** | **сохранение, нажал пользователь без изменений** (см. ниже) |
+| 734–793 | переход в список «Мои объявления» и его обновление | после «Сохранить» пользователь вернулся на главную кабинета |
+| 845 | повторный `GET /v1/statements/edit/26671397` | пользователь снова открыл форму редактирования |
+
+**Формат сохранения — `PUT` JSON, не форма `create`.** Тело `update` — полный объект объявления:
+`real_estate_type_id`, `deal_type_id`, `rent_period`, `rent_type_id`, `city_id`, `street_id`,
+`location_id`, `district_id`, `urban_id`, `longitude`, `latitude`, `duration_id`, `parameters` (массив
+id удобств), `status_id`, `project_type_id`, `room_type_id`, `bedroom_type_id`, `floor`, `total_floors`,
+`condition_id`, `area`, `area_type_id`, `price_type_id`, `total_price`, `square_price`, `currency_id`,
+`phone_number`, `is_phone_number_visible`, `youtube_link`, `3d_url`, переводы `ka`/`en`/`ru`
+(`comment`, `address`, `owner_name`, `street_number`), `images` (массив `{image_id, url}`) и
+`hidden_owner_*`. Числа приходят то строками (`"floor": "1"`, `"street_id": "3697"`), то числами
+(`"area": 60`) — сервер это принимает.
+
+**Что изменилось после сохранения (проверено чтением, 26.11):**
+- значения в теле совпадали с текущими — правки не было, поэтому объявление не изменилось:
+  `status_id 1`, `published_by_website {"2": true}`, `is_active_by_website {"2": true}`,
+  `last_updated_by_website` всё ещё `2026-11-13 21:57:25`, цена `1300`, 16 фото;
+- счётчик активных объявлений — 48, как и до сохранения;
+- статус 2 (`მიმდინარე`) сохранён; «на модерацию» по этим полям не видно.
+
+Вывод: нажатие «Сохранить» без изменений — no-op на стороне данных. Реальная правка — тот же `PUT`
+с изменённым полем (например, `room_type_id`). Эту часть ещё **не проверяли**.
+
+### Правка комнат через форму (снято 26.11.2026, объявление `26671397`, 2 → 3 комнаты)
+
+Пользователь поменял количество комнат в форме и нажал «Сохранить». Запросы из DevTools:
+
+| reqid | запрос | что это |
+|---|---|---|
+| 902 | `GET /v1/statements/title-preview?…&room_type_id=3` → 200 | заголовок пересчитан на 3 комнаты |
+| 915 | **`PUT /v1/statements/update/26671397` → 200** | сохранение |
+
+**Сравнение тела 711 (без изменений) и 915 (с правкой):** отличаются два поля.
+- `room_type_id`: `"2"` → `"3"`.
+- `bedroom_type_id`: `1` → `null`. **Форма сама сбросила число спален при смене комнат.** Если поле
+  не сохранить в теле `PUT` сознательно, спальни пропадут. Это важно для API-правки: отправлять
+  `bedroom_type_id` с нужным значением.
+
+Остальное совпало: `parameters`, `images` (16), цена `1300`, телефон, переводы, координаты.
+
+**Состояние после правки (чтение, 26.11):**
+- `room_type_id` = 3, `bedroom_type_id` = null, `status_id` = 1;
+- публичный статус: `published_by_website {"2": true}`, `is_active_by_website {"2": true}`, `is_editable` = true;
+- заголовок: `ქირავდება 3 ოთახიანი ძველი აშენებული ბინა კონაკის დას.-ში`;
+- **`last_updated_by_website` осталась `2026-11-13 21:57:25`**: дата обновления по этому полю не меняется
+  даже при реальной правке;
+- активных объявлений — 48, модерации по этим полям не видно.
+
+Вывод: правка через `PUT update` применилась сразу и без модерации (по данным API). Откатить на 2 комнаты
+тем же способом (`room_type_id` = `"2"`, `bedroom_type_id` = `1`).
