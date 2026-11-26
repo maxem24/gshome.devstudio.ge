@@ -26,6 +26,8 @@ final class Journal
 
     public const PIN_TAKEN = 'pin.taken';
 
+    public const PIN_AGREEMENT_SAVED = 'pin.agreement_saved';
+
     public const PIN_TRANSFERRED = 'pin.transferred';
 
     public const PIN_UNAVAILABLE = 'pin.unavailable';

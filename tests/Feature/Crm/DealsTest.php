@@ -14,11 +14,13 @@ use App\Enums\UserStatus;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Deal;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -174,6 +176,38 @@ class DealsTest extends TestCase
         $this->assertSame('won', $object->closed_reason);
         $this->assertSame($mine->id, $object->won_deal_id);
         $this->assertSame($this->nino->id, $object->closed_by);
+    }
+
+    public function test_win_on_one_copy_closes_the_other_open_object(): void
+    {
+        $young = ListingObject::factory()->create([
+            'object_key' => 'c:5', 'listing_id' => 42, 'cluster_id' => 5, 'direction' => 'sale',
+        ]);
+        $giorgiPin = ListingPin::query()->create([
+            'listing_id' => 42, 'cluster_id' => 5, 'pin_key' => 'c:5', 'direction' => 'sale',
+            'user_id' => $this->giorgi->id, 'status' => ListingPin::ACTIVE, 'object_id' => $young->id,
+            'last_activity_at' => now(),
+        ]);
+        $deals = app(Deals::class);
+        $mine = $deals->open($this->pin, $this->client(), $this->nino);
+        $theirs = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+        Http::fake(['*' => Http::response(['data' => RealEstateFake::listing([
+            'id' => 41,
+            'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'sale'],
+            'cluster' => ['id' => 5, 'listings_count' => 2, 'phones_e164' => [], 'listings' => [
+                ['id' => 41, 'source' => 'ss_ge'], ['id' => 42, 'source' => 'ss_ge'],
+            ]],
+        ])])]);
+
+        $deals->win($mine, '1000', 'USD', $this->nino);
+        try {
+            $deals->win($theirs, '900', 'USD', $this->giorgi);
+            $this->fail('Second win must be rejected.');
+        } catch (ObjectClosed) {
+            $this->assertSame(1, Deal::query()->where('status', DealStatus::Won)->count());
+            $this->assertSame(DealStatus::Unavailable, $theirs->fresh()->status);
+            $this->assertSame('merged_into', $young->fresh()->closed_reason);
+        }
     }
 
     public function test_second_win_on_same_object_is_rejected(): void

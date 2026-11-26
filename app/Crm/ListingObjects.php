@@ -8,8 +8,11 @@ use App\Enums\DealStatus;
 use App\Models\Deal;
 use App\Models\ListingObject;
 use App\Models\ListingPin;
+use App\RealEstate\Exceptions\RealEstateException;
 use App\RealEstate\Listing;
+use App\RealEstate\RealEstateClient;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\Client\StrayRequestException;
 use Illuminate\Support\Facades\DB;
 
 /** Объекты: общая карточка группы дублей. Найти, создать, склеить, заблокировать, снимок. */
@@ -67,12 +70,39 @@ class ListingObjects
             return null;
         }
         $found->refresh();
+        if ($found->isOpen() && $clusterId !== null) {
+            $found = $this->rekey($found, $clusterId);
+        }
         if ($found->isOpen()) {
-            return $clusterId !== null ? $this->rekey($found, $clusterId) : $found;
+            return $found;
         }
 
-        // Пока склеивали, объект закрыли или склеили в другой: ищем заново один раз.
+        // Пока склеивали или меняли ключ, объект закрыли: ищем заново один раз.
         return $retry ? $this->findOpen($listingId, $clusterId, $copyIds, false) : null;
+    }
+
+    /**
+     * Перед закрытием «для всех» склеить открытые карточки этой квартиры.
+     * Карточку берём из API, чтобы увидеть копии группы; нет связи — склеиваем по id и группе, уже записанным на пине.
+     * Вызов вне транзакции закрытия: запрос к API не должен держать блокировку.
+     */
+    public function unite(ListingPin $pin): ?ListingObject
+    {
+        $listingId = (int) $pin->listing_id;
+        $clusterId = $pin->cluster_id;
+        $copyIds = [];
+        try {
+            $listing = app(RealEstateClient::class)->listing($listingId);
+            if ($listing !== null) {
+                $listingId = $listing->id;
+                $clusterId = $listing->clusterId ?? $clusterId;
+                $copyIds = $this->copyIds($listing);
+            }
+        } catch (RealEstateException|StrayRequestException) {
+            // Карточка недоступна: ниже склеим по тому, что уже лежит на пине.
+        }
+
+        return $this->findOpen($listingId, $clusterId, $copyIds);
     }
 
     /** Ключ найденного объекта — на группу дублей: иначе соседняя копия создаст второй объект. */

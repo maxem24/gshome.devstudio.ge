@@ -10,6 +10,7 @@ use App\Crm\Exceptions\CrmForbidden;
 use App\Crm\Exceptions\ObjectClosed as ObjectClosedException;
 use App\Crm\Exceptions\PinTaken;
 use App\Crm\Exceptions\RecipientOnObject;
+use App\Enums\CommissionKind;
 use App\Enums\DealStatus;
 use App\Enums\Role;
 use App\Enums\UnavailableReason;
@@ -126,6 +127,9 @@ class Pins
     {
         $this->assertCanManage($pin, $by);
 
+        if ($reason->closesObject()) {
+            $this->objects()->unite($pin);
+        }
         DB::transaction(function () use ($pin, $reason, $by): void {
             $object = $this->objects()->lockOfPin($pin);
             $this->lockActive($pin);
@@ -265,6 +269,135 @@ class Pins
         }
 
         return __($fallback);
+    }
+
+    /**
+     * Договор с собственником на этом участии. Пустые цена и комиссия снимают договор.
+     * Дата и автор первого сохранения не меняются.
+     *
+     * @param  array<string, mixed>  $input
+     */
+    public function saveAgreement(ListingPin $pin, array $input, User $by): void
+    {
+        $this->assertCanManage($pin, $by);
+        $fields = $this->agreementFields($input);
+
+        DB::transaction(function () use ($pin, $by, $fields, $input): void {
+            $this->lockActive($pin);
+            $pin->refresh();
+            if ($fields === null) {
+                $pin->update($this->clearedAgreement($this->text($input['agreement_note'] ?? null)));
+
+                return;
+            }
+            if ($pin->agreed_at === null) {
+                $fields['agreed_at'] = now();
+                $fields['agreed_by'] = $by->id;
+            }
+            $pin->update($fields);
+            Journal::record(Journal::PIN_AGREEMENT_SAVED, $pin, [
+                'listing_id' => $pin->listing_id,
+                'commission_kind' => $fields['commission_kind'],
+                'commission_percent' => $fields['commission_percent'],
+            ], $by);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>|null null — договора нет, только заметка
+     */
+    private function agreementFields(array $input): ?array
+    {
+        $price = $this->text($input['agreed_price'] ?? null);
+        $kind = CommissionKind::tryFrom((string) ($input['commission_kind'] ?? ''));
+        if ($price === null && $kind === null) {
+            return null;
+        }
+        if ($price === null || $kind === null || ! DealIntake::isMoney($price)) {
+            throw new CrmForbidden('Agreement needs a price and a commission.');
+        }
+        $currency = (string) ($input['agreed_currency'] ?? '');
+        if (! in_array($currency, config('crm.currencies'), true)) {
+            throw new CrmForbidden('Unknown currency.');
+        }
+
+        $percent = $this->intOrNull($input['commission_percent'] ?? null);
+        $months = $this->intOrNull($input['commission_months'] ?? null);
+        $amount = $this->text($input['commission_amount'] ?? null);
+        $commissionNote = $this->text($input['commission_note'] ?? null);
+        $owner = $this->text($input['owner_price'] ?? null);
+        $term = $this->intOrNull($input['min_term_months'] ?? null);
+        if ($owner !== null && ! DealIntake::isMoney($owner)) {
+            throw new CrmForbidden('Owner price must be a positive number.');
+        }
+        if ($term !== null && ! in_array($term, [6, 12], true)) {
+            throw new CrmForbidden('Term must be 6 or 12 months.');
+        }
+        if ($percent !== null && ($percent < 1 || $percent > 100)) {
+            throw new CrmForbidden('Percent must be from 1 to 100.');
+        }
+
+        $row = [
+            'agreed_price' => DealIntake::money($price),
+            'agreed_currency' => $currency,
+            'owner_price' => $owner === null ? null : DealIntake::money($owner),
+            'commission_kind' => $kind->value,
+            'commission_percent' => null,
+            'commission_months' => null,
+            'commission_amount' => null,
+            'commission_note' => null,
+            'available_from' => $this->text($input['available_from'] ?? null),
+            'min_term_months' => $term,
+            'myhome_id' => $this->intOrNull($input['myhome_id'] ?? null),
+            'ss_id' => $this->intOrNull($input['ss_id'] ?? null),
+            'agreement_note' => $this->text($input['agreement_note'] ?? null),
+        ];
+
+        $ok = match ($kind) {
+            CommissionKind::Percent => $percent !== null,
+            CommissionKind::Fixed => $amount !== null && DealIntake::isMoney($amount),
+            CommissionKind::PercentMonths => $percent !== null && $months !== null && $months > 0,
+            CommissionKind::Other => $commissionNote !== null && mb_strlen($commissionNote) <= 100,
+        };
+        if (! $ok) {
+            throw new CrmForbidden('Commission does not match its kind.');
+        }
+        $row['commission_percent'] = in_array($kind, [CommissionKind::Percent, CommissionKind::PercentMonths], true) ? $percent : null;
+        $row['commission_months'] = $kind === CommissionKind::PercentMonths ? $months : null;
+        $row['commission_amount'] = $kind === CommissionKind::Fixed ? DealIntake::money((string) $amount) : null;
+        $row['commission_note'] = $kind === CommissionKind::Other ? $commissionNote : null;
+
+        return $row;
+    }
+
+    /** @return array<string, mixed> */
+    private function clearedAgreement(?string $note): array
+    {
+        return [
+            'agreed_at' => null, 'agreed_by' => null, 'agreed_price' => null, 'agreed_currency' => null,
+            'owner_price' => null, 'commission_kind' => null, 'commission_percent' => null,
+            'commission_months' => null, 'commission_amount' => null, 'commission_note' => null,
+            'available_from' => null, 'min_term_months' => null, 'myhome_id' => null, 'ss_id' => null,
+            'agreement_note' => $note,
+        ];
+    }
+
+    private function text(mixed $value): ?string
+    {
+        if (! is_string($value) && ! is_numeric($value)) {
+            return null;
+        }
+        $value = trim((string) $value);
+
+        return $value === '' ? null : $value;
+    }
+
+    private function intOrNull(mixed $value): ?int
+    {
+        $text = $this->text($value);
+
+        return $text !== null && ctype_digit($text) ? (int) $text : null;
     }
 
     /**

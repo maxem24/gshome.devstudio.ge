@@ -10,7 +10,9 @@ use App\Crm\Exceptions\PinTaken;
 use App\Crm\Journal;
 use App\Crm\ListingObjects;
 use App\Crm\MatchRows;
+use App\Crm\OwnerAgreements;
 use App\Crm\Pins;
+use App\Enums\CommissionKind;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
 use App\Enums\OwnershipLabel;
@@ -37,6 +39,7 @@ use App\RealEstate\RealEstateClient;
 use App\Search\LinkImports;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Panel;
@@ -526,7 +529,7 @@ class ListingView extends Page
     /**
      * «Ведут»: только люди своей компании и компаний по обмену (владелец — все); прочие не показываются.
      *
-     * @return array{holders: list<array{name: ?string, mine: bool}>, preferences: list<string>, closed: ?array{reason: string, at: string, name: ?string}}|null
+     * @return array{holders: list<array{name: ?string, mine: bool}>, preferences: list<string>, agreement: ?string, agreements: list<array{name: string, url: string, summary: string, expected: ?string, best: bool}>, closed: ?array{reason: string, at: string, name: ?string}}|null
      */
     public function banner(): ?array
     {
@@ -547,16 +550,19 @@ class ListingView extends Page
         }
 
         $pin = $this->pin();
-        // Комментарий собственника — только тем, кто ведёт объект, а не всей группе.
+        $agreements = app(OwnerAgreements::class);
+        // Комментарий собственника и свой договор — только тем, кто ведёт это участие.
         $preferences = $pin !== null && $pins->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [];
+        $agreement = $pin !== null && $pin->agreed_at !== null && $pins->canManage($pin, $viewer) ? $agreements->summary($pin) : null;
+        $compared = $object === null ? [] : $agreements->forObject($object, $viewer);
 
         $closed = $object === null ? $this->closedBanner() : null;
 
-        if ($holders === [] && $preferences === [] && $closed === null) {
+        if ($holders === [] && $preferences === [] && $agreement === null && $compared === [] && $closed === null) {
             return null;
         }
 
-        return ['holders' => $holders, 'preferences' => $preferences, 'closed' => $closed];
+        return ['holders' => $holders, 'preferences' => $preferences, 'agreement' => $agreement, 'agreements' => $compared, 'closed' => $closed];
     }
 
     /** @return array{reason: string, at: string, name: ?string}|null */
@@ -718,6 +724,55 @@ class ListingView extends Page
                         Notification::make()->title(__('gshome.crm.pins.preferences_saved'))->success()->send();
                     } catch (CrmForbidden $e) {
                         Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.forbidden'))->danger()->send();
+                    }
+                    unset($this->pin, $this->object);
+                }),
+            Action::make('ownerAgreement')
+                ->label(fn (): string => $this->pin()?->agreed_at !== null ? __('gshome.crm.pins.agreement_edit') : __('gshome.crm.pins.agreement_add'))
+                ->icon(Heroicon::OutlinedDocumentText)
+                ->color('gray')
+                ->visible($manage)
+                ->modalHeading(__('gshome.crm.pins.agreement_title'))
+                ->modalSubmitActionLabel(__('filament-actions::edit.single.modal.actions.save.label'))
+                ->schema([
+                    TextInput::make('agreed_price')->label(__('gshome.crm.pins.agreed_price'))->numeric()->minValue(0.01),
+                    Select::make('agreed_currency')->label(__('gshome.crm.pins.agreed_currency'))
+                        ->options(array_combine(config('crm.currencies'), config('crm.currencies')))->default(fn (): string => $this->pin()?->direction === Direction::Rent ? 'GEL' : 'USD'),
+                    TextInput::make('owner_price')->label(__('gshome.crm.pins.owner_price'))->numeric()->minValue(0.01),
+                    Select::make('commission_kind')->label(__('gshome.crm.pins.commission'))->options(CommissionKind::class)->live(),
+                    TextInput::make('commission_percent')->label(__('gshome.crm.pins.commission_percent'))->numeric()->minValue(1)->maxValue(100)
+                        ->visible(fn (Get $get): bool => in_array($get('commission_kind'), ['percent', 'percent_months'], true)),
+                    TextInput::make('commission_months')->label(__('gshome.crm.pins.commission_months'))->numeric()->minValue(1)
+                        ->visible(fn (Get $get): bool => $get('commission_kind') === 'percent_months'),
+                    TextInput::make('commission_amount')->label(__('gshome.crm.pins.commission_amount'))->numeric()->minValue(0.01)
+                        ->visible(fn (Get $get): bool => $get('commission_kind') === 'fixed'),
+                    TextInput::make('commission_note')->label(__('gshome.crm.pins.commission_note'))->maxLength(100)
+                        ->visible(fn (Get $get): bool => $get('commission_kind') === 'other'),
+                ])
+                ->fillForm(function (): array {
+                    $pin = $this->pin();
+
+                    return [
+                        'agreed_price' => $pin?->agreed_price,
+                        'agreed_currency' => $pin === null ? 'USD' : ($pin->agreed_currency ?? ($pin->direction === Direction::Rent ? 'GEL' : 'USD')),
+                        'owner_price' => $pin?->owner_price,
+                        'commission_kind' => $pin?->commission_kind?->value,
+                        'commission_percent' => $pin?->commission_percent,
+                        'commission_months' => $pin?->commission_months,
+                        'commission_amount' => $pin?->commission_amount,
+                        'commission_note' => $pin?->commission_note,
+                    ];
+                })
+                ->action(function (array $data): void {
+                    $pin = $this->pin();
+                    try {
+                        if ($pin === null) {
+                            throw new CrmForbidden('Nothing to edit.');
+                        }
+                        app(Pins::class)->saveAgreement($pin, $data, $this->viewer());
+                        Notification::make()->title(__('gshome.crm.pins.agreement_saved'))->success()->send();
+                    } catch (CrmForbidden $e) {
+                        Notification::make()->title(app(Pins::class)->refusal($e, $this->viewer(), 'gshome.crm.pins.agreement_invalid'))->danger()->send();
                     }
                     unset($this->pin, $this->object);
                 }),

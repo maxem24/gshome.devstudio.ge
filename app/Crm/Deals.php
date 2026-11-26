@@ -88,8 +88,10 @@ class Deals
             $partnerShare = DealIntake::money($partnerShare);
         }
 
+        // Сначала склейка дублей, без блокировки: запрос карточки не должен её держать.
+        // Потом объект: второй win на той же квартире дождётся его и увидит «закрыт».
+        app(ListingObjects::class)->unite($deal->pin);
         DB::transaction(function () use ($deal, $amount, $currency, $stage, $partnerShare, $by): void {
-            // Первым объект: второй win на том же объекте дождётся его и увидит «закрыт».
             app(ListingObjects::class)->lockOfPin($deal->pin);
             $this->lockOpen($deal, $by);
             // Партнёр читается из строки под блокировкой: его могли снять или назначить за это время.
