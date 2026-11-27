@@ -4,7 +4,6 @@ namespace App\Crm;
 
 use App\Access\OrgAccess;
 use App\Enums\CommissionKind;
-use App\Enums\Role;
 use App\Filament\Resources\Users\UserResource;
 use App\Models\ListingObject;
 use App\Models\ListingPin;
@@ -15,23 +14,20 @@ use Illuminate\Support\Collection;
 class OwnerAgreements
 {
     /**
-     * Строки для руководителя. Агенту список пуст: чужой процент ему не показывают.
+     * Строки для руководителя. Кому какие договоры видны — решает OrgAccess::canSeeAgreementOf;
+     * агенту список пуст: чужой процент ему не показывают.
      *
      * @return list<array{name: string, url: string, summary: string, expected: ?string, best: bool}>
      */
     public function forObject(ListingObject $object, User $viewer): array
     {
-        if ($viewer->role === Role::Agent) {
-            return [];
-        }
-
         $pins = ListingPin::query()
             ->where('object_id', $object->id)
             ->whereNotNull('agreed_at')
             ->where(fn ($q) => $q->where('status', ListingPin::ACTIVE)->orWhereIn('closed_reason', ['closed_by_other', 'merged']))
             ->with('holder')
             ->get()
-            ->filter(fn (ListingPin $pin): bool => OrgAccess::canSee($viewer, $pin->holder))
+            ->filter(fn (ListingPin $pin): bool => OrgAccess::canSeeAgreementOf($viewer, $pin->holder))
             ->values();
 
         $bestId = $this->bestId($pins);

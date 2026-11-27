@@ -54,6 +54,24 @@ class OrgAccessScopeTest extends TestCase
         $this->assertNotContains($leadB->id, $ids($ownerA));
     }
 
+    public function test_agreement_of_another_is_seen_by_leaders_on_the_ladder_not_by_agents(): void
+    {
+        $a = Company::factory()->create();
+        $b = Company::factory()->create();
+        $lead = User::factory()->teamLead($a)->create();
+        $agent = User::factory()->agent($lead)->create();
+        $colleague = User::factory()->agent($lead)->create();
+        $leadB = User::factory()->teamLead($b)->create();
+
+        $this->assertTrue(OrgAccess::canSeeAgreementOf($lead, $agent));
+        $this->assertTrue(OrgAccess::canSeeAgreementOf(User::factory()->companyOwner($a)->create(), $agent));
+        $this->assertTrue(OrgAccess::canSeeAgreementOf(User::factory()->owner()->create(), $agent));
+        // Агент не сравнивает договоры, даже свой в этом списке не видит; чужой руководитель — тоже нет.
+        $this->assertFalse(OrgAccess::canSeeAgreementOf($colleague, $agent));
+        $this->assertFalse(OrgAccess::canSeeAgreementOf($agent, $agent));
+        $this->assertFalse(OrgAccess::canSeeAgreementOf($leadB, $agent));
+    }
+
     public function test_both_directions_does_not_widen_people(): void
     {
         $lead = User::factory()->teamLead()->create(['both_directions' => true]);
