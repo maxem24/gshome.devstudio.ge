@@ -9,6 +9,6 @@ final class PinClosed
 {
     use Dispatchable;
 
-    /** @param  'won'|'unavailable'|'released'  $reason */
+    /** @param  'won'|'unavailable'|'released'|'closed_by_other'  $reason */
     public function __construct(public readonly ListingPin $pin, public readonly string $reason) {}
 }

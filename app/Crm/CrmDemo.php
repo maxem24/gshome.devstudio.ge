@@ -4,11 +4,13 @@ namespace App\Crm;
 
 use App\Enums\Direction;
 use App\Enums\Role;
+use App\Enums\UnavailableReason;
 use App\Enums\UserStatus;
 use App\Enums\ViewingOutcome;
 use App\Models\Client;
 use App\Models\CrmSetting;
 use App\Models\Deal;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\Task;
 use App\Models\User;
@@ -47,6 +49,7 @@ class CrmDemo
     public function __construct(
         private readonly RealEstateClient $api,
         private readonly Pins $pins,
+        private readonly ListingObjects $objects,
         private readonly Deals $deals,
         private readonly Viewings $viewings,
         private readonly Tasks $tasks,
@@ -178,6 +181,8 @@ class CrmDemo
             Viewing::class => array_map('intval', $ids['viewings'] ?? []),
             Deal::class => array_map('intval', $ids['deals'] ?? []),
             ListingPin::class => array_map('intval', $ids['pins'] ?? []),
+            // Журнал закрытия объекта пишется на объект, а не на пин.
+            ListingObject::class => array_map('intval', ListingPin::withTrashed()->whereIn('id', $ids['pins'] ?? [])->pluck('object_id')->all()),
             Task::class => array_map('intval', $ids['tasks'] ?? []),
             Client::class => array_map('intval', $ids['clients'] ?? []),
         ];
@@ -209,8 +214,12 @@ class CrmDemo
         DB::table('notifications')->whereIn('id', $ids['notifications'] ?? [])->delete();
         Viewing::withTrashed()->whereIn('id', $ids['viewings'] ?? [])->forceDelete();
         DB::table('deal_stage_changes')->whereIn('deal_id', $ids['deals'] ?? [])->delete();
+        // Объекты демо-пинов: сначала отвязать выигранные сделки, после пинов удалить объекты без других участий.
+        $objectIds = ListingPin::withTrashed()->whereIn('id', $ids['pins'] ?? [])->pluck('object_id')->all();
+        ListingObject::query()->whereIn('won_deal_id', $ids['deals'] ?? [])->update(['won_deal_id' => null]);
         Deal::withTrashed()->whereIn('id', $ids['deals'] ?? [])->forceDelete();
         ListingPin::withTrashed()->whereIn('id', $ids['pins'] ?? [])->forceDelete();
+        ListingObject::query()->whereIn('id', $objectIds)->whereDoesntHave('pins')->delete();
         Task::withTrashed()->whereIn('id', $ids['tasks'] ?? [])->forceDelete();
         Client::withTrashed()->whereIn('id', $ids['clients'] ?? [])->forceDelete();
         $setting->delete();
@@ -310,7 +319,7 @@ class CrmDemo
         $pinGone = $this->pin($l[5], $agent3);
         $this->deal($pinGone, $this->client($agent3, '+995555100106', 'Лука', 'Кавтарадзе', ['tenant', 'buyer']), $agent3);
         $at('-1 day');
-        $this->pins->markUnavailable($pinGone, $lead2);
+        $this->pins->markUnavailable($pinGone, UnavailableReason::Other, $lead2);
 
         // 8. Аренда: анкета аренды и месячная цена. Нужен агент аренды и свободное объявление аренды.
         $rentNote = 'Аренда: в базе нет агента аренды или свободного объявления помесячной аренды — анкета аренды в демо не создана.';
@@ -386,8 +395,8 @@ class CrmDemo
         for ($page = 0; $page < 5 && count($found) < 40; $page++) {
             $result = $this->api->listings($params, $cursor);
             foreach ($result->listings as $listing) {
-                $key = $this->pins->keyFor($listing);
-                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
+                $key = $this->objects->keyFor($listing);
+                if ($listing->direction() === Direction::Sale && ! isset($keys[$key]) && $this->isFree($listing, $ignorePins)) {
                     $keys[$key] = true;
                     $found[] = $listing;
                 }
@@ -404,6 +413,18 @@ class CrmDemo
         $rest = array_values(array_filter($found, fn (Listing $l): bool => $l !== $grouped[0]));
 
         return [$grouped[0], ...array_slice($rest, 0, 5)];
+    }
+
+    /**
+     * Свободно: открытого объекта нет или все его активные участия в списке $ignorePins.
+     *
+     * @param  list<int>  $ignorePins
+     */
+    private function isFree(Listing $listing, array $ignorePins): bool
+    {
+        $object = $this->objects->findOpen($listing->id, $listing->clusterId);
+
+        return $object === null || ! $object->activePins()->whereNotIn('id', $ignorePins)->exists();
     }
 
     /**
@@ -426,7 +447,7 @@ class CrmDemo
         for ($page = 0; $page < 5; $page++) {
             $result = $this->api->listings($params, $cursor);
             foreach ($result->listings as $listing) {
-                if ($listing->direction() === Direction::Rent && in_array($this->pins->activeFor($listing)?->id, [null, ...$ignorePins], true)) {
+                if ($listing->direction() === Direction::Rent && $this->isFree($listing, $ignorePins)) {
                     return [$renter, $listing];
                 }
             }

@@ -13,7 +13,7 @@ class CloseDealsOnPinClosed
 {
     public function handle(PinClosed $event): void
     {
-        if (! in_array($event->reason, ['won', 'unavailable'], true)) {
+        if (! in_array($event->reason, ['won', 'unavailable', 'closed_by_other'], true)) {
             return;
         }
 

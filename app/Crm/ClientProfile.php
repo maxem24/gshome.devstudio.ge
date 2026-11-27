@@ -79,7 +79,7 @@ final class ClientProfile
     public static function cleanLandlord(array $input): array
     {
         $occupants = self::enumList($input['occupants'] ?? null, ClientOccupant::class);
-        // Цена, район и комнаты собственника берутся из объявления (снимок на listing_pins).
+        // Цена, район и комнаты собственника берутся из объявления (снимок на listing_objects).
         $rest = self::clean(array_intersect_key($input, array_flip(['people', 'home', 'note'])));
 
         return $occupants === [] ? $rest : ['occupants' => $occupants] + $rest;

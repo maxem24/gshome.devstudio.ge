@@ -8,10 +8,12 @@ use App\Crm\Pins;
 use App\Enums\ClientHousing;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
+use App\Enums\UnavailableReason;
 use App\Filament\Pages\ListingView;
 use App\Jobs\PollListingRefresh;
 use App\Models\Client;
 use App\Models\Company;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\ListingSearch;
 use App\Models\Phone;
@@ -496,16 +498,38 @@ class ListingViewTest extends TestCase
         $giorgi = User::factory()->agent(User::factory()->teamLead()->create())->create(['name' => 'Гиорги']);
         $this->actingAs($giorgi);
         Livewire::test(ListingView::class, ['listing' => 13])
-            ->assertSee(__('gshome.crm.pins.in_work_other'))
+            ->assertDontSee(__('gshome.crm.pins.holders_title'))
             ->assertDontSee('Нино')
-            ->assertActionHidden('takeInWork')
+            ->assertActionVisible('takeInWork')
             ->assertActionHidden('transferPin')
             ->assertActionHidden('openDeal')
             ->assertActionHidden('releasePin');
 
         // Владелец группы видит имя.
         $this->actingAs(User::factory()->owner()->create());
-        Livewire::test(ListingView::class, ['listing' => 13])->assertSee('В работе у Нино');
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee(__('gshome.crm.pins.holders_title'))->assertSee('Нино');
+    }
+
+    public function test_your_agreement_line_is_only_for_the_holder_not_for_the_lead(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $pin = $this->pinFor($nino);
+        app(Pins::class)->saveAgreement($pin, [
+            'agreed_price' => '1000', 'agreed_currency' => 'GEL', 'commission_kind' => 'percent', 'commission_percent' => 90,
+        ], $nino);
+        $yours = Str::before(__('gshome.crm.pins.agreement_mine'), ':summary');
+
+        $this->actingAs($nino);
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee($yours);
+
+        // Руководитель видит договор Нино в «Договорах по объекту», а не как свой.
+        $this->actingAs($lead);
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertDontSee($yours)
+            ->assertSee(__('gshome.crm.pins.agreements_title'))
+            ->assertSee('Нино');
     }
 
     public function test_colleague_of_same_company_sees_holder_name(): void
@@ -516,23 +540,131 @@ class ListingViewTest extends TestCase
         $this->pinFor($nino);
 
         $this->actingAs(User::factory()->agent($lead)->create());
-        Livewire::test(ListingView::class, ['listing' => 13])->assertSee('В работе у Нино');
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee(__('gshome.crm.pins.holders_title'))->assertSee('Нино');
     }
 
-    public function test_take_race_shows_already_taken(): void
+    public function test_second_agent_sees_take_button_and_holder_list(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $giorgi = User::factory()->agent($lead)->create(['name' => 'Гиорги']);
+        $this->actingAs($giorgi);
+
+        $page = Livewire::test(ListingView::class, ['listing' => 13]);
+        $this->pinFor($nino); // Нино взяла между открытием и кликом
+        $page->call('$refresh')
+            ->assertSee(__('gshome.crm.pins.holders_title'))->assertSee('Нино')
+            ->assertActionVisible('takeInWork')
+            ->callAction('takeInWork')
+            ->assertNotified(__('gshome.crm.pins.taken'))
+            ->assertActionHidden('takeInWork')
+            ->assertSee('Гиорги')
+            ->assertActionVisible('releasePin');
+
+        $this->assertSame(2, ListingPin::query()->count());
+        $this->assertSame(1, ListingObject::query()->count());
+    }
+
+    public function test_unavailable_requires_reason_and_fake_closes_for_all(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
         $lead = User::factory()->teamLead()->create();
         $nino = User::factory()->agent($lead)->create();
         $giorgi = User::factory()->agent($lead)->create();
+        $mine = $this->pinFor($nino);
+        $other = $this->pinFor($giorgi);
+        $this->actingAs($nino);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('markUnavailable', [])->assertHasActionErrors(['reason' => 'required']);
+        $this->assertTrue($mine->refresh()->isActive());
+
+        // «Другая причина» закрывает только свою работу.
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('markUnavailable', ['reason' => 'other'])->assertHasNoActionErrors();
+        $this->assertFalse($mine->refresh()->isActive());
+        $this->assertTrue($other->refresh()->isActive());
+
+        // «Фейк» закрывает объект для всех.
+        $this->actingAs($giorgi);
+        Livewire::test(ListingView::class, ['listing' => 13])->callAction('markUnavailable', ['reason' => 'fake']);
+        $this->assertFalse($other->refresh()->isActive());
+        $this->assertSame('fake', ListingObject::query()->sole()->closed_reason);
+    }
+
+    public function test_transfer_recipients_exclude_agents_already_on_object(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $giorgi = User::factory()->agent($lead)->create(['name' => 'Гиорги']);
+        $free = User::factory()->agent($lead)->create(['name' => 'Свободный']);
+        $pin = $this->pinFor($nino);
+        $this->pinFor($giorgi);
+        $this->actingAs($lead);
+
+        // Гиорги уже ведёт объект: в списке получателей его нет, передача ему отклоняется.
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('transferPin', ['to' => $giorgi->id])
+            ->assertHasActionErrors(['to']);
+        $this->assertSame($nino->id, $pin->refresh()->user_id);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('transferPin', ['to' => $free->id])
+            ->assertNotified(__('gshome.crm.pins.transferred'));
+        $this->assertSame($free->id, $pin->refresh()->user_id);
+    }
+
+    public function test_removed_listing_still_finds_my_pin(): void
+    {
+        $nino = User::factory()->agent(User::factory()->teamLead()->create())->create();
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $this->pinFor($nino);
+        $this->actingAs($nino);
+        $page = Livewire::test(ListingView::class, ['listing' => 13]);
+
+        // Теперь API отдаёт 404: кнопки по своему пину остаются.
+        RealEstateFake::fake();
+        app(RealEstateClient::class)->forgetCard(13);
+        $page->call('$refresh')
+            ->assertActionVisible('releasePin')
+            ->assertActionVisible('markUnavailable')
+            ->assertActionHidden('takeInWork');
+    }
+
+    public function test_closed_object_banner_shows_who_rented(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $giorgi = User::factory()->agent($lead)->create(['name' => 'Гиорги']);
+        $this->pinFor($nino);
+        $pin = $this->pinFor($giorgi);
+        app(Pins::class)->markUnavailable($pin, UnavailableReason::RentedElsewhere, $giorgi);
+        $this->actingAs($lead);
+
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertSee(UnavailableReason::RentedElsewhere->getLabel())
+            ->assertSee('Гиорги')
+            ->assertActionVisible('takeInWork');
+    }
+
+    public function test_warning_when_client_in_other_agents_deal(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $giorgi = User::factory()->agent($lead)->create();
+        $client = Client::factory()->create(['housing' => ClientHousing::Looking]);
+        app(Deals::class)->open($this->pinFor($nino), $client, $nino);
+        $pin = $this->pinFor($giorgi);
         $this->actingAs($giorgi);
 
-        $page = Livewire::test(ListingView::class, ['listing' => 13]);
-        $this->pinFor($nino); // Нино успела между открытием и кликом
-        // Кнопка на устаревшей странице: сервер перепроверяет видимость и второго закрепления не создаёт.
-        $page->call('$refresh')->assertSee(__('gshome.crm.pins.in_work_by', ['name' => $nino->name]))->assertActionHidden('takeInWork');
-
-        $this->assertSame(1, ListingPin::query()->count());
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->callAction('openDeal', ['client_id' => $client->id])
+            ->assertNotified(__('gshome.crm.pins.client_in_other_deal', ['names' => 'Нино']));
+        $this->assertSame(1, $pin->deals()->count());
     }
 
     public function test_duplicate_copy_shows_same_banner(): void
@@ -546,8 +678,8 @@ class ListingViewTest extends TestCase
         $this->actingAs($lead);
 
         Livewire::test(ListingView::class, ['listing' => 14])
-            ->assertSee('В работе у Нино')
-            ->assertActionHidden('takeInWork');
+            ->assertSee(__('gshome.crm.pins.holders_title'))->assertSee('Нино')
+            ->assertActionVisible('takeInWork');
     }
 
     public function test_transfer_offers_only_allowed_recipients(): void
@@ -598,7 +730,7 @@ class ListingViewTest extends TestCase
         $pin = $this->pinFor($nino);
         $this->actingAs($nino);
 
-        Livewire::test(ListingView::class, ['listing' => 13])->callAction('markUnavailable');
+        Livewire::test(ListingView::class, ['listing' => 13])->callAction('markUnavailable', ['reason' => 'other']);
 
         $this->assertSame('unavailable', $pin->refresh()->closed_reason);
     }

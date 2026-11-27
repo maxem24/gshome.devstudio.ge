@@ -10,6 +10,7 @@ use App\Models\Deal;
 use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /** Сделки: открыть, двигать по этапам, закрыть. Закрытую сделку менять нельзя. */
@@ -25,6 +26,8 @@ class Deals
 
         try {
             return DB::transaction(function () use ($pin, $client, $by): Deal {
+                // Порядок блокировок един: объект, затем сделка, затем пин.
+                app(ListingObjects::class)->lockOfPin($pin);
                 $this->lockActivePin($pin, $by);
                 if ($pin->deals()->where('client_id', $client->id)->exists()) {
                     throw new CrmForbidden('This client already has a deal on this pin.');
@@ -85,7 +88,11 @@ class Deals
             $partnerShare = DealIntake::money($partnerShare);
         }
 
+        // Сначала склейка дублей, без блокировки: запрос карточки не должен её держать.
+        // Потом объект: второй win на той же квартире дождётся его и увидит «закрыт».
+        app(ListingObjects::class)->unite($deal->pin);
         DB::transaction(function () use ($deal, $amount, $currency, $stage, $partnerShare, $by): void {
+            app(ListingObjects::class)->lockOfPin($deal->pin);
             $this->lockOpen($deal, $by);
             // Партнёр читается из строки под блокировкой: его могли снять или назначить за это время.
             if (($deal->partner_user_id === null) !== ($partnerShare === null)) {
@@ -103,9 +110,25 @@ class Deals
             $this->logStage($deal, $from, $stage, $by);
             Journal::record(Journal::DEAL_WON, $deal, $this->props($deal) + ['amount' => $amount, 'currency' => $currency, 'partner_share' => $partnerShare], $by);
             $this->pins->touch($deal->pin);
-            // Остальные открытые сделки пина закроет слушатель PinClosed('won').
-            $this->pins->close($deal->pin, 'won', Journal::PIN_WON, $by);
+            // Свой пин закрывается «won», объект — для всех остальных (их открытые сделки станут «недоступен»).
+            $this->pins->win($deal->pin, $deal, $by);
         });
+    }
+
+    /**
+     * Открытые сделки этого клиента на других пинах того же объекта: «клиент уже у коллеги».
+     *
+     * @return Collection<int, Deal>
+     */
+    public function othersOnObject(ListingPin $pin, Client $client): Collection
+    {
+        return Deal::query()
+            ->where('client_id', $client->id)
+            ->where('status', DealStatus::Open)
+            ->whereHas('pin', fn ($q) => $q->where('object_id', $pin->object_id)->whereKeyNot($pin->id))
+            ->with('agent')
+            ->orderBy('id')
+            ->get();
     }
 
     public function lose(Deal $deal, string $reason, User $by): void
@@ -249,9 +272,16 @@ class Deals
         throw new CrmForbidden("No visible stage of kind {$kind}.");
     }
 
-    /** Перечитать сделку под блокировкой: за это время её могли закрыть закрытием пина. */
+    /**
+     * Перечитать сделку под блокировкой: за это время её могли закрыть закрытием пина.
+     * Порядок блокировок общий: объект, затем сделка, затем пин. Объект берём первым, иначе закрытие
+     * объекта (объект, пины, их сделки) пересечётся с этим вызовом (сделка, пин) и даст взаимоблокировку.
+     */
     public function lockOpen(Deal $deal, User $by): void
     {
+        $pinId = Deal::query()->whereKey($deal->getKey())->value('listing_pin_id');
+        app(ListingObjects::class)->lockOfPin(ListingPin::query()->findOrFail($pinId));
+
         $fresh = Deal::query()->whereKey($deal->getKey())->lockForUpdate()->firstOrFail();
         if (! $fresh->isOpen() || ! $this->canManage($fresh, $by) || ! $fresh->pin->isActive()) {
             throw new CrmForbidden('Cannot change this deal.');

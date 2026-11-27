@@ -7,6 +7,8 @@ use App\Crm\MatchRow;
 use App\Enums\ClientHousing;
 use App\Enums\Direction;
 use App\Models\Client;
+use App\Models\Company;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -28,12 +30,24 @@ class MatchingTest extends TestCase
     {
         $id = ++$this->listingId;
 
-        return ListingPin::query()->create([
-            'listing_id' => $id, 'pin_key' => 'l'.$id, 'direction' => Direction::Rent,
-            'user_id' => User::factory()->create()->id, 'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
-            'preferences' => $prefs, 'snapshot_at' => now(),
+        $object = ListingObject::factory()->create([
+            'listing_id' => $id, 'object_key' => 'l:'.$id, 'snapshot_at' => now(),
             ...array_replace(['subdistrict_id' => 101, 'price_usd' => 600, 'rooms' => 2, 'title' => 'Квартира'], $snap),
-            ...$extra,
+        ]);
+
+        return $this->pinOn($object, $prefs, $extra);
+    }
+
+    /**
+     * @param  array<string, mixed>  $prefs
+     * @param  array<string, mixed>  $extra
+     */
+    private function pinOn(ListingObject $object, array $prefs = [], array $extra = []): ListingPin
+    {
+        return ListingPin::query()->create([
+            'listing_id' => $object->listing_id, 'pin_key' => 'l'.$object->listing_id.'-'.++$this->listingId, 'object_id' => $object->id, 'direction' => Direction::Rent,
+            'user_id' => User::factory()->create()->id, 'status' => ListingPin::ACTIVE, 'last_activity_at' => now(),
+            'preferences' => $prefs, ...$extra,
         ]);
     }
 
@@ -197,5 +211,71 @@ class MatchingTest extends TestCase
         $saleAgent = User::factory()->agent(User::factory()->teamLead(null, Direction::Sale)->create())->create();
 
         $this->assertSame([], app(Matching::class)->pinsFor($client, $saleAgent));
+    }
+
+    public function test_client_sees_one_row_per_object_with_two_agents(): void
+    {
+        $first = $this->pin();
+        $this->pinOn($first->object);
+        $client = $this->looking(['subdistrict_ids' => [101]]);
+
+        $rows = app(Matching::class)->pinsFor($client, User::factory()->owner()->create());
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($first->id, $rows[0]->other->id);
+    }
+
+    public function test_viewer_own_preferences_preferred(): void
+    {
+        $first = $this->pin([], ['occupants' => ['family']]);
+        $mine = $this->pinOn($first->object, ['occupants' => ['couple']]);
+        $client = $this->looking(['subdistrict_ids' => [101], 'occupants' => 'couple']);
+
+        $rows = app(Matching::class)->pinsFor($client, $mine->holder);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($mine->id, $rows[0]->other->id);
+        $this->assertSame(100, $rows[0]->score);
+    }
+
+    /** Смотрящему без своего участия берём предпочтения видимой компании, а не невидимой, даже если та старше. */
+    public function test_viewer_without_own_pin_prefers_visible_company_pin(): void
+    {
+        $viewer = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $stranger = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $teammate = User::factory()->agent($viewer->teamLead)->create();
+        $hidden = $this->pin([], ['occupants' => ['family']], ['user_id' => $stranger->id]);
+        $visible = $this->pinOn($hidden->object, ['occupants' => ['couple']], ['user_id' => $teammate->id]);
+        $client = $this->looking(['subdistrict_ids' => [101], 'occupants' => 'couple']);
+
+        $rows = app(Matching::class)->pinsFor($client, $viewer);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($visible->id, $rows[0]->other->id);
+        $this->assertSame(100, $rows[0]->score);
+    }
+
+    /** Объект, который ведёт только невидимая компания, всё равно предлагается. */
+    public function test_object_of_invisible_company_only_is_still_offered(): void
+    {
+        $viewer = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $stranger = User::factory()->agent(User::factory()->teamLead(Company::factory()->create(), Direction::Rent)->create())->create();
+        $hidden = $this->pin([], [], ['user_id' => $stranger->id]);
+        $client = $this->looking(['subdistrict_ids' => [101]]);
+
+        $rows = app(Matching::class)->pinsFor($client, $viewer);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame($hidden->id, $rows[0]->other->id);
+    }
+
+    public function test_closed_object_is_not_offered(): void
+    {
+        $pin = $this->pin();
+        $client = $this->looking(['subdistrict_ids' => [101]]);
+        $pin->object?->update(['status' => ListingObject::CLOSED, 'closed_reason' => 'abandoned', 'closed_at' => now()]);
+
+        $this->assertSame([], app(Matching::class)->pinsFor($client, User::factory()->owner()->create()));
+        $this->assertSame([], app(Matching::class)->clientsFor($pin));
     }
 }

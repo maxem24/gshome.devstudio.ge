@@ -4,18 +4,23 @@ namespace Tests\Feature\Crm;
 
 use App\Crm\Deals;
 use App\Crm\Exceptions\CrmForbidden;
+use App\Crm\Exceptions\ObjectClosed;
 use App\Crm\Journal;
 use App\Crm\Pins;
 use App\Enums\DealStatus;
 use App\Enums\Direction;
+use App\Enums\UnavailableReason;
 use App\Enums\UserStatus;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Deal;
+use App\Models\ListingObject;
 use App\Models\ListingPin;
 use App\Models\User;
 use App\RealEstate\Listing;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Spatie\Activitylog\Models\Activity;
 use Tests\Support\RealEstateFake;
 use Tests\TestCase;
@@ -42,14 +47,17 @@ class DealsTest extends TestCase
         $this->pin = $this->takePin(41);
     }
 
-    private function takePin(int $id): ListingPin
+    private function listing(int $id): Listing
     {
-        $listing = Listing::fromApi(RealEstateFake::listing([
+        return Listing::fromApi(RealEstateFake::listing([
             'id' => $id,
             'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'sale'],
         ]), 'ru');
+    }
 
-        return app(Pins::class)->take($listing, $this->nino);
+    private function takePin(int $id): ListingPin
+    {
+        return app(Pins::class)->take($this->listing($id), $this->nino);
     }
 
     private function client(): Client
@@ -152,6 +160,138 @@ class DealsTest extends TestCase
         $this->assertSame(1, Activity::query()->where('event', Journal::PIN_WON)->count());
     }
 
+    public function test_win_closes_object_for_everyone(): void
+    {
+        $deals = app(Deals::class);
+        $giorgiPin = app(Pins::class)->take($this->listing(41), $this->giorgi);
+        $mine = $deals->open($this->pin, $this->client(), $this->nino);
+        $theirs = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+
+        $deals->win($mine, '1000', 'USD', $this->nino);
+
+        $this->assertSame('closed_by_other', $giorgiPin->fresh()->closed_reason);
+        $this->assertSame(DealStatus::Unavailable, $theirs->fresh()->status);
+        $object = $this->pin->fresh()->object;
+        $this->assertSame('closed', $object->status);
+        $this->assertSame('won', $object->closed_reason);
+        $this->assertSame($mine->id, $object->won_deal_id);
+        $this->assertSame($this->nino->id, $object->closed_by);
+    }
+
+    public function test_win_on_one_copy_closes_the_other_open_object(): void
+    {
+        $young = ListingObject::factory()->create([
+            'object_key' => 'c:5', 'listing_id' => 42, 'cluster_id' => 5, 'direction' => 'sale',
+        ]);
+        $giorgiPin = ListingPin::query()->create([
+            'listing_id' => 42, 'cluster_id' => 5, 'pin_key' => 'c:5', 'direction' => 'sale',
+            'user_id' => $this->giorgi->id, 'status' => ListingPin::ACTIVE, 'object_id' => $young->id,
+            'last_activity_at' => now(),
+        ]);
+        $deals = app(Deals::class);
+        $mine = $deals->open($this->pin, $this->client(), $this->nino);
+        $theirs = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+        Http::fake(['*' => Http::response(['data' => RealEstateFake::listing([
+            'id' => 41,
+            'deal_type' => ['id' => 1, 'slug' => 'sale', 'title' => 'sale'],
+            'cluster' => ['id' => 5, 'listings_count' => 2, 'phones_e164' => [], 'listings' => [
+                ['id' => 41, 'source' => 'ss_ge'], ['id' => 42, 'source' => 'ss_ge'],
+            ]],
+        ])])]);
+
+        $deals->win($mine, '1000', 'USD', $this->nino);
+        try {
+            $deals->win($theirs, '900', 'USD', $this->giorgi);
+            $this->fail('Second win must be rejected.');
+        } catch (ObjectClosed) {
+            $this->assertSame(1, Deal::query()->where('status', DealStatus::Won)->count());
+            $this->assertSame(DealStatus::Unavailable, $theirs->fresh()->status);
+            $this->assertSame('merged_into', $young->fresh()->closed_reason);
+        }
+    }
+
+    public function test_second_win_on_same_object_is_rejected(): void
+    {
+        $deals = app(Deals::class);
+        $giorgiPin = app(Pins::class)->take($this->listing(41), $this->giorgi);
+        $a = $deals->open($this->pin, $this->client(), $this->nino);
+        $b = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+
+        $deals->win($a, '1000', 'USD', $this->nino);
+        try {
+            $deals->win($b, '900', 'USD', $this->giorgi);
+            $this->fail('Second win must be rejected.');
+        } catch (ObjectClosed $e) {
+            $this->assertSame($this->nino->id, $e->object->closed_by);
+            $this->assertSame('won', $e->object->closed_reason);
+            $this->assertSame(1, Deal::query()->where('status', DealStatus::Won)->count());
+            $this->assertSame(DealStatus::Unavailable, $b->fresh()->status);
+        }
+    }
+
+    public function test_move_stage_on_object_closed_by_other_win_is_rejected_with_object_closed(): void
+    {
+        $deals = app(Deals::class);
+        $giorgiPin = app(Pins::class)->take($this->listing(41), $this->giorgi);
+        $a = $deals->open($this->pin, $this->client(), $this->nino);
+        $b = $deals->open($giorgiPin, $this->client(), $this->giorgi);
+        $stage = $b->stage;
+
+        $deals->win($a, '1000', 'USD', $this->nino);
+
+        try {
+            $deals->moveStage($b, 'viewing_scheduled', $this->giorgi);
+            $this->fail('Move on closed object must be rejected.');
+        } catch (ObjectClosed $e) {
+            $this->assertSame('won', $e->object->closed_reason);
+        }
+        $this->assertSame($stage, $b->fresh()->stage);
+    }
+
+    /** Общий порядок блокировок: первым берётся объект, и только потом сделка и пин. */
+    public function test_lock_open_takes_object_lock_before_deal_and_pin(): void
+    {
+        $deals = app(Deals::class);
+        $deal = $deals->open($this->pin, $this->client(), $this->nino);
+
+        $tables = [];
+        DB::listen(function ($query) use (&$tables): void {
+            if (preg_match('/from "(\w+)".* for update/is', $query->sql, $m)) {
+                $tables[] = $m[1];
+            }
+        });
+        $deals->moveStage($deal, 'viewing_scheduled', $this->nino);
+
+        $this->assertSame('listing_objects', $tables[0] ?? null);
+        $this->assertLessThan(array_search('deals', $tables, true), array_search('listing_objects', $tables, true));
+    }
+
+    public function test_others_on_object_lists_same_client_elsewhere(): void
+    {
+        $deals = app(Deals::class);
+        $giorgiPin = app(Pins::class)->take($this->listing(41), $this->giorgi);
+        $client = $this->client();
+        $elsewhere = $deals->open($giorgiPin, $client, $this->giorgi);
+        $deals->open($giorgiPin, $this->client(), $this->giorgi);
+        $deals->open($this->pin, $client, $this->nino);
+
+        $found = $deals->othersOnObject($this->pin, $client);
+
+        $this->assertSame([$elsewhere->id], $found->pluck('id')->all());
+        $this->assertTrue($found->first()->relationLoaded('agent'));
+        $this->assertSame([], $deals->othersOnObject($giorgiPin, $this->client())->all());
+    }
+
+    public function test_open_deal_on_closed_object_rejected(): void
+    {
+        // Устаревшая модель пина: сама она ещё «active», отказывает блокировка объекта.
+        $stale = ListingPin::query()->findOrFail($this->pin->id);
+        $stale->object->update(['status' => 'closed', 'closed_reason' => 'won', 'closed_at' => now()]);
+
+        $this->expectException(CrmForbidden::class);
+        app(Deals::class)->open($stale, $this->client(), $this->nino);
+    }
+
     public function test_win_rejects_unknown_currency(): void
     {
         $deal = app(Deals::class)->open($this->pin, $this->client(), $this->nino);
@@ -232,7 +372,7 @@ class DealsTest extends TestCase
         $lost = $deals->open($this->pin, $this->client(), $this->nino);
         $deals->lose($lost, 'x', $this->nino);
 
-        app(Pins::class)->markUnavailable($this->pin, $this->nino);
+        app(Pins::class)->markUnavailable($this->pin, UnavailableReason::Other, $this->nino);
 
         $this->assertSame(DealStatus::Unavailable, $a->fresh()->status);
         $this->assertSame(DealStatus::Unavailable, $b->fresh()->status);

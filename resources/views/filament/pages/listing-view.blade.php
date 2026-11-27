@@ -5,15 +5,54 @@
         @php ($banner = $this->banner())
         @if ($banner)
             <x-filament::section>
-                <p class="font-medium">
-                    @if ($banner['mine'])
-                        {{ __('gshome.crm.pins.in_work_mine') }}
-                    @elseif ($banner['name'])
-                        {{ __('gshome.crm.pins.in_work_by', ['name' => $banner['name']]) }}
-                    @else
-                        {{ __('gshome.crm.pins.in_work_other') }}
-                    @endif
-                </p>
+                @php ($mine = collect($banner['holders'])->contains('mine', true))
+                @if ($mine)
+                    <p class="font-medium">{{ __('gshome.crm.pins.in_work_mine') }}</p>
+                @endif
+                @if ($banner['holders'])
+                    <div class="text-sm {{ $mine ? 'mt-2' : '' }}">
+                        <p class="font-medium text-gray-950 dark:text-white">{{ __('gshome.crm.pins.holders_title') }}</p>
+                        <ul class="mt-1 space-y-0.5 text-gray-700 dark:text-gray-200">
+                            @foreach ($banner['holders'] as $holder)
+                                <li>
+                                    {{ $holder['name'] ?? __('gshome.crm.pins.another_agent') }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+                @if ($banner['closed'])
+                    @php ($reason = \App\Enums\UnavailableReason::tryFrom($banner['closed']['reason'])?->getLabel() ?? __('gshome.crm.pins.closed_won'))
+                    <p class="font-medium">
+                        {{ $banner['closed']['name']
+                            ? __('gshome.crm.pins.closed_banner_by', ['date' => $banner['closed']['at'], 'reason' => $reason, 'name' => $banner['closed']['name']])
+                            : __('gshome.crm.pins.closed_banner', ['date' => $banner['closed']['at'], 'reason' => $reason]) }}
+                    </p>
+                @endif
+                @if ($banner['agreement'])
+                    <p class="mt-3 text-sm">{{ __('gshome.crm.pins.agreement_mine', ['summary' => $banner['agreement']]) }}</p>
+                @endif
+                @if ($banner['agreements'])
+                    <div class="mt-3 text-sm">
+                        <p class="font-medium text-gray-950 dark:text-white">{{ __('gshome.crm.pins.agreements_title') }}</p>
+                        <ul class="mt-1 space-y-0.5 text-gray-700 dark:text-gray-200">
+                            @foreach ($banner['agreements'] as $row)
+                                <li>
+                                    @if ($row['best']) ★ @endif
+                                    <a
+                                        href="{{ $row['url'] }}"
+                                        class="underline"
+                                        >{{ $row['name'] }}</a
+                                    >
+                                    — {{ $row['summary'] }}
+                                    @if ($row['expected'])
+                                        · {{ $row['expected'] }} ₾
+                                    @endif
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
                 @if ($banner['preferences'])
                     <div class="mt-3 text-sm">
                         <p class="font-medium text-gray-950 dark:text-white">{{ __('gshome.crm.pins.preferences_title') }}</p>
