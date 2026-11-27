@@ -551,9 +551,10 @@ class ListingView extends Page
 
         $pin = $this->pin();
         $agreements = app(OwnerAgreements::class);
-        // Комментарий собственника и свой договор — только тем, кто ведёт это участие.
+        // Комментарий собственника — тем, кто ведёт это участие. «Ваш договор» — только самому агенту:
+        // руководитель видит договор подчинённого в «Договорах по объекту», а не как свой.
         $preferences = $pin !== null && $pins->canManage($pin, $viewer) ? ClientProfile::linesFor($pin->preferences ?? []) : [];
-        $agreement = $pin !== null && $pin->agreed_at !== null && $pins->canManage($pin, $viewer) ? $agreements->summary($pin) : null;
+        $agreement = $pin !== null && $pin->agreed_at !== null && $pin->user_id === $viewer->id ? $agreements->summary($pin) : null;
         $compared = $object === null ? [] : $agreements->forObject($object, $viewer);
 
         $closed = $object === null ? $this->closedBanner() : null;

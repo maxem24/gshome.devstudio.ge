@@ -510,6 +510,28 @@ class ListingViewTest extends TestCase
         Livewire::test(ListingView::class, ['listing' => 13])->assertSee(__('gshome.crm.pins.holders_title'))->assertSee('Нино');
     }
 
+    public function test_your_agreement_line_is_only_for_the_holder_not_for_the_lead(): void
+    {
+        RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);
+        $lead = User::factory()->teamLead()->create();
+        $nino = User::factory()->agent($lead)->create(['name' => 'Нино']);
+        $pin = $this->pinFor($nino);
+        app(Pins::class)->saveAgreement($pin, [
+            'agreed_price' => '1000', 'agreed_currency' => 'GEL', 'commission_kind' => 'percent', 'commission_percent' => 90,
+        ], $nino);
+        $yours = Str::before(__('gshome.crm.pins.agreement_mine'), ':summary');
+
+        $this->actingAs($nino);
+        Livewire::test(ListingView::class, ['listing' => 13])->assertSee($yours);
+
+        // Руководитель видит договор Нино в «Договорах по объекту», а не как свой.
+        $this->actingAs($lead);
+        Livewire::test(ListingView::class, ['listing' => 13])
+            ->assertDontSee($yours)
+            ->assertSee(__('gshome.crm.pins.agreements_title'))
+            ->assertSee('Нино');
+    }
+
     public function test_colleague_of_same_company_sees_holder_name(): void
     {
         RealEstateFake::fake(cards: [13 => RealEstateFake::listing()]);

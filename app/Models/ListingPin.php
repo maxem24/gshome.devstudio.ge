@@ -7,6 +7,7 @@ use App\Crm\Archive;
 use App\Enums\CommissionKind;
 use App\Enums\Direction;
 use App\Enums\UnavailableReason;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -27,7 +28,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property ?int $object_id
  * @property ?UnavailableReason $unavailable_reason
  * @property array<string, mixed> $preferences кому собственник готов сдать (LandlordPreferences)
- * @property ?\Carbon\Carbon $agreed_at
+ * @property ?Carbon $agreed_at
  * @property ?int $agreed_by
  * @property ?string $agreed_price
  * @property ?string $agreed_currency
